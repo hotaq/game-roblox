@@ -1,5 +1,5 @@
 # 18_r15_anims.py: player sword animations on the R15 rig from 17_r15_rig.py (GAME-35).
-#   SwordIdle  (loop, 3 s): giant sword planted beside the right foot, right hand resting on the grip at shoulder
+#   SwordIdle  (loop, 3 s): giant sword planted beside the right foot, right hand resting on the grip at hip
 #              height, left hand on the hip, chin up; breathes, shifts weight and glances aside, the sword stays put.
 #   SwordRun   (loop, 0.67 s at walk speed 16): leans into a run, left arm pumps, right hand drags the sword behind,
 #              its tip scraping the ground on its edge (solved per frame like the idle grip).
@@ -30,9 +30,9 @@ CHAIN = ["HumanoidRootPart", "LowerTorso", "UpperTorso", "Head", "RightUpperArm"
 # hand at the right shoulder, blade out past the left shoulder. Angles found by a numeric search for grip at
 # (-1.35, 0.05, 4.2) with the blade along (1, 0.5, 0.12).
 CARRY = {"RightUpperArm": (19.9, 239.6, 115.8), "RightLowerArm": (-129.0, 0, 110.9), "RightHand": (-23.6, 87.0, -90.6)}
-# Idle: the giant sword stands point down beside the right foot, grip at shoulder height under the right hand (the
-# blade is longer than the character is tall), left hand on the hip. The top leans in, the flat faces forward.
-PLANTED = Matrix.Translation((-2.1, -0.5, 3.0)) @ Matrix.Rotation(0.2, 4, "Y") @ Matrix.Rotation(math.pi, 4, "X")
+# Idle: the giant sword stands point down beside the right foot, grip at hip height so the right arm hangs relaxed (the
+# blade is longer than the character is tall, so much of it is in the ground), left hand on the hip. The top leans in.
+PLANTED = Matrix.Translation((-1.8, -0.7, 2.5)) @ Matrix.Rotation(0.2, 4, "Y") @ Matrix.Rotation(math.pi, 4, "X")
 RAISED = Matrix.Translation((-1.6, -0.4, 5.2)) @ PLANTED.to_3x3().to_4x4()  # lifted high before the slam
 HIP_HAND = {"LeftUpperArm": (29.5, 0.3, -27.0), "LeftLowerArm": (-53.8, 0, -29.8)}
 
@@ -106,7 +106,7 @@ def sword_rest(rig):
 
 def solve_grip(rig, rot, lift, rest, goal, guess=None, ref=None, pull=1e-5):
     """Right arm angles (degrees) for which goal(sword matrix) -> residual list is ~0. The elbow is a hinge (RightLowerArm
-    turns about X only, and only forward), so the arm can't wring itself between frames. Levenberg-Marquardt from guess, pulled toward ref
+    turns about X only, 0 to 150 degrees forward), so the arm can't wring itself between frames. Levenberg-Marquardt from guess, pulled toward ref
     (default: guess) with weight pull per degree; with no guess, tries several starts and keeps the least twisted arm
     that reaches. Returns (angles, largest of the first 3 residuals)."""
     import numpy as np
@@ -146,7 +146,7 @@ def solve_grip(rig, rot, lift, rest, goal, guess=None, ref=None, pull=1e-5):
             off += list(d.axis * math.degrees(d.angle))
         off.append(p[3] - ref[low][0])
         return np.concatenate([goal(world_deltas(rig, dict(rot, **arms), lift)["RightHand"] @ rest),
-                               pull * np.array(off), [0.05 * max(0.0, p[3])]])  # the elbow only bends forward
+                               pull * np.array(off), [0.05 * max(0.0, p[3], -150 - p[3])]])  # elbow bends 0..150 forward
 
     p, lam = np.array([0, 0, 0, guess[low][0], 0, 0, 0], float), 1e-3
     r0 = resid(p)
@@ -162,9 +162,9 @@ def solve_grip(rig, rot, lift, rest, goal, guess=None, ref=None, pull=1e-5):
     return unpack(p)[0], float(np.abs(r0[:3]).max())
 
 
-def planted(s):  # grip on the spot, blade along PLANTED's, flat facing forward if the arm allows
+def planted(s):  # grip on the spot, blade along PLANTED's, flat facing forward if that costs the arm little
     m = s.to_3x3()
-    return list(s.translation - PLANTED.translation) + list(m.col[2] - PLANTED.to_3x3().col[2]) + [0.3 * m.col[0].y]
+    return list(s.translation - PLANTED.translation) + list(m.col[2] - PLANTED.to_3x3().col[2]) + [0.05 * m.col[0].y]
 
 
 def idle(rig):
