@@ -13,6 +13,7 @@ local Workspace=workspace
 local alive,px,pz,hp,generation={},{},{},{},{}
 local swingAt,nextSwing,kvx,kvz,stunUntil,slowUntil={},{},{},{},{},{}
 local free,top,count,dead,deadFirstGem,gems,nextGem={},0,0,{},0,{},0
+local deathEvents={}
 local runs={};local rng=Random.new(12)
 local function arena() return Vector3.zero,200 end
 local fx={FireAllClients=function() end}

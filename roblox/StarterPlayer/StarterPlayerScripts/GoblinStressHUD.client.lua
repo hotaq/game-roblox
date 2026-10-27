@@ -151,6 +151,45 @@ if ReplicatedStorage.Goblin:GetAttribute("GAME25Active") then
 	end)
 end
 
+-- GAME-24: real-client transport measurements, enabled only by the named Studio test.
+if ReplicatedStorage.Goblin:GetAttribute("GAME24Active") then
+	task.spawn(function()
+		local shared=ReplicatedStorage.Goblin
+		local bridge=shared:WaitForChild("GAME24Network",45)
+		local probe=shared:WaitForChild("GAME24VisualProbe",45)
+		assert(player:WaitForChild("PlayerGui"):WaitForChild("GoblinRunUI",45),"network test UI readiness")
+		local sample,errors=nil,{}
+		game:GetService("ScriptContext").Error:Connect(function(message,_,source)
+			if source and source.Name:find("Goblin",1,true) then table.insert(errors,message) end
+		end)
+		for _,name in {"HordeSnap","HordeDied","HordeHits","HordeSwing","HordeGems","HordeGemState"} do
+			shared:WaitForChild(name).OnClientEvent:Connect(function(...)
+				if sample then
+					for _,value in {...} do if typeof(value)=="buffer" then sample.bytes+=buffer.len(value) end end
+					if name=="HordeSnap" then sample.packets+=1 end
+				end
+			end)
+		end
+		bridge.OnClientInvoke=function(action)
+			if action=="begin" then sample={bytes=0,packets=0,start=os.clock()};return true end
+			if action=="finish" then
+				local result=sample;sample=nil
+				result.seconds=os.clock()-result.start;result.start=nil
+				result.visual=probe:Invoke();result.errors=table.clone(errors)
+				return result
+			end
+			if action=="resync" then return probe:Invoke("resync") end
+			if action=="leave" then
+				assert(game:GetService("StudioTestService"):CanLeaveTest())
+				task.delay(0.2,function() game:GetService("StudioTestService"):LeaveTest() end)
+				return true
+			end
+			local result=probe:Invoke();result.errors=table.clone(errors);return result
+		end
+		bridge:InvokeServer("ready")
+	end)
+end
+
 local gui = Instance.new("ScreenGui")
 gui.Name, gui.ResetOnSpawn = "GoblinStressHUD", false
 local panel = Instance.new("Frame")

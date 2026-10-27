@@ -15,6 +15,8 @@ local TweenService = game:GetService("TweenService")
 local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Goblin")
+local networkObserved = if RunService:IsStudio() and Shared:GetAttribute("GAME24Active")
+	then {deaths=0,hits=0,swings=0,pickups=0} else nil
 local Config = require(Shared:WaitForChild("GoblinConfig"))
 local AnimData = require(Shared:WaitForChild("GoblinAnimData"))
 local template = Shared:FindFirstChild("HordeModel") or Shared:WaitForChild("HordeSource")
@@ -75,8 +77,14 @@ local function free(slot: number)
 end
 
 local roots = {} -- every player's root this snapshot: goblins always face the nearest one
-Shared:WaitForChild("HordeSnap").OnClientEvent:Connect(function(b: buffer)
+Shared:WaitForChild("HordeSnap").OnClientEvent:Connect(function(b: buffer, mask: buffer?, identities: buffer?)
 	local n = buffer.readu16(b, 0)
+	local births = {}
+	if identities then
+		for offset=0,buffer.len(identities)-6,6 do
+			births[buffer.readu16(identities,offset)]=buffer.readu32(identities,offset+2)
+		end
+	end
 	table.clear(roots)
 	for _, pl in Players:GetPlayers() do
 		local r = pl.Character and pl.Character:FindFirstChild("HumanoidRootPart")
@@ -84,18 +92,28 @@ Shared:WaitForChild("HordeSnap").OnClientEvent:Connect(function(b: buffer)
 			table.insert(roots, r.Position)
 		end
 	end
+	local o = 2
 	for slot = 1, n do
-		local o = 2 + (slot - 1) * 4
+		if mask and bit32.band(buffer.readu8(mask,(slot-1)//8),bit32.lshift(1,(slot-1)%8))==0 then
+			free(slot)
+			continue
+		end
 		local xi = buffer.readi16(b, o)
+		local zi = buffer.readi16(b, o+2)
+		o += 4
 		if xi == NONE then
 			free(slot) -- despawned without dying (deaths left the slot already)
 			continue
 		end
-		local x, z = xi / 8, buffer.readi16(b, o + 2) / 8
+		local x, z = xi / 8, zi / 8
 		local e = live[slot]
+		if e and births[slot]~=nil and e.incarnation~=births[slot] then
+			free(slot); e=nil -- a silently despawned/reused slot must not inherit its old model state
+		end
 		if not e then
 			e = acquire()
 			e.x, e.z, e.tx, e.tz, e.yaw, e.tyaw = x, z, x, z, 0, 0
+			e.incarnation = births[slot] or 0
 			live[slot] = e
 		end
 		local best, dx, dz = math.huge, 0, 0
@@ -132,21 +150,34 @@ end
 local gemPool, gems = {}, {} -- gem number -> part
 local GEM_Y = 1.2
 local function dropGem(g: number, x: number, z: number)
-	local p = pooled(gemPool, function()
+	local p = gems[g] or pooled(gemPool, function()
 		return fxPart(Vector3.one * 0.8, Color3.fromRGB(95, 208, 255))
 	end)
 	p.CFrame = CFrame.new(x, GEM_Y, z) * CFrame.Angles(math.rad(45), 0, math.rad(45))
 	gems[g] = p
 end
 
+Shared:WaitForChild("HordeGemState").OnClientEvent:Connect(function(added: buffer, removed: buffer)
+	for offset=0,buffer.len(removed)-2,2 do
+		local id=buffer.readu16(removed,offset)
+		local part=gems[id]
+		if part then gems[id]=nil; part.CFrame=HIDDEN; table.insert(gemPool,part) end
+	end
+	for offset=0,buffer.len(added)-6,6 do
+		dropGem(buffer.readu16(added,offset),buffer.readi16(added,offset+2)/8,buffer.readi16(added,offset+4)/8)
+	end
+end)
+
 local deathLength = AnimData.Death.length
-Shared:WaitForChild("HordeDied").OnClientEvent:Connect(function(b: buffer)
-	local firstGem = buffer.readu16(b, 0)
-	for o = 2, buffer.len(b) - 2, 2 do
+Shared:WaitForChild("HordeDied").OnClientEvent:Connect(function(b: buffer, versioned: boolean?)
+	local firstGem = if versioned then 0 else buffer.readu16(b, 0)
+	local stride = if versioned then 6 else 2
+	for o = (if versioned then 0 else 2), buffer.len(b) - stride, stride do
 		local slot = buffer.readu16(b, o)
 		local e = live[slot]
-		if e then
-			dropGem((firstGem + o / 2 - 1) % 65536, e.x, e.z)
+		if e and (not versioned or e.incarnation==buffer.readu32(b,o+2)) then
+			if networkObserved then networkObserved.deaths+=1 end
+			if not versioned then dropGem((firstGem + o / 2 - 1) % 65536, e.x, e.z) end
 			live[slot] = nil -- stays where it fell: only live models get moved
 			e.run:Stop(0.1)
 			e.swing:Stop(0.1)
@@ -156,21 +187,26 @@ Shared:WaitForChild("HordeDied").OnClientEvent:Connect(function(b: buffer)
 	end
 end)
 
-Shared:WaitForChild("HordeSwing").OnClientEvent:Connect(function(b: buffer)
+Shared:WaitForChild("HordeSwing").OnClientEvent:Connect(function(b: buffer, identities: buffer?)
 	for o = 0, buffer.len(b) - 2, 2 do
 		local e = live[buffer.readu16(b, o)]
-		if e then
+		if e and (not identities or e.incarnation==buffer.readu32(identities,o*2)) then
+			if networkObserved then networkObserved.swings+=1 end
 			e.swing:Play(0.05) -- the server lands the hit at AttackWindup, around this clip's HitStart
 		end
 	end
 end)
 
-Shared:WaitForChild("HordeGems").OnClientEvent:Connect(function(player: Player, b: buffer)
+Shared:WaitForChild("HordeGems").OnClientEvent:Connect(function(player: Player, b: buffer, positions: buffer?)
 	local root = player and player.Character and player.Character:FindFirstChild("HumanoidRootPart")
 	for o = 0, buffer.len(b) - 2, 2 do
 		local g = buffer.readu16(b, o)
+		if not gems[g] and positions then
+			dropGem(g,buffer.readi16(positions,o*2)/8,buffer.readi16(positions,o*2+2)/8)
+		end
 		local p = gems[g]
 		if p then
+			if networkObserved then networkObserved.pickups+=1 end
 			gems[g] = nil
 			local tween = TweenService:Create(p, TweenInfo.new(0.2), { CFrame = if root then root.CFrame else p.CFrame })
 			tween.Completed:Once(function()
@@ -207,12 +243,13 @@ end
 
 -- Floating numbers for the local player's hits: {slot, damage} pairs; damage >= 32768 marks a stunning hit.
 local numberPool = {}
-Shared:WaitForChild("HordeHits").OnClientEvent:Connect(function(b: buffer)
+Shared:WaitForChild("HordeHits").OnClientEvent:Connect(function(b: buffer, identities: buffer?)
 	for o = 0, buffer.len(b) - 4, 4 do
 		local e = live[buffer.readu16(b, o)]
-		if not e then
+		if not e or (identities and e.incarnation~=buffer.readu32(identities,o)) then
 			continue
 		end
+		if networkObserved then networkObserved.hits+=1 end
 		local value = buffer.readu16(b, o + 2)
 		if value >= 32768 then -- stunned: the server cancelled its wind-up
 			e.swing:Stop(0.05)
@@ -640,3 +677,23 @@ if RunService:IsStudio() and Shared:GetAttribute("GAME25Active") then
 	end
 	probe.Parent = Shared
 end
+
+-- Resend initial identities/gems after every receiver is connected (including late joins).
+if networkObserved then
+	local probe=Instance.new("BindableFunction")
+	probe.Name="GAME24VisualProbe"
+	probe.OnInvoke=function(action)
+		if action=="resync" then
+			for slot in live do free(slot) end
+			for id,part in gems do gems[id]=nil;part.CFrame=HIDDEN;table.insert(gemPool,part) end
+			Shared.HordeReady:FireServer()
+			return true
+		end
+		local slots, drops, n={}, {}, 0
+		for id,e in live do slots[tostring(id)]={incarnation=e.incarnation,x=e.tx,z=e.tz};n+=1 end
+		for id,part in gems do drops[tostring(id)]={x=part.Position.X,z=part.Position.Z} end
+		return {slots=slots,gems=drops,count=n,events=table.clone(networkObserved),models=#pool+n}
+	end
+	probe.Parent=Shared
+end
+Shared:WaitForChild("HordeReady"):FireServer()

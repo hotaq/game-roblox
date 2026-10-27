@@ -50,6 +50,7 @@ local snap, died, gemTaken, hits, fx = remote("HordeSnap"), remote("HordeDied"),
 local swingsOut = remote("HordeSwing")
 local levelUp, pickCard, rerollCards, runOver = remote("RunLevelUp"), remote("RunPick"), remote("RunReroll"), remote("RunOver")
 local restart, toLobby = remote("RunRestart"), remote("RunLobby")
+local gemState = remote("HordeGemState")
 
 -- Goblins live in stable slots (parallel arrays): a slot keeps its number for life, so snapshots needn't carry ids.
 -- Freed slots are reused first, which keeps `top` (the highest live slot, i.e. the snapshot length) near the count.
@@ -62,6 +63,9 @@ local free, top, count, override = {}, 0, 0, nil :: number?
 local dead, deadFirstGem = {}, 0 -- slots killed since the last send; each dropped gem number deadFirstGem + k - 1
 local gems, nextGem = {}, 0 -- gem number -> {x, z}
 local clearedGems = {} -- final-run drops to retire on clients after any queued death packet
+local deathEvents, pickedPositions = {}, {} -- preserve identity/position even if a slot is reused before sending
+local views, viewReadyAt = {}, {} -- Player -> {slots=slot/incarnation, gems=id/server gem record}
+local networkMode, networkSample = "nearby", nil -- broadcast is available only to the named Studio comparison
 local rng = Random.new()
 local NONE = -32768 -- x of a free slot in a snapshot
 local runs = {} -- Player -> run state
@@ -86,6 +90,7 @@ local function kill(i: number, run)
 			deadFirstGem = nextGem
 		end
 		table.insert(dead, i)
+		table.insert(deathEvents, {slot=i, incarnation=generation[i] or 0, x=px[i], z=pz[i]})
 		gems[nextGem] = { x = px[i], z = pz[i] }
 		nextGem = (nextGem + 1) % 65536
 	end
@@ -323,6 +328,15 @@ end)
 Players.PlayerRemoving:Connect(function(player)
 	clearRunAxes(player)
 	runs[player] = nil
+	views[player], viewReadyAt[player] = nil, nil
+end)
+
+-- The client asks once after all listeners are connected. Rate-limit resync requests.
+remote("HordeReady").OnServerEvent:Connect(function(player)
+	local now = os.clock()
+	if now - (viewReadyAt[player] or -math.huge) >= 2 then
+		views[player], viewReadyAt[player] = nil, now
+	end
 end)
 
 -- Glowing pads beside the spawn that send you into an arena. With no run going, a pad switches the arena to its zone;
@@ -368,6 +382,7 @@ makePad("Map1Pad", Vector3.new(11, 1.2, 20), Color3.fromRGB(110, 220, 120), "MAP
 ---------------------------------------------------------------- weapons
 
 local hitLog = {} -- Player -> {slot, damage, ...} for floating numbers, sent with the snapshot; +32768 = it stunned
+local hitVersions = {} -- Player -> incarnation per hit pair
 local shots = {} -- live fireballs
 
 -- A weapon hit from (fromX, fromZ): damage and a slow; if `stuns`, also a short stun that cancels a wind-up, and with
@@ -395,6 +410,9 @@ local function hit(i: number, dmg: number, run, weapon: string, fromX: number, f
 	if #log < 80 then -- 40 numbers a send is plenty to read
 		table.insert(log, i)
 		table.insert(log, math.min(math.round(dmg), 32767) + (if stuns then 32768 else 0))
+		local versions = hitVersions[run.player] or {}
+		hitVersions[run.player] = versions
+		table.insert(versions, generation[i] or 0)
 	end
 	if hp[i] <= 0 then
 		kill(i, run)
@@ -715,7 +733,23 @@ local function step(dt: number)
 		for k, i in swings do
 			buffer.writeu16(b, (k - 1) * 2, i)
 		end
-		swingsOut:FireAllClients(b)
+		if networkMode == "broadcast" then
+			swingsOut:FireAllClients(b)
+		else
+			for player, view in views do
+				local selected = {}
+				for _, slot in swings do
+					if view.slots[slot] == (generation[slot] or 0) then table.insert(selected,slot) end
+				end
+				if #selected > 0 then
+					local ids, versions = buffer.create(#selected*2), buffer.create(#selected*4)
+					for k, slot in selected do
+						buffer.writeu16(ids,(k-1)*2,slot); buffer.writeu32(versions,(k-1)*4,generation[slot] or 0)
+					end
+					swingsOut:FireClient(player,ids,versions)
+				end
+			end
+		end
 		table.clear(swings)
 	end
 
@@ -733,6 +767,7 @@ local function step(dt: number)
 				local p = t.root.Position
 				local reach = R.PickupRange * (1 + t.run.bonus.magnet)
 				if (gem.x - p.X) ^ 2 + (gem.z - p.Z) ^ 2 < reach * reach then
+					pickedPositions[g] = gem
 					gems[g] = nil
 					local list = taken[t.run.player] or {}
 					taken[t.run.player] = list
@@ -780,7 +815,7 @@ local function step(dt: number)
 	end
 end
 
-local function send(): number
+local function sendBroadcast(): number
 	if #axes > 0 or axesDirty then
 		local packet = {}
 		for _, a in axes do
@@ -837,10 +872,167 @@ local function send(): number
 	return buffer.len(b)
 end
 
+-- GAME-24 transport. A full snapshot carries coordinates in slot order; a compact snapshot
+-- carries the same coordinates only for set bits in its slot mask. Incarnations are sent
+-- when a slot enters/re-enters/reuses, so old death/hit/swing events cannot affect its replacement.
+local function quantize(value)
+	return math.clamp(math.round(value*8), NONE+1, 32767)
+end
+local function inView(position, x, z, radius)
+	return position and (position.X-x)^2+(position.Z-z)^2 <= radius*radius
+end
+local function buildView(previous, position)
+	local selected, births, total = {}, {}, 0
+	for slot=1,top do
+		if alive[slot] then
+			local incarnation = generation[slot] or 0
+			local radius = if previous[slot]==incarnation then H.ViewLeave else H.ViewEnter
+			if inView(position,px[slot],pz[slot],radius) then
+				selected[slot]=incarnation; total+=1
+				if previous[slot]~=incarnation then table.insert(births,slot) end
+			end
+		end
+	end
+	local maskBytes = math.ceil(top/8)
+	if total==0 then return selected,buffer.create(2),nil,nil end
+	local compact = maskBytes+total*4 < top*4
+	local mask = if compact then buffer.create(maskBytes) else nil
+	local packet = buffer.create(2+(if compact then total else top)*4)
+	buffer.writeu16(packet,0,top)
+	local offset=2
+	for slot=1,top do
+		if selected[slot]~=nil then
+			if mask then
+				local byte=(slot-1)//8
+				buffer.writeu8(mask,byte,bit32.bor(buffer.readu8(mask,byte),bit32.lshift(1,(slot-1)%8)))
+			end
+			buffer.writei16(packet,offset,quantize(px[slot]))
+			buffer.writei16(packet,offset+2,quantize(pz[slot])); offset+=4
+		elseif not compact then
+			buffer.writei16(packet,offset,NONE); offset+=4
+		end
+	end
+	local identities = if #births>0 then buffer.create(#births*6) else nil
+	for k,slot in births do
+		buffer.writeu16(identities,(k-1)*6,slot)
+		buffer.writeu32(identities,(k-1)*6+2,selected[slot])
+	end
+	return selected,packet,mask,identities
+end
+
+local function sendNearby(): number
+	local totalBytes, recipients = 0,0
+	local function emit(player,event,...)
+		local bytes=0
+		for _,value in {...} do if typeof(value)=="buffer" then bytes+=buffer.len(value) end end
+		totalBytes+=bytes
+		if networkSample then networkSample.bytes[player]=(networkSample.bytes[player] or 0)+bytes end
+		event:FireClient(player,...)
+	end
+	if #axes>0 or axesDirty then
+		local packet={}
+		for _,a in axes do table.insert(packet,{a.id,a.run.player,a.x,a.z,a.y,a.radius,a.level,a.age}) end
+		fx:FireAllClients("axes",packet); axesDirty=false
+	end
+	for _,player in Players:GetPlayers() do
+		recipients+=1
+		local root=player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+		local position=root and root.Position
+		local view=views[player] or {slots={},gems={}}
+		views[player]=view
+		local deaths={}
+		for _,event in deathEvents do
+			if view.slots[event.slot]==event.incarnation and inView(position,event.x,event.z,H.ViewLeave) then
+				table.insert(deaths,event)
+			end
+		end
+		if #deaths>0 then
+			local packet=buffer.create(#deaths*6)
+			for k,event in deaths do
+				buffer.writeu16(packet,(k-1)*6,event.slot)
+				buffer.writeu32(packet,(k-1)*6+2,event.incarnation)
+			end
+			emit(player,died,packet,true)
+		end
+		local selected,packet,mask,identities=buildView(view.slots,position)
+		view.slots=selected
+		emit(player,snap,packet,mask,identities)
+		local log, versions=hitLog[player],hitVersions[player]
+		if log then
+			local visibleHits={}
+			for k=1,#log,2 do
+				local incarnation=versions[(k+1)//2]
+				if selected[log[k]]==incarnation then table.insert(visibleHits,{log[k],log[k+1],incarnation}) end
+			end
+			if #visibleHits>0 then
+				local values,ids=buffer.create(#visibleHits*4),buffer.create(#visibleHits*4)
+				for k,hitData in visibleHits do
+					buffer.writeu16(values,(k-1)*4,hitData[1]); buffer.writeu16(values,(k-1)*4+2,hitData[2])
+					buffer.writeu32(ids,(k-1)*4,hitData[3])
+				end
+				emit(player,hits,values,ids)
+			end
+		end
+		-- Pickups include position: even a gem born and collected between snapshots can fly to its owner.
+		for picker,list in taken do
+			local visible={}
+			for _,id in list do
+				local gem=pickedPositions[id]
+				if gem and (picker==player or view.gems[id] or inView(position,gem.x,gem.z,H.ViewEnter)) then
+					table.insert(visible,id)
+				end
+			end
+			if #visible>0 then
+				local ids,positions=buffer.create(#visible*2),buffer.create(#visible*4)
+				for k,id in visible do
+					local gem=pickedPositions[id]
+					buffer.writeu16(ids,(k-1)*2,id)
+					buffer.writei16(positions,(k-1)*4,quantize(gem.x)); buffer.writei16(positions,(k-1)*4+2,quantize(gem.z))
+				end
+				emit(player,gemTaken,picker,ids,positions)
+			end
+		end
+		local known,added,removed={},{},{}
+		for id,gem in gems do
+			local radius=if view.gems[id]==gem then H.ViewLeave else H.ViewEnter
+			if inView(position,gem.x,gem.z,radius) then
+				known[id]=gem
+				if view.gems[id]~=gem then table.insert(added,id) end
+			end
+		end
+		for id,gem in view.gems do if known[id]~=gem then table.insert(removed,id) end end
+		if #added>0 or #removed>0 then
+			local addPacket,removePacket=buffer.create(#added*6),buffer.create(#removed*2)
+			for k,id in added do
+				buffer.writeu16(addPacket,(k-1)*6,id)
+				buffer.writei16(addPacket,(k-1)*6+2,quantize(gems[id].x)); buffer.writei16(addPacket,(k-1)*6+4,quantize(gems[id].z))
+			end
+			for k,id in removed do buffer.writeu16(removePacket,(k-1)*2,id) end
+			emit(player,gemState,addPacket,removePacket)
+		end
+		view.gems=known
+	end
+	for _,run in runs do publish(run) end
+	table.clear(dead); table.clear(deathEvents); table.clear(clearedGems)
+	table.clear(hitLog); table.clear(hitVersions); table.clear(taken); table.clear(pickedPositions)
+	return totalBytes/math.max(recipients,1)
+end
+
+local function send(): number
+	if networkMode=="broadcast" then
+		local bytes=sendBroadcast()
+		if networkSample then for _,p in Players:GetPlayers() do networkSample.bytes[p]=(networkSample.bytes[p] or 0)+bytes end end
+		table.clear(deathEvents); table.clear(hitVersions); table.clear(pickedPositions)
+		return bytes
+	end
+	return sendNearby()
+end
+
 -- GAME-23: opt-in measurement only; normal Studio/production runs do not allocate samples.
 local benchmarkArgs, benchmarkSample
 local axeTestArgs
 local cleanupTestArgs
+local networkTestArgs, networkManual
 if RunService:IsStudio() then
 	local ok, args = pcall(function() return game:GetService("StudioTestService"):GetTestArgs() end)
 	if ok and typeof(args) == "table" and args.name == "GAME23Baseline" then
@@ -854,6 +1046,10 @@ if RunService:IsStudio() then
 		cleanupTestArgs = args
 		Shared:SetAttribute("GAME25Active", true)
 	end
+	if ok and typeof(args) == "table" and args.name == "GAME24Network" then
+		networkTestArgs = args
+		Shared:SetAttribute("GAME24Active", true)
+	end
 end
 local simAcc, sendAcc, statAcc = 0, 0, 0
 local simTime, sentBytes = 0, 0
@@ -865,8 +1061,9 @@ RunService.Heartbeat:Connect(function(dt)
 	while simAcc >= 1 / H.SimRate do
 		simAcc -= 1 / H.SimRate
 		local t0 = os.clock()
-		if not axeTestArgs and not cleanupTestArgs then step(1 / H.SimRate) end -- named fixtures drive exact steps
+		if not axeTestArgs and not cleanupTestArgs and not networkManual then step(1 / H.SimRate) end -- named fixtures drive exact steps
 		local elapsed = os.clock() - t0
+		if networkSample then table.insert(networkSample.step,elapsed*1000) end
 		simTime += elapsed
 		if benchmarkSample then
 			table.insert(benchmarkSample.step,elapsed*1000)
@@ -877,6 +1074,7 @@ RunService.Heartbeat:Connect(function(dt)
 		sendAcc = 0
 		local t0 = os.clock()
 		local bytes = send()
+		if networkSample then table.insert(networkSample.send,(os.clock()-t0)*1000) end
 		sentBytes += bytes
 		if benchmarkSample then
 			table.insert(benchmarkSample.send,(os.clock()-t0)*1000)
@@ -1385,6 +1583,189 @@ if cleanupTestArgs then
 			check(quiet(report.final),"soak live state clean after five seconds")
 			check(report.final.client.soundTemplates==10,"sound template count unchanged")
 			check(#errors==0 and #report.final.client.errors==0,"no Goblin script errors")
+		end,debug.traceback)
+		report.ok,report.error=ok,if ok then nil else tostring(err)
+		finish()
+	end)
+end
+
+-- GAME-24 same-scene broadcast/interest comparison and real-client lifecycle acceptance.
+if networkTestArgs then
+	local sts=game:GetService("StudioTestService")
+	local bridge=Instance.new("RemoteFunction");bridge.Name,bridge.Parent="GAME24Network",Shared
+	local ready,errors={},{}
+	bridge.OnServerInvoke=function(player) ready[player]=true;return true end
+	Players.PlayerRemoving:Connect(function(player) ready[player]=nil end)
+	game:GetService("ScriptContext").Error:Connect(function(message,_,source)
+		if source and source.Name:find("Goblin",1,true) then table.insert(errors,message) end
+	end)
+	local report={checks={},phases={},errors=errors,quick=networkTestArgs.quick==true,enter=H.ViewEnter,leave=H.ViewLeave,
+		baseline="original dense broadcast sender; same simulation and frozen test scene",renderContext="background; not device FPS"}
+	local finished=false
+	local function finish()
+		if finished then return end
+		finished=true;networkSample=nil;sts:EndTest(report)
+	end
+	task.delay(900,function() report.ok=false;report.error="GAME24 deadline";finish() end)
+	local function waitFor(fn,label)
+		local deadline=os.clock()+60
+		repeat if fn() then return end;task.wait(0.05) until os.clock()>deadline
+		error("GAME24 timeout: "..label)
+	end
+	local function check(value,label) assert(value,label);table.insert(report.checks,label) end
+	local function snapshot(player) return bridge:InvokeClient(player,"snapshot") end
+	local function deliver() send();task.wait(0.35) end
+	local function percentiles(values)
+		table.sort(values)
+		return {n=#values,p50=values[math.ceil(#values*.5)] or 0,p95=values[math.ceil(#values*.95)] or 0,max=values[#values] or 0}
+	end
+	task.spawn(function()
+		local ok,err=xpcall(function()
+			networkManual=true
+			waitFor(function()
+				if #Players:GetPlayers()~=2 then return false end
+				for _,p in Players:GetPlayers() do if not ready[p] or not p.Character or not p.Character:FindFirstChild("HumanoidRootPart") then return false end end
+				return true
+			end,"two clients ready")
+			Workspace:SetAttribute("Arena","Map1")
+			local center=assert(arena())
+			report.map1Instances=#Workspace.Map1:GetDescendants()
+			local list=Players:GetPlayers();table.sort(list,function(a,b) return a.UserId<b.UserId end)
+			local a,b=list[1],list[2]
+			local function place(player,x,z)
+				local root=player.Character.HumanoidRootPart
+				root.Anchored=true;root.CFrame=CFrame.new(center+Vector3.new(x,4,z or 0))
+			end
+			local function prepare(player,x)
+				waitFor(function() return ready[player] and player.Character and player.Character:FindFirstChild("HumanoidRootPart") end,"new client ready")
+				place(player,x)
+				local hum=player.Character:FindFirstChildOfClass("Humanoid")
+				local shield=Instance.new("ForceField");shield.Visible=false;shield.Parent=player.Character
+				if not runs[player] then startRun(player,hum) end
+				local run=runs[player];run.weapons,run.wOrder={},{};run.next=1e9;publish(run)
+			end
+			prepare(a,-120);prepare(b,120)
+			local function clearWorld()
+				while count>0 do kill(top) end
+				table.clear(free);table.clear(gems);table.clear(grid)
+				table.clear(dead);table.clear(deathEvents);table.clear(taken);table.clear(pickedPositions)
+				table.clear(hitLog);table.clear(hitVersions);override=0
+			end
+			local function target(slot,x,z)
+				if not alive[slot] then count+=1 end
+				top=math.max(top,slot);alive[slot]=true
+				px[slot],pz[slot],hp[slot]=center.X+x,center.Z+z,1e8
+				generation[slot]=(generation[slot] or 0)+1
+				kvx[slot],kvz[slot],stunUntil[slot],slowUntil[slot],nextSwing[slot],swingAt[slot]=0,0,0,0,0,nil
+			end
+			if not report.quick then
+				for repeatIndex=1,2 do
+					for _,population in {100,1000} do
+						for _,layout in {"clustered","separated"} do
+							local modes=if repeatIndex==1 then {"broadcast","nearby"} else {"nearby","broadcast"}
+							for _,mode in modes do
+								networkManual=true;networkSample=nil;networkMode=mode;clearWorld();table.clear(views)
+								local spread=if layout=="separated" then 120 else 4
+								place(a,-spread);place(b,spread)
+								for slot=1,population do
+									local group=if slot<=population/2 then -spread else spread
+									local angle=slot*2.3999632297
+									target(slot,group+math.cos(angle)*20,math.sin(angle)*20)
+								end
+								override=population;networkManual=false
+								Shared:SetAttribute("GAME24Progress",mode.."-"..layout.."-"..population.."-"..repeatIndex)
+								task.wait(5)
+								bridge:InvokeClient(a,"begin");bridge:InvokeClient(b,"begin")
+								local sample={bytes={},step={},send={}};networkSample=sample
+								local began=os.clock();task.wait(15);local elapsed=os.clock()-began
+								networkSample=nil
+								local clients={bridge:InvokeClient(a,"finish"),bridge:InvokeClient(b,"finish")}
+								local expected=if mode=="broadcast" or layout=="clustered" then population else population/2
+								for index,p in list do
+									check(clients[index].visual.count==expected,"phase visible count "..mode.."/"..layout.."/"..population.."/"..index)
+									check(#clients[index].errors==0,"phase client error free")
+									local serverBytes=sample.bytes[p] or 0
+									check(math.abs(clients[index].bytes-serverBytes)/math.max(serverBytes,1)<.1,"client/server payload agrees within ten percent")
+									clients[index].serverBytes=serverBytes
+								end
+								table.insert(report.phases,{repeatIndex=repeatIndex,population=population,layout=layout,mode=mode,
+									seconds=elapsed,stepMs=percentiles(sample.step),sendMs=percentiles(sample.send),clients=clients})
+							end
+						end
+					end
+				end
+			end
+			networkManual=true;networkMode="nearby";clearWorld();table.clear(views)
+			Shared:SetAttribute("GAME24Progress","lifecycle")
+			place(a,-120);place(b,120);target(1,-120,0);target(2,120,0);deliver()
+			check(snapshot(a).count==1 and snapshot(b).count==1,"two separated clients receive their own nearby enemy")
+			-- Radius edges and teleport, including repeated visibility changes without pool growth.
+			clearWorld();target(1,0,0);place(a,-250);deliver()
+			check(snapshot(a).count==0,"outside enter radius hidden")
+			place(a,-191);deliver();check(snapshot(a).count==1,"entry appears")
+			place(a,-220);deliver();check(snapshot(a).count==1,"hysteresis retained")
+			place(a,-225);deliver();check(snapshot(a).count==0,"exit removed")
+			local poolBefore=snapshot(a).models
+			for _=1,20 do place(a,0);deliver();place(a,-250);deliver() end
+			check(snapshot(a).count==0 and snapshot(a).models<=math.max(poolBefore,1),"twenty visibility cycles leave no stale model or growing pool")
+			place(a,0);deliver()
+			local oldGeneration=generation[1]
+			kill(1);target(1,40,0);deliver()
+			local current=snapshot(a)
+			check(current.slots["1"].incarnation==generation[1] and current.slots["1"].x==center.X+40,"silent slot reuse has fresh identity and position")
+			local death=buffer.create(6);buffer.writeu16(death,0,1);buffer.writeu32(death,2,oldGeneration)
+			local hitPacket,versionPacket=buffer.create(4),buffer.create(4)
+			buffer.writeu16(hitPacket,0,1);buffer.writeu16(hitPacket,2,32775);buffer.writeu32(versionPacket,0,oldGeneration)
+			local swingPacket=buffer.create(2);buffer.writeu16(swingPacket,0,1)
+			died:FireClient(a,death,true);hits:FireClient(a,hitPacket,versionPacket);swingsOut:FireClient(a,swingPacket,versionPacket)
+			task.wait(.3);local after=snapshot(a)
+			check(after.count==1 and after.events.deaths==current.events.deaths and after.events.hits==current.events.hits and after.events.swings==current.events.swings,"stale death/hit/swing cannot affect reused slot")
+			-- A visible death and two different incarnations killed before the next send.
+			clearWorld();place(a,0);place(b,4);target(1,10,0);deliver()
+			local beforeA,beforeB=snapshot(a),snapshot(b)
+			local gem1=nextGem;local killsBefore=runs[a].kills
+			kill(1,runs[a]);target(1,11,0);kill(1,runs[a]);deliver()
+			after=snapshot(a)
+			check(after.events.deaths==beforeA.events.deaths+1 and snapshot(b).events.deaths==beforeB.events.deaths+1,"each client animates only the incarnation it actually saw")
+			check(after.gems[tostring(gem1)] and after.gems[tostring((gem1+1)%65536)] and runs[a].kills==killsBefore+2,"both kills retain distinct authoritative gems and credit")
+			-- Hidden death remains collectable when the observer arrives later.
+			clearWorld();place(a,-120);place(b,120);target(1,130,0);deliver()
+			beforeA=snapshot(a);local hiddenGem=nextGem;kill(1,runs[b]);deliver()
+			after=snapshot(a);check(after.events.deaths==beforeA.events.deaths and not after.gems[tostring(hiddenGem)],"hidden death has no stale observer corpse/gem")
+			place(a,115);deliver();check(snapshot(a).gems[tostring(hiddenGem)]~=nil,"teleport/entry recovers an existing gem without replaying death")
+			place(b,-120);place(a,130);local gained=runs[a].gems
+			step(1/H.SimRate);deliver();task.wait(.3)
+			check(runs[a].gems==gained+1 and not snapshot(a).gems[tostring(hiddenGem)],"arriving player collects hidden-death gem exactly once")
+			-- Birth and pickup in one send interval still render one pickup effect.
+			clearWorld();place(a,0);target(1,1,0);deliver();beforeA=snapshot(a);gained=runs[a].gems
+			kill(1,runs[a]);step(1/H.SimRate);deliver();task.wait(.3);after=snapshot(a)
+			check(after.events.pickups==beforeA.events.pickups+1 and next(after.gems)==nil and runs[a].gems==gained+1,"same-interval kill/pickup renders once and leaves no gem")
+			-- Receiver restart on the same player: explicit handshake resends identities and drops.
+			clearWorld();target(1,10,0);kill(1,runs[a]);target(1,20,0);deliver()
+			local persistentGem=(nextGem-1)%65536
+			bridge:InvokeClient(a,"resync");task.wait(.4);deliver();after=snapshot(a)
+			check(after.slots["1"] and after.gems[tostring(persistentGem)],"receiver resync restores existing enemy and gem")
+			-- Real departure, late join, then another fresh connection using StudioTestService.
+			local oldPeer=b;bridge:InvokeClient(b,"leave")
+			waitFor(function() return oldPeer.Parent~=Players end,"peer leave")
+			check(views[oldPeer]==nil and runs[oldPeer]==nil,"disconnect releases per-player view and run state")
+			for joinIndex=1,2 do
+				sts:AddPlayers(1)
+				waitFor(function() return #Players:GetPlayers()==2 end,"replacement connection")
+				local joined
+				for _,p in Players:GetPlayers() do if p~=a then joined=p end end
+				prepare(joined,0);deliver();local state=snapshot(joined)
+				check(state.slots["1"] and state.gems[tostring(persistentGem)],"fresh connection "..joinIndex.." gets existing enemy and gem")
+				check(#state.errors==0,"fresh connection error free")
+				if joinIndex==1 then
+					bridge:InvokeClient(joined,"leave");waitFor(function() return joined.Parent~=Players end,"late join leave")
+					check(views[joined]==nil,"late join state released before next connection")
+				else b=joined end
+			end
+			for player in views do check(player.Parent==Players,"no departed player view reference") end
+			clearWorld();deliver()
+			check(snapshot(a).count==0 and next(snapshot(a).gems)==nil and snapshot(b).count==0 and next(snapshot(b).gems)==nil,"final snapshot clears enemies and gems on both clients")
+			check(#errors==0 and #snapshot(a).errors==0 and #snapshot(b).errors==0,"no Goblin script errors")
 		end,debug.traceback)
 		report.ok,report.error=ok,if ok then nil else tostring(err)
 		finish()

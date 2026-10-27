@@ -114,6 +114,8 @@ Config.Horde = {
 	SpawnRing = { 45, 70 }, -- spawn this far from a player (off screen)
 	SimRate = 30, -- movement steps per second
 	SendRate = 10, -- snapshots per second to every client (clients smooth between them)
+	ViewEnter = 192, -- player-centred interest, beyond normal camera/weapon reach
+	ViewLeave = 224, -- keep existing neighbours a little farther to prevent boundary flicker
 }
 
 -- A run (GoblinHorde): starts when a player enters the arena, ends when they die.
