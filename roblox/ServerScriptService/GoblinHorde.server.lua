@@ -443,7 +443,7 @@ local function objectiveMarker(state)
 	p.CFrame=CFrame.new(state.position)*CFrame.Angles(0,0,math.pi/2)
 	p.Anchored=true;p.CanCollide=false;p.CanTouch=false;p.CanQuery=false;p.CastShadow=false
 	p.Material=Enum.Material.Plastic;p.Color=Color3.fromRGB(210,168,70);p.Transparency=.5
-	local gui=Instance.new("BillboardGui");gui.Size=UDim2.fromOffset(280,70);gui.StudsOffset=Vector3.new(0,4,0);gui.AlwaysOnTop=true;gui.Parent=p
+	local gui=Instance.new("BillboardGui");gui.Size=UDim2.fromOffset(280,70);gui.StudsOffset=Vector3.new(0,4,0);gui.AlwaysOnTop=true;gui.Adornee=p;gui.Parent=p
 	local label=Instance.new("TextLabel");label.Size=UDim2.fromScale(1,1);label.BackgroundTransparency=1
 	label.TextColor3=Color3.new(1,1,1);label.TextStrokeTransparency=0;label.Font=Enum.Font.GothamBold;label.TextSize=17;label.Parent=gui
 	label.Text=("OPTIONAL: HOLD 0.0 / %ds\nTEAM UPGRADE  |  %ds left"):format(c.Hold,c.Window)
@@ -1854,6 +1854,7 @@ if objectiveTestArgs then
 			objectiveEnabled=true;objectiveTick(30,false);objectiveTick(0,false)
 			waitFor(function()return bridge:InvokeClient(a,"report").markers==1 end,"marker replication")
 			check(bridge:InvokeClient(a,"report").markers==1,"real client receives optional marker")
+			if objectiveTestArgs.review then Shared:SetAttribute("GAME29Progress","visual-review");task.wait(60)end
 			rootA.Position=zone+Vector3.new(20,0,0);objectiveTick(35,false)
 			check(objectiveState.phase=="expired" and ra.pending==0 and runs[a]==ra,"ignore expires without ending run or taking reward")
 			objectiveReset();rootA.Position=zone;objectiveTick(30,false)
