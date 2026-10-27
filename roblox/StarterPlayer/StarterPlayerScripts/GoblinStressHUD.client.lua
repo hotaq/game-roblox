@@ -15,6 +15,48 @@ local stress = ReplicatedStorage:WaitForChild("Goblin"):WaitForChild("Stress")
 local horde = ReplicatedStorage.Goblin:WaitForChild("Horde")
 local player = Players.LocalPlayer
 
+-- GAME12 complete: real RemoteEvent/card/UI and cosmetic lifecycle acceptance, named Studio test only.
+if ReplicatedStorage.Goblin:GetAttribute("GAME12CompleteActive") then
+	task.spawn(function()
+		local shared=ReplicatedStorage.Goblin;local bridge=shared:WaitForChild("GAME12CompleteTest",45)
+		local errors={}
+		game:GetService("ScriptContext").Error:Connect(function(message,_,source)
+			if source and source.Name:find("Goblin",1,true)then table.insert(errors,message)end
+		end)
+		local function visible(d,ui)
+			while d and d~=ui do if d:IsA("GuiObject")and not d.Visible then return false end;d=d.Parent end
+			return true
+		end
+		bridge.OnClientInvoke=function(action,data)
+			if action=="pick"then shared.RunPick:FireServer(data and data.index or 1,data and data.offerId or player:GetAttribute("RunOfferId"));return true end
+			if action=="reroll"then shared.RunReroll:FireServer(data);return true end
+			if action=="leave"then task.delay(.2,function()game:GetService("StudioTestService"):LeaveTest()end);return true end
+			local ui=player.PlayerGui:FindFirstChild("GoblinRunUI")
+			if action=="review"then
+				local camera=Workspace.CurrentCamera;camera.CameraType=Enum.CameraType.Scriptable
+				local focus=data or Vector3.new(1000,2,0);camera.CFrame=CFrame.lookAt(focus+Vector3.new(12,14,20),focus)
+				if ui then for _,v in ui:GetChildren()do if v:IsA("Frame")and v.ZIndex>=5 then v.Visible=false end end end
+				return true
+			end
+			local report={totems=0,rocks=0,bolts=0,parts=0,nonCosmetic=0,icons=0,evo=0,text={},errors=table.clone(errors)}
+			local folder=Workspace:FindFirstChild("Horde")
+			if folder then for _,m in folder:GetChildren()do
+				if m.Name=="LightningTotem"then report.totems+=1
+					for _,p in m:GetDescendants()do if p:IsA("BasePart")then report.parts+=1;if p.CanCollide or p.CanTouch or p.CanQuery or not p.Anchored then report.nonCosmetic+=1 end end end
+				elseif m.Name=="OrbitRock"then report.rocks+=1
+				elseif m.Name=="TotemLightning"then report.bolts+=1 end
+			end end
+			if ui then for _,d in ui:GetDescendants()do if visible(d,ui)then
+				if d.Name=="totemIcon"then report.icons+=1 end
+				if d:IsA("TextLabel")then table.insert(report.text,d.Text);if d.Text=="EVO"then report.evo+=1 end end
+			end end end
+			return report
+		end
+		assert(player:WaitForChild("PlayerGui"):WaitForChild("GoblinRunUI",45),"complete UI ready")
+		bridge:InvokeServer("ready")
+	end)
+end
+
 -- GAME-12 real-client acceptance participant, enabled only by the server's named test.
 if ReplicatedStorage.Goblin:GetAttribute("GAME12AxeActive") then
 	task.spawn(function()
@@ -34,7 +76,7 @@ if ReplicatedStorage.Goblin:GetAttribute("GAME12AxeActive") then
 		end
 		RunService.RenderStepped:Connect(countAxes)
 		bridge.OnClientInvoke=function(action)
-			if action=="pick" then ReplicatedStorage.Goblin.RunPick:FireServer(1);return true end
+			if action=="pick" then ReplicatedStorage.Goblin.RunPick:FireServer(1,player:GetAttribute("RunOfferId"));return true end
 			if action=="leave" then
 				local service=game:GetService("StudioTestService")
 				assert(service:CanLeaveTest(),"client cannot leave this test")
@@ -66,7 +108,7 @@ if ReplicatedStorage.Goblin:GetAttribute("GAME12RocksActive") then
 			if source and source.Name:find("Goblin",1,true) then table.insert(errors,message) end
 		end)
 		bridge.OnClientInvoke=function(action)
-			if action=="pick" then shared.RunPick:FireServer(1);return true end
+			if action=="pick" then shared.RunPick:FireServer(1,player:GetAttribute("RunOfferId"));return true end
 			if action=="leave" then
 				assert(game:GetService("StudioTestService"):CanLeaveTest())
 				task.delay(.2,function() game:GetService("StudioTestService"):LeaveTest() end);return true
@@ -103,7 +145,7 @@ if ReplicatedStorage.Goblin:GetAttribute("GAME29Active") then
 			if source and source.Name:find("Goblin",1,true)then table.insert(errors,message)end
 		end)
 		bridge.OnClientInvoke=function(action)
-			if action=="pick"then shared.RunPick:FireServer(1);return true end
+			if action=="pick"then shared.RunPick:FireServer(1,player:GetAttribute("RunOfferId"));return true end
 			if action=="leave"then task.delay(.2,function()game:GetService("StudioTestService"):LeaveTest()end);return true end
 			if action=="review"then
 				local camera=workspace.CurrentCamera;camera.CameraType=Enum.CameraType.Scriptable
@@ -196,7 +238,7 @@ if ReplicatedStorage.Goblin:GetAttribute("GAME25Active") then
 		bridge.OnClientInvoke = function(action)
 			if action == "restart" then shared.RunRestart:FireServer(); return true end
 			if action == "lobby" then shared.RunLobby:FireServer(); return true end
-			if action == "pick" then shared.RunPick:FireServer(1); return true end
+			if action == "pick" then shared.RunPick:FireServer(1,player:GetAttribute("RunOfferId")); return true end
 			if action == "leave" then
 				task.delay(0.2,function() game:GetService("StudioTestService"):LeaveTest() end)
 				return true

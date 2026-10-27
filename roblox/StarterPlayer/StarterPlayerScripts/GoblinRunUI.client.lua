@@ -123,8 +123,28 @@ local function rocksIcon(parent)
 	end
 	return holder
 end
+local roundTwoIcons={totem=true,duration=true,projectile=true,speed=true,luck=true}
+local function roundTwoIcon(parent,key)
+	local holder=new("Frame",{Name=key.."Icon",Size=UDim2.fromScale(1,1),BackgroundTransparency=1,ZIndex=3,Parent=parent})
+	local function pixel(x,y,w,h,color)
+		new("Frame",{BorderSizePixel=0,Position=UDim2.fromScale(x/16,y/16),Size=UDim2.fromScale(w/16,h/16),BackgroundColor3=color,ZIndex=3,Parent=holder})
+	end
+	local gold=Color3.fromRGB(220,180,88)
+	if key=="totem"then
+		pixel(2,13,12,2,INK);pixel(3,12,10,2,Color3.fromRGB(139,153,132));pixel(5,5,6,8,INK)
+		pixel(6,6,4,6,Color3.fromRGB(106,126,119));pixel(4,4,8,2,gold);pixel(6,7,1,1,GEM);pixel(9,7,1,1,GEM)
+		pixel(7,9,2,3,gold);pixel(7,1,2,3,GEM);pixel(3,5,1,5,INK);pixel(12,5,1,5,INK)
+	else
+		pixel(2,2,12,13,INK);pixel(3,3,10,10,P[key].Color);pixel(4,13,9,1,WHITE);pixel(3,3,2,10,gold)
+		local patterns={duration={"#####",".#.#.","..#..",".#.#.","#####"},projectile={"..#..","..##.","#####","..##.","..#.."},speed={"#.#..",".#.#.","..#.#",".#.#.","#.#.."},luck={".#.#.","#####",".###.","#####",".#.#."}}
+		for y,row in patterns[key]do for x=1,#row do if row:sub(x,x)=="#"then pixel(x+5,y+4,1,1,INK)end end end
+	end
+	return holder
+end
 local function setArt(a, key: string?)
 	a.key = key
+	if a.roundTwo and a.roundTwoKey~=key then a.roundTwo:Destroy();a.roundTwo=nil end
+	if roundTwoIcons[key]and not a.roundTwo then a.roundTwo=roundTwoIcon(a.image.Parent,key);a.roundTwoKey=key end
 	if key == "axe" and not a.axe then a.axe = axeIcon(a.image.Parent) end
 	if a.axe then a.axe.Visible = key == "axe" end
 	if key=="rocks" and not a.rocks then a.rocks=rocksIcon(a.image.Parent) end
@@ -136,7 +156,7 @@ local function setArt(a, key: string?)
 	local showArt = iconsReady and cell ~= nil
 	a.image.Visible = showArt
 	for _, f in a.fallback do
-		f.Visible = not showArt and key ~= "axe" and key ~= "rocks"
+		f.Visible = not showArt and key ~= "axe" and key ~= "rocks" and not roundTwoIcons[key]
 	end
 	if a.tile then
 		a.tile.BackgroundTransparency = if showArt then 1 else 0
@@ -262,7 +282,8 @@ local function fillSlots(slots, items: string, defs)
 		if it then
 			s.tile.BackgroundColor3 = defs[it.id].Color
 			s.glyph.Text = defs[it.id].Icon
-			s.level.Text = s.prefix .. it.lv
+			s.level.Text = if defs==W and tonumber(it.lv)==6 then "EVO"else s.prefix .. it.lv
+			s.level.TextColor3=if defs==W and tonumber(it.lv)==6 then GOLD else WHITE
 			setArt(s.art, it.id)
 		end
 	end
@@ -326,15 +347,22 @@ levelUp = new("Frame", { Size = UDim2.fromScale(1, 1), BackgroundColor3 = SHADE,
 levelUp.Parent = gui
 
 local picked: number? = nil
+local currentOfferId
 local cardButtons = {}
 
 local function cardText(c)
 	local def = info(c.kind, c.id)
 	local rarity = R.Rarity[c.rarity] or R.Rarity[1]
-	if c.kind == "weapon" then
-		return def, rarity, if c.level == 1 then "NEW WEAPON" else string.format("LV %d > %d", c.level - 1, c.level), def.Levels[c.level].Text, c.level == 1
+	if c.kind=="evolve"then
+		local e=Config.Evolutions[c.id];local w=W[c.id]
+		return {Name=e.Name,Icon=w.Icon,Color=w.Color},{Name="EVOLVE",Color=GOLD},"LV5 + "..string.upper(P[e.Passive].Name),e.Text,false
+	elseif c.kind == "weapon" then
+		local desc=def.Levels[c.level].Text
+		if c.level==5 then desc..="\nEvolve with "..P[Config.Evolutions[c.id].Passive].Name end
+		return def, rarity, if c.level == 1 then "NEW WEAPON" else string.format("LV %d > %d", c.level - 1, c.level), desc, c.level == 1
 	elseif c.kind == "passive" then
-		return def, rarity, if c.level == 1 then "NEW" else string.format("LV %d > %d", c.level - 1, c.level), string.format(def.Text, math.round(def.Per * rarity.Mult * 100)), c.level == 1
+		local amount=Config.passiveAmount(c.id,c.rarity)
+		return def, rarity, if c.level == 1 then "NEW" else string.format("LV %d > %d", c.level - 1, c.level), string.format(def.Text, math.round(amount*(if def.Flat then 1 else 100))), c.level == 1
 	end
 	return def, rarity, "", string.format("Heal %d HP", R.Heal), false
 end
@@ -350,7 +378,8 @@ local function selectCard(k: number?)
 	takeButton.BackgroundColor3 = if k then GOLD else Color3.fromRGB(140, 132, 150)
 end
 
-local function showCards(cards, rerolls: number, level: number)
+local function showCards(cards, rerolls: number, level: number, offerId)
+	currentOfferId=offerId
 	for _, b in cardButtons do
 		b.holder:Destroy()
 	end
@@ -394,11 +423,11 @@ Shared:WaitForChild("RunLevelUp").OnClientEvent:Connect(showCards)
 takeButton.Activated:Connect(function()
 	if picked then
 		levelUp.Visible = false
-		Shared.RunPick:FireServer(picked)
+		Shared.RunPick:FireServer(picked,currentOfferId)
 	end
 end)
 rerollButton.Activated:Connect(function()
-	Shared.RunReroll:FireServer()
+	Shared.RunReroll:FireServer(currentOfferId)
 end)
 
 ---------------------------------------------------------------- results
@@ -466,7 +495,7 @@ Shared:WaitForChild("RunOver").OnClientEvent:Connect(function(r)
 		track.Position = UDim2.fromOffset(186, 4)
 		fill.Size = UDim2.fromScale(pct / 100, 1)
 		new("Frame", { Size = UDim2.new(1, 0, 0, 18), BackgroundTransparency = 1, LayoutOrder = k, Parent = damageList }, {
-			text({ Size = UDim2.fromOffset(180, 18), Text = string.format("%s LV %d", string.upper(def.Name), d.level), TextSize = 13, TextXAlignment = Enum.TextXAlignment.Left }),
+			text({ Size = UDim2.fromOffset(180, 18), Text = if d.level==6 then string.upper(Config.Evolutions[d.id].Name).." EVO"else string.format("%s LV %d", string.upper(def.Name), d.level), TextSize = 13, TextXAlignment = Enum.TextXAlignment.Left }),
 			track,
 			text({ AnchorPoint = Vector2.new(1, 0), Position = UDim2.fromScale(1, 0), Size = UDim2.fromOffset(44, 18), Text = pct .. "%", TextSize = 13, TextXAlignment = Enum.TextXAlignment.Right }),
 		})

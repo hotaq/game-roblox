@@ -70,6 +70,12 @@ local rng = Random.new()
 local NONE = -32768 -- x of a free slot in a snapshot
 local runs = {} -- Player -> run state
 local axes, axeSerial, axesDirty = {}, 0, false
+local totems, totemSerial, totemsDirty = {}, 0, false
+local function clearRunTotems(player)
+	for k=#totems,1,-1 do
+		if totems[k].run.player==player then table.remove(totems,k);totemsDirty=true end
+	end
+end
 local function clearRunAxes(player)
 	for k = #axes, 1, -1 do
 		if axes[k].run.player == player then
@@ -138,7 +144,7 @@ local function publish(run)
 	local pl = run.player
 	local w, p = {}, {}
 	for _, id in run.wOrder do
-		table.insert(w, id .. "=" .. run.weapons[id])
+		table.insert(w, id .. "=" .. (if run.evolved and run.evolved[id] then 6 else run.weapons[id]))
 	end
 	for _, id in run.pOrder do
 		table.insert(p, id .. "=" .. run.passives[id])
@@ -153,14 +159,15 @@ local function publish(run)
 	pl:SetAttribute("RunArea", run.bonus.area) -- the client sizes the Fire Ring with it
 end
 
-local function rollRarity(): number
+local function rollRarity(luck: number?): number
+	luck=math.clamp(luck or 0,0,1)
 	local total = 0
-	for _, r in R.Rarity do
-		total += r.Weight
+	for i, r in R.Rarity do
+		total += r.Weight*(1+luck*(i-1))
 	end
 	local roll = rng:NextNumber(0, total)
 	for i, r in R.Rarity do
-		roll -= r.Weight
+		roll -= r.Weight*(1+luck*(i-1))
 		if roll <= 0 then
 			return i
 		end
@@ -170,9 +177,10 @@ end
 
 -- Up to 3 different cards: upgrades for what the run has, new picks while slots are free; a heal once all is maxed.
 local function makeCards(run)
-	local pool = {}
+	local pool, evolutions = {}, {}
 	for _, id in W.Order do
 		local lv = run.weapons[id]
+		if Config.canEvolve(run,id) then table.insert(evolutions,{kind="evolve",id=id,level=6,rarity=3})end
 		if lv and lv < #W[id].Levels then
 			table.insert(pool, { kind = "weapon", id = id, level = lv + 1 })
 		elseif not lv and #run.wOrder < R.WeaponSlots then
@@ -188,9 +196,12 @@ local function makeCards(run)
 		end
 	end
 	local cards = {}
+	-- Reserve one offer slot for an eligible evolution; never hide it behind an unbounded lucky roll.
+	if #evolutions>0 then table.insert(cards,table.remove(evolutions,rng:NextInteger(1,#evolutions)))end
+	for _,c in evolutions do table.insert(pool,c)end
 	while #cards < 3 and #pool > 0 do
 		local c = table.remove(pool, rng:NextInteger(1, #pool))
-		c.rarity = rollRarity()
+		c.rarity = c.rarity or rollRarity(run.bonus and run.bonus.luck)
 		table.insert(cards, c)
 	end
 	if #cards == 0 then
@@ -199,10 +210,12 @@ local function makeCards(run)
 	return cards
 end
 
+local offerSerial=0
 local function offer(run)
 	run.pausedAt = run.pausedAt or Workspace:GetServerTimeNow() -- the run clock stops while picking
 	run.cards = makeCards(run)
-	levelUp:FireClient(run.player, run.cards, run.rerolls, run.level)
+	offerSerial+=1;run.offerId=offerSerial;run.player:SetAttribute("RunOfferId",offerSerial)
+	levelUp:FireClient(run.player, run.cards, run.rerolls, run.level,run.offerId)
 end
 
 local function gainXP(run, n: number)
@@ -219,17 +232,23 @@ local function gainXP(run, n: number)
 	publish(run)
 end
 
+local function restoreRunSpeed(run)
+	if run.speedApplied and run.hum.WalkSpeed==run.speedApplied then run.hum.WalkSpeed=run.baseWalkSpeed end
+	run.speedApplied=nil
+end
 local function endRun(player: Player)
 	clearRunAxes(player)
+	clearRunTotems(player)
 	local run = runs[player]
 	if not run then
 		return
 	end
 	runs[player] = nil
+	restoreRunSpeed(run)
 	run.rocks = nil
 	local damage = {}
 	for _, id in run.wOrder do
-		table.insert(damage, { id = id, level = run.weapons[id], amount = math.round(run.damage[id] or 0) })
+		table.insert(damage, { id = id, level = if run.evolved and run.evolved[id] then 6 else run.weapons[id], amount = math.round(run.damage[id] or 0) })
 	end
 	runOver:FireClient(player, {
 		time = Workspace:GetServerTimeNow() - run.start,
@@ -237,7 +256,7 @@ local function endRun(player: Player)
 		level = run.level,
 		damage = damage,
 	})
-	for _, a in { "RunStart", "RunLevel", "RunXP", "RunXPNext", "RunKills", "RunGems", "RunLoadout", "RunArea" } do
+	for _, a in { "RunStart", "RunLevel", "RunXP", "RunXPNext", "RunKills", "RunGems", "RunLoadout", "RunArea", "RunOfferId" } do
 		player:SetAttribute(a, nil)
 	end
 end
@@ -253,10 +272,12 @@ local function startRun(player: Player, hum: Humanoid)
 		kills = 0,
 		gems = 0,
 		weapons = { sword = 1 },
+		evolved = {},
+		baseWalkSpeed = hum.WalkSpeed,
 		wOrder = { "sword" },
 		passives = {},
 		pOrder = {},
-		bonus = { might = 0, area = 0, haste = 0, magnet = 0, force = 0 },
+		bonus = { might = 0, area = 0, haste = 0, magnet = 0, force = 0, duration = 0, projectile = 0, speed = 0, luck = 0 },
 		damage = {},
 		cd = {},
 		pending = 0,
@@ -266,17 +287,22 @@ local function startRun(player: Player, hum: Humanoid)
 	runs[player] = run
 	publish(run)
 	hum.Died:Once(function()
-		endRun(player)
+		if runs[player]==run then endRun(player)end
 	end)
 end
 
-pickCard.OnServerEvent:Connect(function(player, index)
+pickCard.OnServerEvent:Connect(function(player, index, offerId)
 	local run = runs[player]
-	local c = run and run.cards and typeof(index) == "number" and run.cards[index]
+	if not run or not run.cards or (run.offerId and offerId~=run.offerId)
+		or typeof(index)~="number" or index%1~=0 or index<1 or index>#run.cards then return end
+	local c = run.cards[index]
 	if not c then
 		return
 	end
-	if c.kind == "weapon" then
+	if c.kind=="evolve" then
+		if not Config.canEvolve(run,c.id)then return end
+		run.evolved[c.id]=true;run.cd[c.id]=0
+	elseif c.kind == "weapon" then
 		if not run.weapons[c.id] then
 			table.insert(run.wOrder, c.id)
 		end
@@ -286,12 +312,16 @@ pickCard.OnServerEvent:Connect(function(player, index)
 			table.insert(run.pOrder, c.id)
 		end
 		run.passives[c.id] = c.level
-		run.bonus[c.id] += P[c.id].Per * R.Rarity[c.rarity].Mult
+		run.bonus[c.id] = (run.bonus[c.id] or 0)+Config.passiveAmount(c.id,c.rarity)
+		if c.id=="speed" then
+			run.speedApplied=run.baseWalkSpeed*(1+math.min(run.bonus.speed,.75));run.hum.WalkSpeed=run.speedApplied
+		end
 	else
 		run.hum.Health = math.min(run.hum.MaxHealth, run.hum.Health + R.Heal)
 	end
 	run.pending -= 1
 	run.cards = nil
+	run.offerId=nil;player:SetAttribute("RunOfferId",nil)
 	if run.pending > 0 then
 		offer(run)
 	else
@@ -301,9 +331,9 @@ pickCard.OnServerEvent:Connect(function(player, index)
 	publish(run)
 end)
 
-rerollCards.OnServerEvent:Connect(function(player)
+rerollCards.OnServerEvent:Connect(function(player,offerId)
 	local run = runs[player]
-	if run and run.cards and run.rerolls > 0 then
+	if run and run.cards and run.rerolls > 0 and (not run.offerId or offerId==run.offerId) then
 		run.rerolls -= 1
 		offer(run)
 	end
@@ -328,7 +358,8 @@ end)
 
 Players.PlayerRemoving:Connect(function(player)
 	clearRunAxes(player)
-	if runs[player] then runs[player].rocks=nil end
+	clearRunTotems(player)
+	if runs[player] then restoreRunSpeed(runs[player]);runs[player].rocks=nil end
 	runs[player] = nil
 	views[player], viewReadyAt[player] = nil, nil
 end)
@@ -674,6 +705,7 @@ end
 local function moveRocks(run,root,dt)
 	local level=run.weapons.rocks
 	if not level or not validRockOwner(run,root) then run.rocks=nil;return end
+	if run.evolved and run.evolved.rocks then level=6 end
 	local s=Config.weaponStats("rocks",level)
 	local pos=root.Position
 	local state=run.rocks
@@ -718,6 +750,51 @@ local function sendRocks()
 end
 -- END GAME-12 rocks simulation
 
+-- GAME-12 Totem: bounded server-owned stationary weapons; clients only draw snapshots/bolts.
+local function pruneTotems()
+	for k=#totems,1,-1 do
+		local t=totems[k]
+		if not validRockOwner(t.run,t.root) or not t.run.weapons.totem or (t.root.Position-t.lastOwner).Magnitude>48 then
+			table.remove(totems,k);totemsDirty=true
+		else t.lastOwner=t.root.Position end
+	end
+end
+local function placeTotem(run,root,s,level)
+	if not validRockOwner(run,root)then return false end
+	local owned=0;for _,t in totems do if t.run==run then owned+=1 end end
+	if owned>=2 then return false end
+	local center=arena();local pos=root.Position;totemSerial+=1
+	table.insert(totems,{id=totemSerial,run=run,root=root,lastOwner=pos,x=pos.X,z=pos.Z,y=center.Y+.15,
+		level=level,age=0,pulse=0,duration=math.min(s.Duration*(1+(run.bonus.duration or 0)),20),
+		range=s.Range*(1+run.bonus.area),damage=s.Damage*(1+run.bonus.might),targets=s.Targets,
+		interval=s.Interval*(1-math.min(run.bonus.haste,.6)),knock=s.Knock})
+	totemsDirty=true;return true
+end
+local function moveTotems(dt)
+	for k=#totems,1,-1 do
+		local t=totems[k];t.age+=dt;t.pulse-=dt
+		if t.age>=t.duration then table.remove(totems,k);totemsDirty=true
+		elseif t.pulse<=0 then
+			t.pulse=t.interval
+			local bolts={}
+			for _,slot in nearest(t.x,t.z,t.targets)do
+				if alive[slot] and (px[slot]-t.x)^2+(pz[slot]-t.z)^2<=t.range^2 then
+					table.insert(bolts,{t.x,t.z,t.y+4,px[slot],pz[slot],t.level})
+					hit(slot,t.damage,t.run,"totem",t.x,t.z,t.knock,false)
+				end
+			end
+			if #bolts>0 then fx:FireAllClients("lightning",bolts)end
+		end
+	end
+end
+local function sendTotems()
+	if #totems==0 and not totemsDirty then return end
+	local packet={}
+	for _,t in totems do table.insert(packet,{t.id,t.run.player,t.x,t.z,t.y,t.level,t.range,t.age,t.duration})end
+	fx:FireAllClients("totems",packet);totemsDirty=false
+end
+-- END GAME-12 totem simulation
+
 local function fireWeapons(run, root: BasePart, dt: number)
 	if run.weapons.rocks then moveRocks(run,root,dt) end
 	local pos = root.Position
@@ -730,7 +807,9 @@ local function fireWeapons(run, root: BasePart, dt: number)
 		if run.cd[id] > 0 then
 			continue
 		end
-		local s = Config.weaponStats(id, lv)
+		local evolved=run.evolved and run.evolved[id]
+		local visualLevel=if evolved then 6 else lv
+		local s = Config.weaponStats(id, lv, evolved)
 		if id == "sword" then
 			run.cd[id] = s.Cooldown * haste
 			-- Aim at the nearest goblin (Megabonk-style), so turning around is never the player's job.
@@ -759,6 +838,8 @@ local function fireWeapons(run, root: BasePart, dt: number)
 			around(pos.X, pos.Z, s.Radius * area, function(i)
 				hit(i, s.Damage * might, run, id, pos.X, pos.Z, s.Knock, s.Stun ~= false)
 			end)
+		elseif id=="totem" then
+			run.cd[id]=if placeTotem(run,root,s,visualLevel)then s.Cooldown*haste else .25
 		elseif id == "axe" then
 			local center, half = arena()
 			if runs[run.player] ~= run or run.hum.Health <= 0 or run.player.Character ~= root.Parent
@@ -767,28 +848,37 @@ local function fireWeapons(run, root: BasePart, dt: number)
 			end
 			local owned = 0
 			for _, a in axes do if a.run == run then owned += 1 end end
-			if owned >= 3 then run.cd[id] = 0.1; continue end
+			local amount=math.min(8,(s.Count or 1)+math.floor(run.bonus.projectile or 0))
+			local cap=math.min(16,3*amount)
+			if owned >= cap then run.cd[id] = 0.1; continue end
 			local aim = nearest(pos.X, pos.Z, 1)[1]
 			if not aim then run.cd[id] = 0.1; continue end
 			local dx, dz = px[aim] - pos.X, pz[aim] - pos.Z
 			local distance = math.sqrt(dx * dx + dz * dz)
 			if distance < 0.001 then dx, dz, distance = 0, -1, 1 end
 			run.cd[id] = s.Cooldown * haste
+			local baseAngle=math.atan2(dz,dx)
+			local aimX,aimZ=dx/distance,dz/distance
+			for k=1,math.min(amount,cap-owned)do
+			local angle=baseAngle+(k-(amount+1)/2)*.18
+			dx,dz,distance=if amount==1 then aimX else math.cos(angle),if amount==1 then aimZ else math.sin(angle),1
 			axeSerial += 1
 			table.insert(axes, { id = axeSerial, run = run, root = root, lastOwner = pos,
 				x = pos.X, z = pos.Z, dx = dx / distance, dz = dz / distance, y = pos.Y - 0.4,
 				left = s.Range * area, radius = s.Radius * area, speed = s.Speed, returnSpeed = s.ReturnSpeed,
-				damage = s.Damage * might, knock = s.Knock, level = lv, leg = 1, age = 0, hit = {} })
+				damage = s.Damage * might, knock = s.Knock, level = visualLevel, leg = 1, age = 0, hit = {} })
+			end
 			axesDirty = true
 		elseif id == "fire" then
-			local aims = nearest(pos.X, pos.Z, s.Count)
+			local amount=math.min(10,s.Count+math.floor(run.bonus.projectile or 0))
+			local aims = nearest(pos.X, pos.Z, amount)
 			if #aims == 0 then
 				run.cd[id] = 0.25 -- nothing to shoot yet: look again soon
 				continue
 			end
 			run.cd[id] = s.Cooldown * haste
-			local range = s.Range * area
-			for k = 1, s.Count do
+			local range = s.Range * area * (1+(run.bonus.duration or 0))
+			for k = 1, amount do
 				local i = aims[(k - 1) % #aims + 1]
 				local a = math.atan2(pz[i] - pos.Z, px[i] - pos.X) + (k - 1 >= #aims and (k % 2 * 2 - 1) * 0.25 or 0)
 				local dx, dz = math.cos(a), math.sin(a)
@@ -832,6 +922,7 @@ local taken = {} -- Player -> gem numbers picked up since the last send
 local function step(dt: number)
 	pruneAxes() -- also runs while the existing global card pause is active
 	pruneRocks()
+	pruneTotems()
 	-- Lifetime cleanup must run even when another player is choosing a card.
 	for k = #shots, 1, -1 do
 		local run = shots[k].run
@@ -982,6 +1073,7 @@ local function step(dt: number)
 	end
 	moveShots(dt)
 	moveAxes(dt)
+	moveTotems(dt)
 	for g, gem in gems do
 		for _, t in targets do
 			if t.run then
@@ -1242,6 +1334,7 @@ end
 
 local function send(): number
 	sendRocks()
+	sendTotems()
 	if networkMode=="broadcast" then
 		local bytes=sendBroadcast()
 		if networkSample then for _,p in Players:GetPlayers() do networkSample.bytes[p]=(networkSample.bytes[p] or 0)+bytes end end
@@ -1255,6 +1348,7 @@ end
 local benchmarkArgs, benchmarkSample
 local axeTestArgs
 local rocksTestArgs
+local completeTestArgs
 local objectiveTestArgs
 local cleanupTestArgs
 local networkTestArgs, networkManual
@@ -1269,6 +1363,9 @@ if RunService:IsStudio() then
 	end
 	if ok and typeof(args)=="table" and args.name=="GAME12Rocks" then
 		rocksTestArgs=args;Shared:SetAttribute("GAME12RocksActive",true)
+	end
+	if ok and typeof(args)=="table" and args.name=="GAME12Complete" then
+		completeTestArgs=args;Shared:SetAttribute("GAME12CompleteActive",true)
 	end
 	if ok and typeof(args)=="table" and args.name=="GAME29Objective" then
 		objectiveTestArgs=args;objectiveEnabled=true;Shared:SetAttribute("GAME29Active",true)
@@ -1292,7 +1389,7 @@ RunService.Heartbeat:Connect(function(dt)
 	while simAcc >= 1 / H.SimRate do
 		simAcc -= 1 / H.SimRate
 		local t0 = os.clock()
-		if not axeTestArgs and not rocksTestArgs and not objectiveTestArgs and not cleanupTestArgs and not networkManual then step(1 / H.SimRate) end -- named fixtures drive exact steps
+		if not axeTestArgs and not rocksTestArgs and not completeTestArgs and not objectiveTestArgs and not cleanupTestArgs and not networkManual then step(1 / H.SimRate) end -- named fixtures drive exact steps
 		local elapsed = os.clock() - t0
 		if networkSample then table.insert(networkSample.step,elapsed*1000) end
 		simTime += elapsed
@@ -2055,6 +2152,140 @@ if rocksTestArgs then
 end
 
 -- GAME-24 same-scene broadcast/interest comparison and real-client lifecycle acceptance.
+-- GAME12 complete acceptance: deliberately drives production functions and real client remotes.
+if completeTestArgs then
+	local sts=game:GetService("StudioTestService")
+	local bridge=Instance.new("RemoteFunction");bridge.Name,bridge.Parent="GAME12CompleteTest",Shared
+	local ready,checks,errors={},{},{};local finished=false
+	bridge.OnServerInvoke=function(p)ready[p]=true;return true end
+	local function finish(report)if not finished then finished=true;sts:EndTest(report)end end
+	task.delay(300,function()finish({ok=false,error="Complete deadline",checks=checks,errors=errors})end)
+	game:GetService("ScriptContext").Error:Connect(function(message,_,source)
+		if source and source.Name:find("Goblin",1,true)then table.insert(errors,message)end
+	end)
+	local function check(v,label)assert(v,label);table.insert(checks,label)end
+	local function waitFor(fn,label)
+		local stop=os.clock()+45;repeat if fn()then return end;task.wait(.05)until os.clock()>stop;error("Complete timeout: "..label)
+	end
+	local function snap(p)return bridge:InvokeClient(p,"report")end
+	task.spawn(function()
+		local report={checks=checks,errors=errors,clients=completeTestArgs.clients,mode="real card/offer identity/combat/replication/lifecycle"}
+		local ok,err=xpcall(function()
+			waitFor(function()
+				if #Players:GetPlayers()~=completeTestArgs.clients then return false end
+				for _,p in Players:GetPlayers()do if not ready[p]or not p.Character or not p.Character:FindFirstChild("HumanoidRootPart")then return false end end
+				return true
+			end,"participants")
+			Workspace:SetAttribute("Arena","Map1");override=0;local center=assert(arena())
+			local list=Players:GetPlayers();local a,b=list[1],list[2]
+			local function prepare(p,x)
+				if runs[p]then endRun(p)end
+				local root,hum=p.Character.HumanoidRootPart,p.Character:FindFirstChildOfClass("Humanoid")
+				root.Anchored=true;root.CFrame=CFrame.new(center+Vector3.new(x,4,0))
+				if not p.Character:FindFirstChildOfClass("ForceField")then Instance.new("ForceField",p.Character).Visible=false end
+				startRun(p,hum);local r=runs[p];r.weapons={};r.wOrder={};r.next=1e9;publish(r);return r,root
+			end
+			local ra,rootA=prepare(a,0)
+			local function forceCard(p,r,c)
+				r.cards={c};r.pending=1;r.pausedAt=Workspace:GetServerTimeNow();offerSerial+=1;r.offerId=offerSerial;p:SetAttribute("RunOfferId",offerSerial)
+				levelUp:FireClient(p,r.cards,r.rerolls,r.level,r.offerId);task.wait(.1)
+				bridge:InvokeClient(p,"pick",{offerId=r.offerId});waitFor(function()return not r.cards end,"forced card selection")
+			end
+			-- All new passives level through the real server event, including rarity rules.
+			for _,id in {"duration","projectile","speed","luck"}do
+				for level=1,5 do forceCard(a,ra,{kind="passive",id=id,level=level,rarity=3})end
+				check(ra.passives[id]==5 and math.abs(ra.bonus[id]-5*Config.passiveAmount(id,3))<.0001,id.." five real cards accumulate expected bonus")
+			end
+			check(ra.bonus.projectile==5,"Projectile stays integer and does not multiply by rarity")
+			check(ra.hum.WalkSpeed>ra.baseWalkSpeed and ra.hum.WalkSpeed<=ra.baseWalkSpeed*1.75,"Speed applies bounded movement increase")
+			local base=ra.baseWalkSpeed;endRun(a);check(ra.hum.WalkSpeed==base,"run end restores original movement speed")
+			ra,rootA=prepare(a,0)
+			-- Independent eligibility boundaries and real explicit Evolve cards for every weapon.
+			for _,id in W.Order do
+				local pair=Config.Evolutions[id].Passive
+				local trial={weapons={[id]=4},passives={[pair]=1},evolved={}}
+				check(not Config.canEvolve(trial,id),id.." cannot evolve at level4")
+				trial.weapons[id]=5;trial.passives[pair]=nil;check(not Config.canEvolve(trial,id),id.." requires paired passive")
+				ra.weapons={[id]=5};ra.wOrder={id};ra.passives={[pair]=1};ra.pOrder={pair};ra.evolved={};ra.pending=2;ra.cd={};publish(ra);offer(ra)
+				check(ra.cards[1].kind=="evolve"and ra.cards[1].id==id,"eligible "..id.." has guaranteed explicit Evolve offer")
+				local oldId=ra.offerId
+				waitFor(function()return table.find(snap(a).text,Config.Evolutions[id].Name)~=nil end,"evolve title")
+				bridge:InvokeClient(a,"pick",{offerId=oldId});waitFor(function()return ra.evolved[id]==true end,"evolve")
+				check(ra.weapons[id]==5 and #ra.wOrder==1 and ra.passives[pair]==1 and not Config.canEvolve(ra,id),id.." evolves once without consuming passive or another slot")
+				local currentId,pending=ra.offerId,ra.pending
+				bridge:InvokeClient(a,"pick",{offerId=oldId});task.wait(.15)
+				check(ra.offerId==currentId and ra.pending==pending,"old "..id.." pick cannot consume next queued offer")
+				bridge:InvokeClient(a,"reroll",currentId);waitFor(function()return ra.offerId~=currentId end,"reroll")
+				local rerolled=ra.offerId;bridge:InvokeClient(a,"pick",{offerId=currentId});task.wait(.15)
+				check(ra.offerId==rerolled,"old "..id.." reroll card rejected")
+				bridge:InvokeClient(a,"review",center+Vector3.new(0,2,0))
+				waitFor(function()return snap(a).evo>=1 end,"EVO HUD")
+				check(a:GetAttribute("RunLoadout"):find(id.."=6",1,true)~=nil,id.." evolved level6 is published to HUD")
+				ra.cards=nil;ra.pending=0;ra.offerId=nil;ra.pausedAt=nil;ra.rerolls=R.Rerolls
+			end
+			ra,rootA=prepare(a,0)
+			local function targets(n)
+				table.clear(alive);table.clear(free);table.clear(grid);top=n;count=n
+				for i=1,n do
+					alive[i],px[i],pz[i],hp[i]=true,center.X+i*2,center.Z+5,10000
+					generation[i]=(generation[i]or 0)+1;kvx[i],kvz[i],stunUntil[i],slowUntil[i]=0,0,0,0
+					local cell=key(px[i]//CELL,pz[i]//CELL);grid[cell]=grid[cell]or {};table.insert(grid[cell],i)
+				end
+			end
+			for level=1,5 do
+				forceCard(a,ra,{kind="weapon",id="totem",level=level,rarity=1});clearRunTotems(a);ra.cd.totem=0;targets(6)
+				fireWeapons(ra,rootA,0);moveTotems(.01);send()
+				local s=Config.weaponStats("totem",level);local damaged=0
+				for i=1,6 do if hp[i]<10000 then damaged+=1;check(hp[i]==10000-s.Damage,"totem Lv"..level.." exact pulse damage target"..i)end end
+				check(damaged==s.Targets and stunUntil[1]==0,"totem Lv"..level.." nearest target count and no stun")
+				waitFor(function()return snap(a).totems==1 and snap(a).icons>=1 end,"totem visual/icon")
+			end
+			local t=totems[1];local age,health=t.age,hp[1];ra.cards={{kind="heal"}}
+			for _=1,10 do step(1/H.SimRate)end
+			check(t.age==age and hp[1]==health,"card pause freezes lifetime and damage")
+			rootA.Position+=Vector3.new(60,0,0);step(1/H.SimRate);send();check(#totems==0,"teleport clears totem even during card pause")
+			ra.cards=nil;rootA.CFrame=CFrame.new(center+Vector3.new(0,4,0));ra.cd.totem=0;ra.bonus.duration=.75
+			fireWeapons(ra,rootA,0);check(math.abs(totems[1].duration-10.5)<.001,"Duration scales stationary totem lifetime")
+			ra.cd.totem=0;fireWeapons(ra,rootA,0);ra.cd.totem=0;fireWeapons(ra,rootA,0);check(#totems==2,"at most two active totems per owner")
+			moveTotems(11);send();check(#totems==0,"active lifetime expires and clears both totems")
+			-- Projectile effects use real firing state, with bounded volley and duration.
+			ra.weapons={fire=5,axe=5};ra.evolved={fire=true,axe=true};ra.bonus.projectile=5;ra.cd={};targets(6);table.clear(shots);table.clear(axes)
+			fireWeapons(ra,rootA,0)
+			check(#shots==10 and #axes==7,"Projectile adds to evolved fireball and axe volleys within caps")
+			check(math.abs(shots[1].t-Config.weaponStats("fire",6).Range*1.75/Config.weaponStats("fire",6).Speed)<.001,"Duration extends actual fireball lifetime")
+			for _=1,5 do ra.cd.axe=0;fireWeapons(ra,rootA,0)end
+			check(#axes==16,"repeated evolved volleys obey hard active axe cap")
+			table.clear(shots);clearRunAxes(a);ra,rootA=prepare(a,-5)
+			local rb,rootB;if b then rb,rootB=prepare(b,7)end
+			ra.weapons={totem=5,rocks=5};ra.wOrder={"totem","rocks"};ra.evolved={totem=true,rocks=true};ra.bonus.duration=.15;publish(ra)
+			targets(6);placeTotem(ra,rootA,Config.weaponStats("totem",6),6);ra.cd.totem=6;moveTotems(.01)
+			check(hp[1]==10000-34 and hp[4]==10000-34 and hp[5]==10000,"evolved shrine hits four nearest targets")
+			fireWeapons(ra,rootA,0)
+			if rb then rb.weapons={totem=1};rb.wOrder={"totem"};publish(rb);fireWeapons(rb,rootB,0)end
+			send()
+			local expected=if b then 2 else 1
+			waitFor(function()return snap(a).totems==expected and snap(a).rocks==6 and (not b or snap(b).totems==expected)end,"shared visuals")
+			check(snap(a).nonCosmetic==0 and (not b or snap(b).nonCosmetic==0),"both clients draw only anchored nonphysics totems")
+			check(snap(a).parts<=expected*20,"totem visual part budget <=20 per model")
+			for _,p in list do bridge:InvokeClient(p,"review",center+Vector3.new(0,2,0))end
+			Shared:SetAttribute("GAME12CompleteProgress","review")
+			local stop=os.clock()+math.clamp(completeTestArgs.reviewSeconds or 0,0,60)
+			repeat moveTotems(1/H.SimRate);fireWeapons(ra,rootA,1/H.SimRate);if rb then fireWeapons(rb,rootB,1/H.SimRate)end;task.wait(1/H.SimRate)until os.clock()>=stop
+			report.review={a=snap(a),b=if b then snap(b)else nil}
+			check(report.review.a.bolts<=48,"lightning segment count bounded")
+			endRun(a);send();waitFor(function()return snap(a).totems==(if b then 1 else 0)end,"one end")
+			check(#totems==(if b then 1 else 0),"ending owner preserves only peer totem")
+			ra,rootA=prepare(a,-5);check(next(ra.evolved)==nil and ra.bonus.duration==0 and ra.bonus.projectile==0 and ra.bonus.luck==0,"fresh run resets all evolution and passive state")
+			ra.weapons={totem=1};ra.wOrder={"totem"};publish(ra);fireWeapons(ra,rootA,0);send()
+			if b then bridge:InvokeClient(b,"leave");waitFor(function()return b.Parent~=Players end,"disconnect");send();check(runs[b]==nil and #totems==1,"real disconnect clears peer totem only")end
+			ra.hum.Health=0;waitFor(function()return runs[a]==nil end,"death");send()
+			waitFor(function()return snap(a).totems==0 end,"death visual cleanup");check(#totems==0,"death clears all final totems")
+			check(#errors==0 and #snap(a).errors==0 and (not report.review.b or #report.review.b.errors==0),"zero captured Goblin runtime errors")
+		end,debug.traceback)
+		report.ok,report.error=ok,if ok then nil else tostring(err);finish(report)
+	end)
+end
+
 if networkTestArgs then
 	local sts=game:GetService("StudioTestService")
 	local bridge=Instance.new("RemoteFunction");bridge.Name,bridge.Parent="GAME24Network",Shared

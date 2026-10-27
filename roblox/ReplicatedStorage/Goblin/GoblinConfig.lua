@@ -147,7 +147,17 @@ Config.Run = {
 -- Weapons fire on their own. Levels add up: level 3 = Levels[1] + [2] + [3]. Text is the card line for that level.
 -- Knock = its share of the Force knockback; Stun = false for a weapon whose hits must not stun (they still slow).
 Config.Weapons = {
-	Order = { "sword", "fire", "ring", "axe", "rocks" },
+	Order = { "sword", "fire", "ring", "axe", "rocks", "totem" },
+	totem = {
+		Name = "Lightning Totem", Icon = "T", Color = Color3.fromRGB(108, 190, 203),
+		Levels = {
+			{ Text = "Place a stone totem that zaps nearby goblins", Damage = 18, Cooldown = 7, Duration = 5, Range = 18, Targets = 1, Interval = 1, Knock = .2, Stun = false },
+			{ Text = "Stronger lightning", Damage = 25 },
+			{ Text = "Zap two goblins each pulse", Targets = 2 },
+			{ Text = "Longer reach and lifetime", Range = 22, Duration = 6 },
+			{ Text = "Three targets, faster pulses", Targets = 3, Interval = .8 },
+		},
+	},
 	rocks = {
 		Name = "Orbit Rocks", Icon = "RO", Color = Color3.fromRGB(153, 177, 132),
 		Levels = {
@@ -211,14 +221,40 @@ Config.Weapons = {
 
 -- Passives: each level adds Per x the card's rarity Mult. Text takes the percent.
 Config.Passives = {
-	Order = { "might", "area", "haste", "magnet", "force" },
+	Order = { "might", "area", "haste", "magnet", "force", "duration", "projectile", "speed", "luck" },
 	MaxLevel = 5,
 	might = { Name = "Might", Icon = "^", Color = Color3.fromRGB(255, 210, 90), Per = 0.10, Text = "+%d%% damage for all weapons" },
 	area = { Name = "Area", Icon = "[]", Color = Color3.fromRGB(111, 208, 160), Per = 0.10, Text = "+%d%% attack size" },
 	haste = { Name = "Haste", Icon = ">>", Color = Color3.fromRGB(111, 176, 245), Per = 0.08, Text = "-%d%% weapon cooldown" },
 	magnet = { Name = "Magnet", Icon = "U", Color = Color3.fromRGB(240, 120, 160), Per = 0.25, Text = "+%d%% gem pickup range" },
 	force = { Name = "Force", Icon = "<>", Color = Color3.fromRGB(245, 140, 90), Per = 0.5, Text = "Hits knock goblins back (+%d%%)" },
+	duration = { Name = "Duration", Icon = "D", Color = Color3.fromRGB(103, 193, 172), Per = .15, Text = "+%d%% fireball and totem lifetime" },
+	projectile = { Name = "Projectile", Icon = "+", Color = Color3.fromRGB(229, 171, 87), Per = 1, Flat = true, Text = "+%d fireball and axe per volley" },
+	speed = { Name = "Speed", Icon = ">", Color = Color3.fromRGB(131, 192, 221), Per = .08, Text = "+%d%% movement speed" },
+	luck = { Name = "Luck", Icon = "?", Color = Color3.fromRGB(174, 151, 214), Per = .12, Text = "+%d%% rarity luck (better Rare/Epic odds)" },
 }
+
+-- One explicit evolution card: Lv5 weapon + this passive at any level. No extra slot.
+-- Names and stat overrides are shared by combat, HUD and results. Sword specials remain GAME-34.
+Config.Evolutions = {
+	sword = { Passive="might", Name="Ruin Cleaver", Text="Stronger, wider slashes on both sides", Stats={Damage=28,Range=9,Arc=180,Cooldown=.7,Knock=1.3} },
+	fire = { Passive="projectile", Name="Ember Volley", Text="Five fireballs pierce three goblins each", Stats={Damage=24,Count=5,Pierce=3,Cooldown=1.05} },
+	ring = { Passive="area", Name="Inferno Halo", Text="A wider halo burns harder and faster", Stats={Damage=12,Radius=14,Interval=.35} },
+	axe = { Passive="speed", Name="Gale Axe", Text="Two swift axes return from longer throws", Stats={Damage=42,Count=2,Radius=2.8,Range=38,Speed=60,ReturnSpeed=90,Cooldown=1.4} },
+	rocks = { Passive="force", Name="Ancient Ward", Text="Six heavy stones orbit with stronger force", Stats={Damage=35,Count=6,Radius=1.7,Orbit=8,Speed=2.7,Interval=.45,Knock=.7} },
+	totem = { Passive="duration", Name="Storm Shrine", Text="Long-lived shrine zaps four targets faster", Stats={Damage=34,Targets=4,Range=24,Duration=9,Interval=.65,Cooldown=6} },
+}
+
+function Config.passiveAmount(id, rarity)
+	local def=Config.Passives[id]
+	return def.Per * (if def.Flat then 1 else Config.Run.Rarity[rarity].Mult)
+end
+
+function Config.canEvolve(run, id)
+	local def=Config.Evolutions[id]
+	return def~=nil and run.weapons[id]==#Config.Weapons[id].Levels
+		and (run.passives[def.Passive] or 0)>0 and not (run.evolved and run.evolved[id])
+end
 
 -- Pixel icons for the run UI: one sprite sheet from scripts/13_icons.py (textures/ui/icons.png), 128 px cells.
 -- Re-upload and replace Image if the PNG changes; Cells come from the script's printout.
@@ -241,12 +277,15 @@ Config.Icons = {
 }
 
 -- Stats of a weapon at a level: its Levels[1..level] merged.
-function Config.weaponStats(id: string, level: number)
+function Config.weaponStats(id: string, level: number, evolved: boolean?)
 	local s = {}
-	for i = 1, level do
+	for i = 1, math.min(level,#Config.Weapons[id].Levels) do
 		for k, v in Config.Weapons[id].Levels[i] do
 			s[k] = v
 		end
+	end
+	if evolved or level>#Config.Weapons[id].Levels then
+		for k,v in Config.Evolutions[id].Stats do s[k]=v end
 	end
 	return s
 end

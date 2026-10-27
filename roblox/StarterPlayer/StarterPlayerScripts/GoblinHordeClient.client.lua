@@ -588,7 +588,7 @@ local function makeAxeVisual(parent: Instance, level: number, scale: number)
 		block("Rivet", Vector3.new(0.24, 0.12, 0.24), Vector3.new(side * 0.64, 0.22, -0.5), trim)
 	end
 	block("Crest", Vector3.new(0.28, 0.12, 0.4), Vector3.new(0, 0.29, -0.5), inlay)
-	if level == 5 then
+	if level >= 5 then
 		for _, side in {-1, 1} do
 			block("GoldInlay", Vector3.new(0.15, 0.08, 0.66), Vector3.new(side * 1.03, 0.2, -0.5), trim)
 		end
@@ -681,6 +681,73 @@ local function receiveRocks(packet)
 end
 -- END GAME-12 rocks visual
 
+-- GAME-12 totem visual: ruin stone, moss and a small cyan rune core. No physical hitboxes.
+local totemViews={}
+local activeBolts=0
+local function makeTotemVisual(parent,level)
+	local model=Instance.new("Model");model.Name="LightningTotem"
+	local stone=Color3.fromRGB(100,115,109);local gold=Color3.fromRGB(205,164,78)
+	local cyan=if level>=6 then Color3.fromRGB(183,241,231)else Color3.fromRGB(75,188,204)
+	local function block(name,size,pos,color,material)
+		local p=Instance.new("Part");p.Name=name;p.Size=size;p.CFrame=CFrame.new(pos);p.Color=color
+		p.Material=material or Enum.Material.Plastic;p.Anchored=true
+		p.CanCollide,p.CanTouch,p.CanQuery,p.CastShadow=false,false,false,false;p.Parent=model;return p
+	end
+	local base=block("Plinth",Vector3.new(2.8,.45,2.8),Vector3.new(0,.225,0),stone);model.PrimaryPart=base
+	block("Step",Vector3.new(2.1,.45,2.1),Vector3.new(0,.675,0),Color3.fromRGB(143,150,130))
+	block("CarvedStone",Vector3.new(1.35,2.2,1.35),Vector3.new(0,2,0),stone)
+	block("Moss",Vector3.new(.7,.12,.8),Vector3.new(-.6,.95,.25),Color3.fromRGB(82,120,61))
+	block("Brow",Vector3.new(1.7,.3,1.6),Vector3.new(0,2.75,0),gold)
+	for _,side in {-1,1}do
+		block("Eye",Vector3.new(.28,.24,.08),Vector3.new(side*.35,2.35,-.72),cyan,Enum.Material.Neon)
+		if level>=3 then block("Wing",Vector3.new(.4,1.1,.6),Vector3.new(side*1,2.3,0),stone)end
+	end
+	block("Rune",Vector3.new(.18,.8,.08),Vector3.new(0,1.5,-.72),gold)
+	block("Crown",Vector3.new(1.6,.3,1.6),Vector3.new(0,3.25,0),stone)
+	local core=block("StormCore",Vector3.new(.65,.8,.65),Vector3.new(0,3.8,0),cyan,Enum.Material.Neon)
+	core.CFrame*=CFrame.Angles(0,math.pi/4,0)
+	if level>=5 then
+		for _,side in {-1,1}do block("CrownProng",Vector3.new(.25,.85,.25),Vector3.new(side*.7,3.7,0),gold)end
+	end
+	if level>=6 then block("AncientSeal",Vector3.new(.9,.12,.9),Vector3.new(0,4.35,0),gold)end
+	base.PivotOffset=CFrame.new(0,-.225,0);model.Parent=parent;return model
+end
+local function receiveTotems(packet)
+	local seen={}
+	for _,row in packet do
+		local id,owner,x,z,y,level=table.unpack(row)
+		if not owner or not owner.Character then continue end
+		local v=totemViews[id]
+		if not v then
+			v={model=makeTotemVisual(folder,level),owner=owner,character=owner.Character};totemViews[id]=v
+			v.model:PivotTo(CFrame.new(x,y,z))
+		end
+		seen[id]=true
+	end
+	for id,v in totemViews do if not seen[id]then v.model:Destroy();totemViews[id]=nil end end
+end
+local function drawLightning(packet)
+	local camera=Workspace.CurrentCamera
+	for _,row in packet do
+		if activeBolts>=16 then break end
+		local x,z,y,tx,tz,level=table.unpack(row)
+		local start,finish=Vector3.new(x,y,z),Vector3.new(tx,y-1.5,tz)
+		if not camera or (camera.CFrame.Position-start).Magnitude>180 then continue end
+		activeBolts+=1;local pieces={};local previous=start
+		for k=1,3 do
+			local point=start:Lerp(finish,k/3)+(if k==3 then Vector3.zero else Vector3.new(.4*(if k==1 then 1 else -1),.45,0))
+			local length=(point-previous).Magnitude
+			local p=Instance.new("Part");p.Name="TotemBolt";p.Size=Vector3.new(.09,.09,math.max(length,.01))
+			p.CFrame=if length>.001 then CFrame.lookAt((previous+point)/2,point)else CFrame.new(point)
+			p.Color=if level>=6 then Color3.fromRGB(234,244,178)else Color3.fromRGB(145,231,239)
+			p.Material=Enum.Material.Neon;p.Anchored=true;p.CanCollide=false;p.CanQuery=false;p.CanTouch=false;p.CastShadow=false
+			p.Parent=folder;table.insert(pieces,p);previous=point
+		end
+		task.delay(.14,function()for _,p in pieces do p:Destroy()end;activeBolts-=1 end)
+	end
+end
+-- END GAME-12 totem visual
+
 -- One sword swing around `root` aimed at (lx, lz); `key` remembers which way the last swing went so they alternate.
 local function swing(key: any, root: BasePart, tier, range: number, arc: number, back: boolean?, lx: number, lz: number)
 	local aim, half = math.atan2(lz, lx), math.rad(arc / 2)
@@ -744,6 +811,10 @@ Shared:WaitForChild("HordeFx").OnClientEvent:Connect(function(kind: string, ...)
 		receiveAxes(...)
 	elseif kind == "rocks" then
 		receiveRocks(...)
+	elseif kind=="totems" then
+		receiveTotems(...)
+	elseif kind=="lightning" then
+		drawLightning(...)
 	elseif kind == "fire" then
 		local x, z, dx, dz, speed, range = ...
 		local p = pooled(ballPool, function()
@@ -769,6 +840,12 @@ end
 
 local parts, cframes = {}, {}
 RunService.RenderStepped:Connect(function(dt)
+	for id,v in totemViews do
+		local hum=v.character:FindFirstChildOfClass("Humanoid")
+		if v.owner.Parent~=Players or v.owner.Character~=v.character or not hum or hum.Health<=0 or not v.owner:GetAttribute("RunStart")then
+			v.model:Destroy();totemViews[id]=nil
+		end
+	end
 	local rockAlpha=1-math.exp(-dt*24)
 	for owner,v in rockViews do
 		local hum=v.character:FindFirstChildOfClass("Humanoid")

@@ -14,7 +14,7 @@ local lastPacket
 local fx={FireAllClients=function(_,kind,packet) lastPacket=packet end}
 ]=]..span(serverSource,"local rockSerial,", "-- END GAME-12 rocks simulation")..[=[
 local W,P,R=Config.Weapons,Config.Passives,Config.Run
-local rng={NextNumber=function() return 0 end,NextInteger=function(_,_,high) return high end}
+local rng={NextNumber=function() return 0 end,NextInteger=function(_,_,high) return math.max(1,high-1) end}
 ]=]..span(serverSource,"local function rollRarity(","local function offer(")..[=[
 local checks={}
 local function check(v,label) assert(v,label);table.insert(checks,label) end
@@ -66,13 +66,14 @@ local ok,err=xpcall(function()
  check(not other.rocks,"replaced character cannot retain orbit");other.player.Character:Destroy();other.player.Character=previous
  moveRocks(other,root2,0);for i=1,100 do other.rocks.hit[i]={incarnation=-1,untilAge=99} end
  moveRocks(other,root2,1/30);local n=0;for _ in other.rocks.hit do n+=1 end;check(n<=1,"stale incarnation ledger entries are bounded and pruned")
- local cardsRun={weapons={},wOrder={},passives={},pOrder={}}
+ local cardsRun={weapons={},wOrder={},passives={},pOrder={},evolved={}}
  for _,id in P.Order do cardsRun.passives[id]=P.MaxLevel;table.insert(cardsRun.pOrder,id) end
  local cards=makeCards(cardsRun);check(cards[1].id=="rocks" and cards[1].level==1,"rocks participates in ordinary new-weapon card pool")
  cardsRun.weapons.rocks=5;cardsRun.wOrder={"rocks"};cards=makeCards(cardsRun)
- local hasRocks=false;for _,c in cards do if c.id=="rocks" then hasRocks=true end end
+ local hasRocks=false;for _,c in cards do if c.id=="rocks" and c.kind=="weapon" then hasRocks=true end end
  check(not hasRocks,"max-level rocks does not appear as another upgrade")
  cardsRun.weapons={sword=5,fire=5,ring=5,axe=5};cardsRun.wOrder={"sword","fire","ring","axe"};cards=makeCards(cardsRun)
+ cardsRun.evolved={sword=true,fire=true,ring=true,axe=true};cards=makeCards(cardsRun)
  check(cards[1].kind=="heal","full weapon slots prevent acquiring a fifth weapon")
 end,debug.traceback)
 folder:Destroy();assert(ok,err)

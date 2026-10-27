@@ -22,7 +22,7 @@ local runOver={FireClient=function() end}
 		..span("local function kill(", "-- The run arena:")
 		..span("local grid = {}", "---------------------------------------------------------------- runs, XP, cards")
 		..span("local function rollRarity(", "local function offer(")
-		..span("local function endRun(", "local function startRun(")
+		..span("local function restoreRunSpeed(", "local function startRun(")
 		..span("local hitLog = {}", "local function moveShots(")
 		..[=[
 local checks={}
