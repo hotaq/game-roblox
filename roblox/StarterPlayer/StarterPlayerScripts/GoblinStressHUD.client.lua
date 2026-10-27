@@ -21,6 +21,10 @@ if ReplicatedStorage.Goblin:GetAttribute("GAME23Active") then
 		local Stats=game:GetService("Stats")
 		local bridge=ReplicatedStorage.Goblin:WaitForChild("GAME23Benchmark",30)
 		if not bridge then return end
+		local center=Workspace:WaitForChild("StressZone"):GetAttribute("Center")
+		local camera=Workspace.CurrentCamera
+		camera.CameraType=Enum.CameraType.Scriptable
+		camera.CFrame=CFrame.lookAt(center+Vector3.new(70,65,70),center)
 		local sample
 		local function summary(values)
 			table.sort(values)
