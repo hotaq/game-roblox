@@ -118,6 +118,39 @@ if ReplicatedStorage.Goblin:GetAttribute("GAME23Active") then
 	end)
 end
 
+-- GAME-25 participant: real restart/lobby remotes and observations, enabled only by the named Studio test.
+if ReplicatedStorage.Goblin:GetAttribute("GAME25Active") then
+	task.spawn(function()
+		local shared = ReplicatedStorage.Goblin
+		local bridge = shared:WaitForChild("GAME25Cleanup",45)
+		local probe = shared:WaitForChild("GAME25VisualProbe",45)
+		assert(player:WaitForChild("PlayerGui"):WaitForChild("GoblinRunUI",45),"cleanup UI readiness")
+		local errors = {}
+		game:GetService("ScriptContext").Error:Connect(function(message,_,source)
+			if source and source.Name:find("Goblin",1,true) then table.insert(errors,message) end
+		end)
+		bridge.OnClientInvoke = function(action)
+			if action == "restart" then shared.RunRestart:FireServer(); return true end
+			if action == "lobby" then shared.RunLobby:FireServer(); return true end
+			if action == "pick" then shared.RunPick:FireServer(1); return true end
+			if action == "leave" then
+				task.delay(0.2,function() game:GetService("StudioTestService"):LeaveTest() end)
+				return true
+			end
+			local stats = game:GetService("Stats")
+			local result = probe:Invoke()
+			result.memoryMb, result.instances, result.luaKb = stats:GetTotalMemoryUsageMb(), stats.InstanceCount, gcinfo()
+			result.uiInstances = #player.PlayerGui.GoblinRunUI:GetDescendants()
+			local sounds = game:GetService("SoundService"):FindFirstChild("GoblinSFX")
+			result.soundTemplates = sounds and #sounds:GetChildren() or 0
+			result.sounds = sounds and sounds:GetAttributes() or {}
+			result.errors = table.clone(errors)
+			return result
+		end
+		bridge:InvokeServer("ready")
+	end)
+end
+
 local gui = Instance.new("ScreenGui")
 gui.Name, gui.ResetOnSpawn = "GoblinStressHUD", false
 local panel = Instance.new("Frame")

@@ -605,3 +605,23 @@ RunService.RenderStepped:Connect(function(dt)
 	end
 	Workspace:BulkMoveTo(parts, cframes, Enum.BulkMoveMode.FireCFrameChanged)
 end)
+
+-- GAME-25: opt-in observations of the real tables; no counters or extra instances in normal play.
+if RunService:IsStudio() and Shared:GetAttribute("GAME25Active") then
+	local probe = Instance.new("BindableFunction")
+	probe.Name = "GAME25VisualProbe"
+	probe.OnInvoke = function()
+		local function size(t) local n=0; for _ in t do n+=1 end; return n end
+		local orphanRings, orphanSides, visibleNumbers = 0, 0, 0
+		for p in rings do if p.Parent ~= Players then orphanRings+=1 end end
+		for p in swingSide do if p.Parent ~= Players then orphanSides+=1 end end
+		for _, d in folder:GetDescendants() do
+			if d:IsA("TextLabel") and d.TextTransparency < 1 then visibleNumbers+=1 end
+		end
+		return {live=size(live),modelPool=#pool,gems=size(gems),gemPool=#gemPool,balls=#balls,ballPool=#ballPool,
+			axes=size(axeViews),rings=size(rings),orphanRings=orphanRings,orphanSides=orphanSides,
+			flashPool=#flashPool,numberPool=#numberPool,visibleNumbers=visibleNumbers,sweepPool=#sweepPool,
+			hordeInstances=#folder:GetDescendants()}
+	end
+	probe.Parent = Shared
+end

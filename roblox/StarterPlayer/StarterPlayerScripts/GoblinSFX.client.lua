@@ -33,6 +33,9 @@ local function play(name: string, pitch: number?)
 	local range = def.Pitch
 	templates[name].PlaybackSpeed = pitch or (range and range[1] + math.random() * (range[2] - range[1])) or 1
 	SoundService:PlayLocalSound(templates[name])
+	if game:GetService("RunService"):IsStudio() and Shared:GetAttribute("GAME25Active") then
+		folder:SetAttribute(name, (folder:GetAttribute(name) or 0) + 1)
+	end
 end
 
 local function swordLevel(): number

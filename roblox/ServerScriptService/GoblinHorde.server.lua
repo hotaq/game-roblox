@@ -822,6 +822,7 @@ end
 -- GAME-23: opt-in measurement only; normal Studio/production runs do not allocate samples.
 local benchmarkArgs, benchmarkSample
 local axeTestArgs
+local cleanupTestArgs
 if RunService:IsStudio() then
 	local ok, args = pcall(function() return game:GetService("StudioTestService"):GetTestArgs() end)
 	if ok and typeof(args) == "table" and args.name == "GAME23Baseline" then
@@ -830,6 +831,10 @@ if RunService:IsStudio() then
 	if ok and typeof(args) == "table" and args.name == "GAME12Axe" then
 		axeTestArgs = args
 		Shared:SetAttribute("GAME12AxeActive", true)
+	end
+	if ok and typeof(args) == "table" and args.name == "GAME25Cleanup" then
+		cleanupTestArgs = args
+		Shared:SetAttribute("GAME25Active", true)
 	end
 end
 local simAcc, sendAcc, statAcc = 0, 0, 0
@@ -842,7 +847,7 @@ RunService.Heartbeat:Connect(function(dt)
 	while simAcc >= 1 / H.SimRate do
 		simAcc -= 1 / H.SimRate
 		local t0 = os.clock()
-		if not axeTestArgs then step(1 / H.SimRate) end -- the named acceptance fixture drives exact steps
+		if not axeTestArgs and not cleanupTestArgs then step(1 / H.SimRate) end -- named fixtures drive exact steps
 		local elapsed = os.clock() - t0
 		simTime += elapsed
 		if benchmarkSample then
@@ -1184,6 +1189,187 @@ if benchmarkArgs then
 		end, debug.traceback)
 		report.ok, report.error = ok, if ok then nil else tostring(err)
 		finish(report)
+	end)
+end
+
+-- GAME-25: deterministic lifecycle workload, real clients/remotes/deaths, opt-in only.
+-- Simulation is advanced at real-time cadence; pooled capacity is reported separately from live state.
+if cleanupTestArgs then
+	local sts, stats = game:GetService("StudioTestService"), game:GetService("Stats")
+	local bridge = Instance.new("RemoteFunction")
+	bridge.Name, bridge.Parent = "GAME25Cleanup", Shared
+	local ready, errors = {}, {}
+	bridge.OnServerInvoke = function(player) ready[player]=true; return true end
+	game:GetService("ScriptContext").Error:Connect(function(message,_,source)
+		if source and source.Name:find("Goblin",1,true) then table.insert(errors,message) end
+	end)
+	local report = {pilot=cleanupTestArgs.pilot==true,cycles={},soak={},checks={},errors=errors,workload=100,settleSeconds=5}
+	local finished = false
+	local function finish()
+		if finished then return end
+		finished=true; sts:EndTest(report)
+	end
+	task.delay(1500,function() report.ok=false; report.error="cleanup deadline"; finish() end)
+	local function check(value,label)
+		assert(value,label); table.insert(report.checks,label)
+	end
+	local function untilTrue(fn)
+		local deadline=os.clock()+50
+		repeat if fn() then return end; task.wait(0.05) until os.clock()>deadline
+		error("cleanup participant/character timeout")
+	end
+	local function size(t) local n=0; for _ in t do n+=1 end; return n end
+	local function snapshot(player,label)
+		local orphanHits, invalidShots = 0,0
+		for hum in lastHit do if not hum:IsDescendantOf(Workspace) then orphanHits+=1 end end
+		for _, shot in shots do if runs[shot.run.player]~=shot.run then invalidShots+=1 end end
+		local value={label=label,at=os.clock(),runs=size(runs),gems=size(gems),shots=#shots,axes=#axes,
+			lastHit=size(lastHit),orphanHits=orphanHits,invalidShots=invalidShots,alive=count,
+			hitLog=size(hitLog),taken=size(taken),memoryMb=stats:GetTotalMemoryUsageMb(),
+			instances=stats.InstanceCount,luaKb=gcinfo(),client=bridge:InvokeClient(player,"snapshot")}
+		Shared:SetAttribute("GAME25Progress",label)
+		return value
+	end
+	local function quiet(value)
+		local c=value.client
+		return value.runs==0 and value.gems==0 and value.shots==0 and value.axes==0 and value.orphanHits==0
+			and value.alive==0 and c.live==0 and c.gems==0 and c.balls==0 and c.axes==0 and c.rings==0
+			and c.orphanRings==0 and c.orphanSides==0 and c.visibleNumbers==0 and c.flashPool==24
+	end
+	task.spawn(function()
+		local ok, err=xpcall(function()
+			untilTrue(function() return #Players:GetPlayers()==2 and size(ready)==2 end)
+			local list=Players:GetPlayers()
+			table.sort(list,function(a,b) return a.UserId<b.UserId end)
+			local player,peer=list[1],list[2]
+			Workspace:SetAttribute("Arena","StressZone")
+			local center=assert(arena())
+			report.map1Present=Workspace:FindFirstChild("Map1")~=nil
+			report.map1Instances=report.map1Present and #Workspace.Map1:GetDescendants() or 0
+			local function beginRun(p)
+				local previous=p.Character
+				bridge:InvokeClient(p,"restart")
+				untilTrue(function() return p.Character and p.Character~=previous and p.Character:FindFirstChild("HumanoidRootPart") and p.Character:FindFirstChildOfClass("Humanoid") end)
+				local root,hum=p.Character.HumanoidRootPart,p.Character:FindFirstChildOfClass("Humanoid")
+				root.Anchored=true; root.CFrame=CFrame.new(center+Vector3.new(0,4,0))
+				hum.MaxHealth=1000000; hum.Health=1000000
+				for _,d in p.Character:GetChildren() do if d:IsA("ForceField") then d:Destroy() end end
+				startRun(p,hum)
+				local run=runs[p]
+				run.weapons={sword=1,fire=1,ring=1,axe=1}; run.wOrder={"sword","fire","ring","axe"}; run.next=1e9
+				publish(run)
+				return run,root
+			end
+			local function targets100()
+				while count>0 do kill(top) end
+				table.clear(free)
+				for i=1,100 do
+					local angle=i*math.pi*2/100
+					alive[i],px[i],pz[i],hp[i]=true,center.X+math.cos(angle)*20,center.Z+math.sin(angle)*20,1e8
+					generation[i]=(generation[i] or 0)+1
+					kvx[i],kvz[i],stunUntil[i],slowUntil[i],nextSwing[i]=0,0,0,0,0
+				end
+				top,count,override=100,100,100
+				px[1],pz[1]=center.X+1,center.Z
+			end
+			local function drive(seconds)
+				local stop=os.clock()+seconds
+				repeat step(1/H.SimRate); task.wait(1/H.SimRate) until os.clock()>=stop
+			end
+			local function endAndSettle(p)
+				local old=p.Character
+				p.Character:FindFirstChildOfClass("Humanoid").Health=0
+				untilTrue(function() return runs[p]==nil end)
+				override=nil; step(1/H.SimRate); send()
+				bridge:InvokeClient(p,"lobby")
+				untilTrue(function() return p.Character and p.Character~=old and p.Character:FindFirstChild("HumanoidRootPart") end)
+				p.Character.HumanoidRootPart.Anchored=true
+				task.wait(5)
+			end
+			-- A departing peer owns an actual fireball/ring/slash while the survivor's card pauses simulation.
+			local run,root=beginRun(player)
+			local peerRun,peerRoot=beginRun(peer)
+			targets100(); drive(0.4)
+			peerRun.cd.fire=0; fireWeapons(peerRun,peerRoot,0); send()
+			run.pending=1; offer(run)
+			task.wait(0.5)
+			report.beforeDisconnect=snapshot(player,"before-disconnect")
+			bridge:InvokeClient(peer,"leave")
+			untilTrue(function() return peer.Parent~=Players end)
+			drive(1); task.wait(2)
+			report.afterDisconnect=snapshot(player,"after-disconnect-paused")
+			if not report.pilot then
+				check(report.afterDisconnect.invalidShots==0,"departed run has no fireball reference during card pause")
+				check(report.afterDisconnect.client.orphanRings==0 and report.afterDisconnect.client.orphanSides==0,"departed player visual references released")
+			end
+			ready[peer]=nil; peer=nil; peerRun=nil; peerRoot=nil; list=nil
+			bridge:InvokeClient(player,"pick")
+			untilTrue(function() return run.cards==nil end)
+			drive(2); endAndSettle(player)
+			-- Three warmups then twenty measured cycles. Pilot records three without assertions about cleanup.
+			for cycle=1,(report.pilot and 3 or 23) do
+				run,root=beginRun(player); targets100(); send(); task.wait(0.3)
+				-- Land a real contact hit before weapons can stun the nearest target.
+				for id in run.weapons do run.cd[id]=10 end
+				swingAt[1]=Workspace:GetServerTimeNow()-H.AttackWindup-0.01
+				step(1/H.SimRate)
+				for id in run.weapons do run.cd[id]=0 end
+				drive(1)
+				for i=90,99 do if alive[i] then kill(i,run) end end
+				send(); drive(1)
+				-- Offer/reroll/card UI is rebuilt each cycle; consume via the production remote.
+				run.level=2; run.pending=1; offer(run); task.wait(0.2)
+				bridge:InvokeClient(player,"pick")
+				untilTrue(function() return run.cards==nil end)
+				endAndSettle(player)
+				local value=snapshot(player,"cycle-"..cycle)
+				value.measured=cycle>3; table.insert(report.cycles,value)
+				if not report.pilot then check(quiet(value),"cycle "..cycle.." live state clean after five seconds") end
+			end
+			if report.pilot then return end
+			-- After repeated restarts, one remote packet still creates exactly one fireball and one sound.
+			run,root=beginRun(player); targets100(); send(); task.wait(1)
+			local before=bridge:InvokeClient(player,"snapshot")
+			fx:FireClient(player,"fire",center.X,center.Z,1,0,1,5)
+			local packet=buffer.create(4); buffer.writeu16(packet,0,1); buffer.writeu16(packet,2,7)
+			hits:FireClient(player,packet); task.wait(0.1)
+			local after=bridge:InvokeClient(player,"snapshot")
+			check(after.balls-before.balls==1,"one fire event creates one visual after twenty restarts")
+			check(after.visibleNumbers-before.visibleNumbers==1,"one hit creates one damage label")
+			check((after.sounds.Hit or 0)-(before.sounds.Hit or 0)==1,"one hit plays one sound")
+			task.wait(5.2)
+			endAndSettle(player)
+			report.soakBaseline=snapshot(player,"soak-clean-baseline")
+			run,root=beginRun(player); targets100()
+			-- Continuous fixed 100-goblin workload. Health reset prevents incidental deaths; one controlled
+			-- kill/second drops a gem at the player's feet, exercising the real pickup/tween path without
+			-- allowing uncollected gameplay drops to accumulate. The fixture never clears client pools.
+			local began=os.clock(); local nextDrop, nextSample=0,60
+			while os.clock()-began<900 do
+				local elapsed=os.clock()-began
+				for i=1,top do if alive[i] then hp[i]=1e8 end end
+				if elapsed>=nextDrop then
+					nextDrop+=1
+					if alive[1] then px[1],pz[1]=center.X,center.Z; kill(1,run); send() end
+				end
+				step(1/H.SimRate)
+				if elapsed>=nextSample then
+					local value=snapshot(player,"soak-"..nextSample)
+					value.elapsed=elapsed; table.insert(report.soak,value); nextSample+=60
+				end
+				task.wait(1/H.SimRate)
+			end
+			report.soakSeconds=os.clock()-began
+			table.insert(report.soak,snapshot(player,"soak-900"))
+			endAndSettle(player)
+			report.final=snapshot(player,"complete")
+			check(report.soakSeconds>=900,"full fifteen-minute wall-clock soak")
+			check(quiet(report.final),"soak live state clean after five seconds")
+			check(report.final.client.soundTemplates==10,"sound template count unchanged")
+			check(#errors==0 and #report.final.client.errors==0,"no Goblin script errors")
+		end,debug.traceback)
+		report.ok,report.error=ok,if ok then nil else tostring(err)
+		finish()
 	end)
 end
 
