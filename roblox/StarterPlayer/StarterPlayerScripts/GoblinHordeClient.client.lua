@@ -286,6 +286,7 @@ local SLASH_TIERS = {
 		sparks = 22,
 		echo = true,
 		light = Color3.fromRGB(255, 120, 220),
+		glitter = Color3.fromRGB(255, 70, 200), -- max level: pink twinkles left along the arc
 	},
 }
 local function swordTier(player: Player)
@@ -319,10 +320,18 @@ local function newSweeper()
 	arc.Speed, arc.Lifetime = NumberRange.new(0.01), NumberRange.new(0.3)
 	arc.Transparency = keys({ 0, 0 }, { 0.8, 0 }, { 1, 1 })
 	arc.Parent = p
+	-- Glitter (tiers with `glitter`): twinkles shed by the sweeping edge, left hanging along the arc
+	local glitter = Instance.new("ParticleEmitter")
+	glitter.Texture, glitter.Rate, glitter.LightEmission = Config.Textures.Spark, 0, 1
+	glitter.Size = keys({ 0, 0 }, { 0.2, 1.2 }, { 1, 0 })
+	glitter.Lifetime, glitter.Speed = NumberRange.new(0.4, 0.7), NumberRange.new(0.5, 2)
+	glitter.SpreadAngle, glitter.Acceleration = Vector2.new(180, 180), Vector3.new(0, 2, 0)
+	glitter.Rotation, glitter.RotSpeed = NumberRange.new(0, 360), NumberRange.new(-180, 180)
+	glitter.Parent = head
 	local light = Instance.new("PointLight")
 	light.Range, light.Brightness, light.Enabled = 10, 3, false
 	light.Parent = head
-	return { part = p, tail = tail, head = head, beam = beam, sparks = sparks, arc = arc, light = light }
+	return { part = p, tail = tail, head = head, beam = beam, sparks = sparks, arc = arc, glitter = glitter, light = light }
 end
 local function easeOut(t: number): number
 	t = math.clamp(t, 0, 1)
@@ -339,6 +348,13 @@ local function sweep(root: BasePart, range: number, from: number, to: number, ti
 	-- Ink slash at every tier: the black edge stays, the white takes the tier colour (wood, gold, energy blue, pink).
 	-- Glowing it (LightEmission 1) washed out once the back slash made a full ring at tier 4+.
 	s.arc.Color = ColorSequence.new(tier.light or tier.colors.Keypoints[2].Value)
+	if tier.glitter then
+		s.glitter.Color = ColorSequence.new({ -- a quick white flash, then pink
+			ColorSequenceKeypoint.new(0, Color3.new(1, 1, 1)),
+			ColorSequenceKeypoint.new(0.15, tier.glitter),
+			ColorSequenceKeypoint.new(1, tier.glitter),
+		})
+	end
 	local inkR = r * (ink or 1)
 	s.arc.Size = keys({ 0, inkR * 1.3 }, { 1, inkR * 1.45 }) -- crescent radius is ~0.95 x Size: just outside the arc, clear of the horde
 	-- Rotation 0 points the crescent at +Z; the arc is centred on the middle of the swing
@@ -363,6 +379,9 @@ local function sweep(root: BasePart, range: number, from: number, to: number, ti
 	conn = RunService.RenderStepped:Connect(function()
 		local t = os.clock() - t0
 		draw(from + (to - from) * easeOut((t - CLOSE) / SWEEP), from + (to - from) * easeOut(t / SWEEP))
+		if tier.glitter and ink and t < SWEEP then
+			s.glitter:Emit(3)
+		end
 		if t >= SWEEP and not sparked then
 			sparked = true
 			s.sparks:Emit(tier.sparks)
