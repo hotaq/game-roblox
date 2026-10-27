@@ -526,10 +526,16 @@ local function fireWeapons(run, root: BasePart, dt: number)
 				hit(i, s.Damage * might, run, id, pos.X, pos.Z, s.Knock, s.Stun ~= false)
 			end)
 		elseif id == "axe" then
+			local center, half = arena()
+			if runs[run.player] ~= run or run.hum.Health <= 0 or run.player.Character ~= root.Parent
+				or not center or math.abs(pos.X - center.X) > half + 2 or math.abs(pos.Z - center.Z) > half + 2 then
+				run.cd[id] = 0.1; continue
+			end
 			local owned = 0
 			for _, a in axes do if a.run == run then owned += 1 end end
+			if owned >= 3 then run.cd[id] = 0.1; continue end
 			local aim = nearest(pos.X, pos.Z, 1)[1]
-			if not aim or owned >= 3 then run.cd[id] = 0.1; continue end
+			if not aim then run.cd[id] = 0.1; continue end
 			local dx, dz = px[aim] - pos.X, pz[aim] - pos.Z
 			local distance = math.sqrt(dx * dx + dz * dz)
 			if distance < 0.001 then dx, dz, distance = 0, -1, 1 end
