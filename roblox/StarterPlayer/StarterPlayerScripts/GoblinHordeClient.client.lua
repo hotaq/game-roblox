@@ -243,12 +243,16 @@ end
 
 -- Floating numbers for the local player's hits: {slot, damage} pairs; damage >= 32768 marks a stunning hit.
 local numberPool = {}
+local swordImpact -- (goblin entries) -> hit sparks, freeze, camera kick; defined with the slash code below
+local lastSlash = 0 -- os.clock() of the local player's last sword slash
 Shared:WaitForChild("HordeHits").OnClientEvent:Connect(function(b: buffer, identities: buffer?)
+	local struck = {}
 	for o = 0, buffer.len(b) - 4, 4 do
 		local e = live[buffer.readu16(b, o)]
 		if not e or (identities and e.incarnation~=buffer.readu32(identities,o)) then
 			continue
 		end
+		table.insert(struck, e)
 		if networkObserved then networkObserved.hits+=1 end
 		local value = buffer.readu16(b, o + 2)
 		if value >= 32768 then -- stunned: the server cancelled its wind-up
@@ -280,6 +284,10 @@ Shared:WaitForChild("HordeHits").OnClientEvent:Connect(function(b: buffer, ident
 		end)
 		fade:Play()
 	end
+	-- Hits carry no weapon, so the ones landing right after the local player's slash count as sword hits
+	if #struck > 0 and os.clock() - lastSlash < 0.35 then
+		swordImpact(struck)
+	end
 end)
 
 -- Weapon effects. Slash: a crescent (a Beam bent into a circular arc around the player) whose head sweeps the arc in
@@ -303,32 +311,77 @@ local function colors(...) -- ColorSequence from { time, r, g, b } stops
 	end
 	return ColorSequence.new(k)
 end
--- How the slash looks at each Wooden Sword level, so every upgrade is visibly cooler: wood, gold, a double
--- slash, glowing energy, then a legendary max level. width is the leading edge as a fraction of the range;
--- echo adds a second, smaller crescent right behind; light makes the edge glow.
+-- How the slash looks at each sword level: the default sword skin (black blade, red deepening with the level, like
+-- ReplicatedStorage.Swords); a future skin swaps this table. width is the leading edge as a fraction of the range;
+-- echo adds a second, smaller crescent right behind; light makes the edge glow; glitter leaves embers along the arc.
 local SLASH_TIERS = {
-	{ colors = colors({ 0, 150, 100, 55 }, { 0.8, 205, 160, 105 }, { 1, 255, 245, 220 }), width = 0.45, sparks = 4 },
-	{ colors = colors({ 0, 255, 110, 20 }, { 0.8, 255, 200, 60 }, { 1, 255, 255, 235 }), width = 0.6, sparks = 8 },
-	{ colors = colors({ 0, 255, 110, 20 }, { 0.8, 255, 200, 60 }, { 1, 255, 255, 235 }), width = 0.65, sparks = 10, echo = true },
+	{ colors = colors({ 0, 40, 30, 34 }, { 0.8, 120, 40, 40 }, { 1, 235, 215, 210 }), width = 0.45, sparks = 4 },
+	{ colors = colors({ 0, 60, 20, 24 }, { 0.8, 180, 40, 40 }, { 1, 255, 225, 215 }), width = 0.6, sparks = 8 },
+	{ colors = colors({ 0, 80, 18, 22 }, { 0.8, 210, 40, 40 }, { 1, 255, 230, 220 }), width = 0.65, sparks = 10, echo = true },
 	{
-		colors = colors({ 0, 40, 90, 255 }, { 0.75, 80, 220, 255 }, { 1, 240, 255, 255 }),
+		colors = colors({ 0, 110, 14, 20 }, { 0.75, 235, 45, 40 }, { 1, 255, 235, 225 }),
 		width = 0.7,
 		sparks = 14,
 		echo = true,
-		light = Color3.fromRGB(90, 200, 255),
+		light = Color3.fromRGB(255, 60, 50),
 	},
 	{
-		colors = colors({ 0, 150, 60, 255 }, { 0.45, 255, 80, 200 }, { 0.8, 255, 210, 80 }, { 1, 255, 255, 240 }),
+		colors = colors({ 0, 140, 10, 20 }, { 0.45, 255, 50, 40 }, { 0.8, 255, 150, 70 }, { 1, 255, 245, 230 }),
 		width = 0.8,
 		sparks = 22,
 		echo = true,
-		light = Color3.fromRGB(255, 120, 220),
-		glitter = Color3.fromRGB(255, 70, 200), -- max level: pink twinkles left along the arc
+		light = Color3.fromRGB(255, 90, 60),
+		glitter = Color3.fromRGB(255, 80, 40),
 	},
 }
 local function swordTier(player: Player)
 	local level = tonumber(string.match(player:GetAttribute("RunLoadout") or "", "sword=(%d+)")) or 1
 	return SLASH_TIERS[math.clamp(level, 1, #SLASH_TIERS)]
+end
+
+-- Sword hit impact: a flash and sparks in the tier's red on each goblin hit, its run frozen for HITSTOP (a hit-stop
+-- on the enemy only; the world keeps moving), and a camera kick for the attacker that grows with the goblins hit.
+local HITSTOP = 0.06
+local impactAt = fxPart(Vector3.one * 0.2, Color3.new())
+impactAt.Transparency = 1
+local impactFlash = Instance.new("ParticleEmitter")
+impactFlash.Texture, impactFlash.Rate, impactFlash.LightEmission = Config.Textures.Burst, 0, 0.6
+impactFlash.Size, impactFlash.Lifetime, impactFlash.Speed = keys({ 0, 1.4 }, { 1, 2.6 }), NumberRange.new(0.1, 0.14), NumberRange.new(0)
+impactFlash.Transparency, impactFlash.Rotation = keys({ 0, 0 }, { 1, 1 }), NumberRange.new(0, 360)
+impactFlash.Parent = impactAt
+local impactSparks = Instance.new("ParticleEmitter")
+impactSparks.Texture, impactSparks.Rate, impactSparks.LightEmission = Config.Textures.Spark, 0, 0.8
+impactSparks.Orientation = Enum.ParticleOrientation.VelocityParallel
+impactSparks.Size, impactSparks.Lifetime, impactSparks.Speed = keys({ 0, 0.35 }, { 1, 0 }), NumberRange.new(0.15, 0.3), NumberRange.new(12, 20)
+impactSparks.SpreadAngle, impactSparks.Acceleration, impactSparks.Drag = Vector2.new(180, 180), Vector3.new(0, -40, 0), 4
+impactSparks.Parent = impactAt
+swordImpact = function(struck)
+	local red = swordTier(Players.LocalPlayer).colors.Keypoints[2].Value
+	impactFlash.Color = ColorSequence.new(Color3.new(1, 1, 1), red)
+	impactSparks.Color = ColorSequence.new(Color3.fromRGB(255, 230, 200), red)
+	for i, e in struck do
+		if i > 8 then
+			break -- a crowd hit stays readable and cheap
+		end
+		impactAt.Position = Vector3.new(e.x, HIP_Y + 1.5, e.z)
+		impactFlash:Emit(1)
+		impactSparks:Emit(5)
+		if e.run.Speed > 0 then
+			e.hitstopSpeed = e.run.Speed
+		end
+		e.run:AdjustSpeed(0)
+		task.delay(HITSTOP, function()
+			e.run:AdjustSpeed(e.hitstopSpeed or Config.Horde.Speed / Config.AI.RunSpeed)
+		end)
+	end
+	local hum = Players.LocalPlayer.Character and Players.LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+	if hum then
+		local kick = math.min(#struck, 4) * 0.06
+		hum.CameraOffset = Vector3.new((math.random() * 2 - 1) * kick, (math.random() * 2 - 1) * kick, 0)
+		task.delay(0.05, function()
+			hum.CameraOffset = Vector3.zero
+		end)
+	end
 end
 local function newSweeper()
 	local p = fxPart(Vector3.one * 0.2, Color3.new(1, 1, 1))
@@ -382,11 +435,11 @@ local function sweep(root: BasePart, range: number, from: number, to: number, ti
 	s.beam.Width0, s.beam.Width1 = 0.15, range * tier.width -- thin tail, thick leading edge
 	s.beam.Color, s.sparks.Color = tier.colors, tier.colors
 	s.light.Enabled, s.light.Color = tier.light ~= nil, tier.light or Color3.new(1, 1, 1)
-	-- Ink slash at every tier: the black edge stays, the white takes the tier colour (wood, gold, energy blue, pink).
+	-- Ink slash at every tier: the black edge stays, the white takes the tier colour (deeper red each level).
 	-- Glowing it (LightEmission 1) washed out once the back slash made a full ring at tier 4+.
 	s.arc.Color = ColorSequence.new(tier.light or tier.colors.Keypoints[2].Value)
 	if tier.glitter then
-		s.glitter.Color = ColorSequence.new({ -- a quick white flash, then pink
+		s.glitter.Color = ColorSequence.new({ -- a quick white flash, then the tier's glitter colour
 			ColorSequenceKeypoint.new(0, Color3.new(1, 1, 1)),
 			ColorSequenceKeypoint.new(0.15, tier.glitter),
 			ColorSequenceKeypoint.new(1, tier.glitter),
@@ -613,6 +666,9 @@ Shared:WaitForChild("HordeFx").OnClientEvent:Connect(function(kind: string, ...)
 		local root = player and player.Character and player.Character:FindFirstChild("HumanoidRootPart")
 		if root then
 			swing(player, root, swordTier(player), range, arc, back, lx, lz)
+		end
+		if player == Players.LocalPlayer then
+			lastSlash = os.clock()
 		end
 	elseif kind == "clearGems" then
 		local ids = ...

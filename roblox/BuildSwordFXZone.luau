@@ -4,7 +4,6 @@
 -- Studio-only GoblinStressHUD "FX" button drop you on ViewPad; a BACK pad beside it returns you to the spawn.
 -- Undo: delete workspace.SwordFXZone.
 local CENTER, GAP = Vector3.new(-400, 0, 0), 26
-local NAMES = { "Wood", "Gold", "Double", "Energy", "Legendary" }
 
 local old = workspace:FindFirstChild("SwordFXZone")
 if old then
@@ -33,7 +32,7 @@ for n = 1, 5 do
 	gui.Size, gui.StudsOffset, gui.AlwaysOnTop = UDim2.fromOffset(160, 40), Vector3.new(0, 4, 0), true
 	local label = Instance.new("TextLabel")
 	label.Size, label.BackgroundTransparency = UDim2.fromScale(1, 1), 1
-	label.Text, label.Font, label.TextSize = "Lv " .. n .. "  " .. NAMES[n], Enum.Font.GothamBold, 20
+	label.Text, label.Font, label.TextSize = "Lv " .. n, Enum.Font.GothamBold, 20
 	label.TextColor3, label.TextStrokeTransparency = Color3.new(1, 1, 1), 0.3
 	label.Parent = gui
 	gui.Parent = root
