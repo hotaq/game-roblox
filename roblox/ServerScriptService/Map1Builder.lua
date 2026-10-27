@@ -8,7 +8,7 @@
 --   * a 100-stud temple plaza with the pyramid on its north side, stairs facing the open south half;
 --   * clearings: broken shrine (N), colonnade (W), pond with fallen columns (E), spawn (S);
 --   * dense forest everywhere else, thinner where it meets open ground so the edges read clearly;
---   * a fake shadow disc under every tree (real shadows are off at low graphics quality);
+--   * fake shadows under every tree and ruin (real shadows are off at low graphics quality);
 --   * invisible walls around the edge, and a Map1Spawn SpawnLocation (disabled) in the spawn clearing.
 -- Deterministic (fixed seeds): re-running gives the same map. Usage from the command bar / MCP:
 --   require(game.ServerScriptService.Map1Builder).build()            -- everything, at (1000, 0, 0)
@@ -234,22 +234,33 @@ function STAGES.forest(map: Model, o: CFrame)
 	return counts
 end
 
--- Fake contact shadows: a dark see-through disc under every tree and bush. Low graphics quality (phones, slow PCs, and
--- Studio Play at low FPS) turns real shadows off, and without them the forest looks flat and floats on the ground.
+-- Fake contact shadows: a dark see-through disc under every tree and bush, and a slightly larger slab under every ruin.
+-- Low graphics quality (phones, slow PCs, and Studio Play at low FPS) turns real shadows off, and without them props
+-- look flat and float on the ground.
 function STAGES.shadows(map: Model, o: CFrame)
 	local f = Instance.new("Folder")
 	f.Name = "Shadows"
-	for _, tree in (map:FindFirstChild("Forest") :: Folder):GetChildren() do
-		local size = (tree :: Model):GetExtentsSize()
-		local d = math.min(size.X, size.Z) * 0.85
-		local disc = Instance.new("Part")
-		disc.Shape, disc.Anchored, disc.CastShadow = Enum.PartType.Cylinder, true, false
-		disc.CanCollide, disc.CanQuery, disc.CanTouch = false, false, false
-		disc.Size, disc.Material, disc.Color, disc.Transparency = Vector3.new(0.1, d, d), Enum.Material.SmoothPlastic, rgb(28, 52, 30), 0.45
-		local p = (tree :: Model):GetPivot().Position
-		disc.CFrame = CFrame.new(p.X, o.Position.Y + 0.06, p.Z) * CFrame.Angles(0, 0, math.rad(90)) -- cylinder axis is X: stand it up
-		disc.Name = "Shadow"
-		disc.Parent = f
+	for _, folder in { "Forest", "Plaza", "Clearings" } do
+		for _, m in (map:FindFirstChild(folder) :: Folder):GetChildren() do
+			if not m:IsA("Model") then
+				continue -- the Map1Spawn pad
+			end
+			local cf, size = m:GetBoundingBox()
+			local s = Instance.new("Part")
+			s.Anchored, s.CastShadow, s.CanCollide, s.CanQuery, s.CanTouch = true, false, false, false, false
+			s.Material, s.Color, s.Transparency, s.Name = Enum.Material.SmoothPlastic, rgb(28, 52, 30), 0.45, "Shadow"
+			local p = m:GetPivot().Position
+			if folder == "Forest" then
+				local d = math.min(size.X, size.Z) * 0.85
+				s.Shape, s.Size = Enum.PartType.Cylinder, Vector3.new(0.1, d, d)
+				s.CFrame = CFrame.new(p.X, o.Position.Y + 0.06, p.Z) * CFrame.Angles(0, 0, math.rad(90)) -- cylinder axis is X: stand it up
+			else
+				local _, ry = cf:ToOrientation()
+				s.Size = Vector3.new(size.X + 2, 0.1, size.Z + 2)
+				s.CFrame = CFrame.new(cf.X, o.Position.Y + 0.06, cf.Z) * CFrame.Angles(0, ry, 0)
+			end
+			s.Parent = f
+		end
 	end
 	f.Parent = map
 end
