@@ -7,7 +7,8 @@
 --   * a 16-stud dirt path loop (rounded square) plus four spokes into the plaza, so there are no dead ends;
 --   * a 100-stud temple plaza with the pyramid on its north side, stairs facing the open south half;
 --   * clearings: broken shrine (N), colonnade (W), pond with fallen columns (E), spawn (S);
---   * dense forest everywhere else, thinner where it meets open ground so the edges read clearly.
+--   * dense forest everywhere else, thinner where it meets open ground so the edges read clearly;
+--   * invisible walls around the edge, and a Map1Spawn SpawnLocation (disabled) in the spawn clearing.
 -- Deterministic (fixed seeds): re-running gives the same map. Usage from the command bar / MCP:
 --   require(game.ServerScriptService.Map1Builder).build()            -- everything, at (1000, 0, 0)
 --   require(game.ServerScriptService.Map1Builder).build(nil, { "ground", "plaza" })   -- only some stages
@@ -183,10 +184,12 @@ function STAGES.clearings(map: Model, o: CFrame)
 	local sp = CLEARINGS.Spawn
 	place(f, "Ruin_StelaBroken", o * CFrame.new(sp.x + 24, 0, sp.z + 6) * yaw(200))
 	place(f, "Ruin_Rubble", o * CFrame.new(sp.x - 26, 0, sp.z + 4))
-	local marker = Instance.new("Part") -- where the run spawn will go (not a SpawnLocation yet)
-	marker.Name, marker.Anchored, marker.CanCollide, marker.Transparency = "SpawnMarker", true, false, 1
-	marker.Size, marker.CFrame = Vector3.new(6, 1, 6), o * CFrame.new(sp.x, 0.5, sp.z)
-	marker.Parent = f
+	-- Off by default so it never steals spawns from the camp SpawnLocation; enable it (or teleport here) to play Map 1.
+	local spawn = Instance.new("SpawnLocation")
+	spawn.Name, spawn.Anchored, spawn.Enabled, spawn.Neutral, spawn.Duration = "Map1Spawn", true, false, true, 0
+	spawn.Size, spawn.CFrame, spawn.Material = Vector3.new(8, 1, 8), o * CFrame.new(sp.x, 0.5, sp.z), Enum.Material.Plastic
+	spawn.Color, spawn.TopSurface = rgb(158, 150, 132), Enum.SurfaceType.Studs
+	spawn.Parent = f
 end
 
 -- Distance (in studs, capped) from (x, z) to the nearest open (non-forest) ground, sampled on the tile grid.
@@ -230,7 +233,21 @@ function STAGES.forest(map: Model, o: CFrame)
 	return counts
 end
 
-local ORDER = { "ground", "plaza", "clearings", "forest" }
+-- Invisible walls on the four sides so nobody walks (or gets knocked) off the 300 x 300 map.
+function STAGES.edge(map: Model, o: CFrame)
+	local f = Instance.new("Folder")
+	f.Name = "Edge"
+	f.Parent = map
+	for i, side in { Vector3.new(1, 0, 0), Vector3.new(-1, 0, 0), Vector3.new(0, 0, 1), Vector3.new(0, 0, -1) } do
+		local w = Instance.new("Part")
+		w.Name, w.Anchored, w.Transparency, w.CanQuery, w.CastShadow = "Wall" .. i, true, 1, false, false
+		w.Size = side.X ~= 0 and Vector3.new(2, 80, 2 * HALF + 4) or Vector3.new(2 * HALF + 4, 80, 2)
+		w.CFrame = o * CFrame.new(side * (HALF + 1) + Vector3.new(0, 40, 0))
+		w.Parent = f
+	end
+end
+
+local ORDER = { "ground", "plaza", "clearings", "forest", "edge" }
 
 -- Builds (or rebuilds) Workspace.Map1 at `origin` (default (1000, 0, 0)). `stages` picks a subset of ORDER; existing
 -- folders of the stages being rebuilt are replaced, others are kept.
