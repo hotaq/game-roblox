@@ -1,0 +1,39 @@
+-- GAME-24 measurement/acceptance protocol. Execute RunGAME24.lua in Edit/MCP after Rojo sync.
+-- {quick=true}: lifecycle pilot; default: full matched matrix followed by lifecycle checks.
+-- Never write production Script.Source or foreground Studio helper windows.
+--
+-- Baseline: the original sendBroadcast function and unchanged simulation in the same frozen
+-- test scene. Candidate: per-player interest with 192-stud entry and 224-stud exit radius.
+-- Positions retain 1/8-stud quantization. A slot bitmask selects packed coordinates when
+-- smaller than the original dense/sentinel format. Birth/re-entry/reuse also sends incarnation.
+-- The 192-stud radius includes the normal 128-stud camera zoom plus margin; remote freecam
+-- views beyond player interest are not supported by this player-centred policy.
+--
+-- Matrix: 2 real clients, 100/1000 enemies, clustered/separated, broadcast/nearby, 2 repeats.
+-- Repeat2 reverses mode order. Each phase rebuilds identical seeded geometry and resets views;
+-- players are anchored, protected, have no weapons/cards, and receive the same ordinary horde
+-- simulation. Clustered roots are +/-4 studs; separated roots +/-120 in existing Map1.
+-- Half the enemies start on a radius20 circle around each player; population stays fixed.
+-- Five-second warmup then >=15-second measurement. No camera/FPS performance claim.
+--
+-- Record real step/send p50/p95, per-client serialized buffer bytes and received packets,
+-- visibility counts and script errors. Payload excludes RemoteEvent framing/compression,
+-- scalar arguments and weapon FX tables. With no weapons in the matrix, it isolates horde
+-- transport. Death/hit/swing incarnation metadata and gem deltas add event payload in combat;
+-- do not claim the same savings for every combat workload or a frame-rate improvement.
+-- Initial identity lists are a one-time cost, excluded by warmup and documented separately.
+-- Same-scene old/new results supersede attempts to compare aggregate memory with GAME-23's
+-- map-confounded batches. Original baseline implementation remains test-only.
+--
+-- Lifecycle: both clients' interest; enter/exit hysteresis;20 visibility cycles; teleport;
+-- silent slot reuse; stale and current incarnation events; two deaths in one reused slot;
+-- hidden-death gem recovery and ownership; same-send birth/pickup; receiver resync; actual
+-- departure and two fresh Studio test connections; final empty snapshots; no stale view refs.
+-- AddPlayers supplies fresh simulated connections. Same-player receiver resync is tested
+-- separately; this is not a production account reconnect/session-persistence qualification.
+-- Gem state is authoritative and separate from rendered corpse state; reward logic stays
+-- in the existing server run code. Client pools retain high-water capacity intentionally.
+--
+-- Official test API: https://create.roblox.com/docs/reference/engine/classes/StudioTestService
+return {schema=1,clients=2,populations={100,1000},layouts={"clustered","separated"},
+	modes={"broadcast","nearby"},repeats=2,warmupSeconds=5,sampleSeconds=15,entry=192,exit=224}

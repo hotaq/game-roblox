@@ -735,6 +735,9 @@ local function step(dt: number)
 		end
 		if networkMode == "broadcast" then
 			swingsOut:FireAllClients(b)
+			if networkSample then
+				for _, player in Players:GetPlayers() do networkSample.bytes[player]=(networkSample.bytes[player] or 0)+buffer.len(b) end
+			end
 		else
 			for player, view in views do
 				local selected = {}
@@ -747,6 +750,7 @@ local function step(dt: number)
 						buffer.writeu16(ids,(k-1)*2,slot); buffer.writeu32(versions,(k-1)*4,generation[slot] or 0)
 					end
 					swingsOut:FireClient(player,ids,versions)
+					if networkSample then networkSample.bytes[player]=(networkSample.bytes[player] or 0)+buffer.len(ids)+buffer.len(versions) end
 				end
 			end
 		end
@@ -1720,6 +1724,10 @@ if networkTestArgs then
 			died:FireClient(a,death,true);hits:FireClient(a,hitPacket,versionPacket);swingsOut:FireClient(a,swingPacket,versionPacket)
 			task.wait(.3);local after=snapshot(a)
 			check(after.count==1 and after.events.deaths==current.events.deaths and after.events.hits==current.events.hits and after.events.swings==current.events.swings,"stale death/hit/swing cannot affect reused slot")
+			buffer.writeu32(versionPacket,0,generation[1])
+			hits:FireClient(a,hitPacket,versionPacket);swingsOut:FireClient(a,swingPacket,versionPacket)
+			task.wait(.25);local valid=snapshot(a)
+			check(valid.events.hits==after.events.hits+1 and valid.events.swings==after.events.swings+1,"current-incarnation hit and swing each render once")
 			-- A visible death and two different incarnations killed before the next send.
 			clearWorld();place(a,0);place(b,4);target(1,10,0);deliver()
 			local beforeA,beforeB=snapshot(a),snapshot(b)
