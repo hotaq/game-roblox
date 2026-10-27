@@ -15,6 +15,39 @@ local stress = ReplicatedStorage:WaitForChild("Goblin"):WaitForChild("Stress")
 local horde = ReplicatedStorage.Goblin:WaitForChild("Horde")
 local player = Players.LocalPlayer
 
+-- GAME-12 real-client acceptance participant, enabled only by the server's named test.
+if ReplicatedStorage.Goblin:GetAttribute("GAME12AxeActive") then
+	task.spawn(function()
+		local bridge=ReplicatedStorage.Goblin:WaitForChild("GAME12AxeTest",30)
+		if not bridge then return end
+		local peak,nonCosmetic,errors=0,0,{}
+		game:GetService("ScriptContext").Error:Connect(function(message,_,source)
+			if source and string.find(source.Name,"Goblin",1,true) then table.insert(errors,message) end
+		end)
+		local function countAxes()
+			local n=0; local folder=workspace:FindFirstChild("Horde")
+			if folder then for _,m in folder:GetChildren() do if m.Name=="BoomerangAxe" then
+				n+=1
+				for _,p in m:GetDescendants() do if p:IsA("BasePart") and (p.CanCollide or p.CanTouch or p.CanQuery) then nonCosmetic+=1 end end
+			end end end
+			peak=math.max(peak,n); return n
+		end
+		RunService.RenderStepped:Connect(countAxes)
+		bridge.OnClientInvoke=function(action)
+			if action=="pick" then ReplicatedStorage.Goblin.RunPick:FireServer(1);return true end
+			local icons=0
+			local ui=player.PlayerGui:FindFirstChild("GoblinRunUI")
+			if ui then for _,d in ui:GetDescendants() do if d.Name=="AxeIcon" and d.Visible then
+				local visible=true;local p=d.Parent
+				while p and p~=ui do if p:IsA("GuiObject") and not p.Visible then visible=false end;p=p.Parent end
+				if visible then icons+=1 end
+			end end end
+			return {axes=countAxes(),peakAxes=peak,nonCosmeticParts=nonCosmetic,visibleAxeIcons=icons,errors=errors}
+		end
+		bridge:InvokeServer("ready")
+	end)
+end
+
 -- GAME-23 measurement participant. The server creates this flag only for the named test.
 if ReplicatedStorage.Goblin:GetAttribute("GAME23Active") then
 	task.spawn(function()

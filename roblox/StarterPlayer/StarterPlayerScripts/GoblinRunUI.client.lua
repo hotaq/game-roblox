@@ -83,8 +83,35 @@ end
 local ICONS = Config.Icons
 local iconsReady = false
 local arts = {}
+-- Standalone pixel axe art; no upload/moderation dependency and no edits to the shared GAME-15 sheet.
+local function axeIcon(parent)
+	local holder = new("Frame", { Name = "AxeIcon", Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Visible = false, ZIndex = 3, Parent = parent })
+	local pixels = {
+		"................", "..OOO.....OOO...", ".OEEEOOOOOEEEO..", ".OESSSGGGSSSEO..",
+		".OESSSGGGSSSEO..", ".OESSSGGGSSSEO..", ".OEEEOHHHOEEEO..", "..OOO.OHO.OOO...",
+		"......OHO.......", "......OHO.......", "......OHO.......", "......OBO.......",
+		"......OBO.......", ".....OGGGO......", "......OOO.......", "................",
+	}
+	local palette = { O = INK, E = Color3.fromRGB(224,234,221), S = Color3.fromRGB(130,151,157),
+		G = Color3.fromRGB(207,157,67), H = Color3.fromRGB(121,77,43), B = Color3.fromRGB(58,39,31) }
+	for y, row in pixels do
+		local x = 1
+		while x <= #row do
+			local c, last = row:sub(x,x), x
+			while last < #row and row:sub(last+1,last+1) == c do last += 1 end
+			if palette[c] then
+				new("Frame", { BorderSizePixel = 0, BackgroundColor3 = palette[c], ZIndex = 3,
+					Position = UDim2.fromScale((x-1)/16, (y-1)/16), Size = UDim2.fromScale((last-x+1)/16, 1/16), Parent = holder })
+			end
+			x = last + 1
+		end
+	end
+	return holder
+end
 local function setArt(a, key: string?)
 	a.key = key
+	if key == "axe" and not a.axe then a.axe = axeIcon(a.image.Parent) end
+	if a.axe then a.axe.Visible = key == "axe" end
 	local cell = key and ICONS.Cells[key]
 	if cell then
 		a.image.ImageRectOffset = Vector2.new(cell[1], cell[2])
@@ -92,7 +119,7 @@ local function setArt(a, key: string?)
 	local showArt = iconsReady and cell ~= nil
 	a.image.Visible = showArt
 	for _, f in a.fallback do
-		f.Visible = not showArt
+		f.Visible = not showArt and key ~= "axe"
 	end
 	if a.tile then
 		a.tile.BackgroundTransparency = if showArt then 1 else 0

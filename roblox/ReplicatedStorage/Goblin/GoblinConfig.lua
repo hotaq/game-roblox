@@ -139,7 +139,19 @@ Config.Run = {
 -- Weapons fire on their own. Levels add up: level 3 = Levels[1] + [2] + [3]. Text is the card line for that level.
 -- Knock = its share of the Force knockback; Stun = false for a weapon whose hits must not stun (they still slow).
 Config.Weapons = {
-	Order = { "sword", "fire", "ring" },
+	Order = { "sword", "fire", "ring", "axe" },
+	axe = {
+		Name = "Boomerang Axe",
+		Icon = "AX",
+		Color = Color3.fromRGB(211, 174, 104),
+		Levels = {
+			{ Text = "Hits on the way out and back", Damage = 16, Cooldown = 2.4, Range = 24, Radius = 1.8, Speed = 38, ReturnSpeed = 52, Knock = 0.8 },
+			{ Text = "+Damage", Damage = 24 },
+			{ Text = "Wider axe, longer throw", Radius = 2.4, Range = 30 },
+			{ Text = "Throws more often", Cooldown = 1.8 },
+			{ Text = "+Damage, faster return", Damage = 34, ReturnSpeed = 64 },
+		},
+	},
 	sword = {
 		Name = "Wooden Sword",
 		Icon = "/",

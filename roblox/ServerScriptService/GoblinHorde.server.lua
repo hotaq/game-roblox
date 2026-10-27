@@ -54,6 +54,7 @@ local restart, toLobby = remote("RunRestart"), remote("RunLobby")
 -- Goblins live in stable slots (parallel arrays): a slot keeps its number for life, so snapshots needn't carry ids.
 -- Freed slots are reused first, which keeps `top` (the highest live slot, i.e. the snapshot length) near the count.
 local alive, px, pz, hp = {}, {}, {}, {}
+local generation = {} -- axe hit identity includes the incarnation of a reused horde slot
 local swingAt, nextSwing = {}, {} -- wind-up start (nil = not swinging) and earliest next swing, per slot
 local kvx, kvz, stunUntil, slowUntil = {}, {}, {}, {} -- knockback velocity (fades), stun and slow end times, per slot
 local swings = {} -- slots that started a swing this step (sent at once, not with the 10 Hz snapshot)
@@ -63,6 +64,15 @@ local gems, nextGem = {}, 0 -- gem number -> {x, z}
 local rng = Random.new()
 local NONE = -32768 -- x of a free slot in a snapshot
 local runs = {} -- Player -> run state
+local axes, axeSerial, axesDirty = {}, 0, false
+local function clearRunAxes(player)
+	for k = #axes, 1, -1 do
+		if axes[k].run.player == player then
+			table.remove(axes, k)
+			axesDirty = true
+		end
+	end
+end
 
 -- `run` = the run whose weapon killed it (counts the kill, drops a gem); nil = despawned quietly.
 local function kill(i: number, run)
@@ -204,6 +214,7 @@ local function gainXP(run, n: number)
 end
 
 local function endRun(player: Player)
+	clearRunAxes(player)
 	local run = runs[player]
 	if not run then
 		return
@@ -309,6 +320,7 @@ toLobby.OnServerEvent:Connect(function(player)
 end)
 
 Players.PlayerRemoving:Connect(function(player)
+	clearRunAxes(player)
 	runs[player] = nil
 end)
 
@@ -407,6 +419,73 @@ local function nearest(x: number, z: number, n: number): { number }
 	return best
 end
 
+-- GAME-12 axe: authoritative swept hits, once per incarnation per leg. No client damage requests.
+local function axeSweep(a, x0, z0, x1, z1)
+	local dx, dz = x1 - x0, z1 - z0
+	local length2 = dx * dx + dz * dz
+	around((x0 + x1) / 2, (z0 + z1) / 2, math.sqrt(length2) / 2 + a.radius, function(i)
+		local incarnation = generation[i] or 0
+		if a.hit[i] == incarnation then return end
+		local t = if length2 > 0 then math.clamp(((px[i] - x0) * dx + (pz[i] - z0) * dz) / length2, 0, 1) else 0
+		local ex, ez = px[i] - (x0 + t * dx), pz[i] - (z0 + t * dz)
+		if ex * ex + ez * ez <= a.radius * a.radius then
+			a.hit[i] = incarnation
+			hit(i, a.damage, a.run, "axe", x0, z0, a.knock, true)
+		end
+	end)
+end
+
+local function pruneAxes()
+	local center, half = arena()
+	for k = #axes, 1, -1 do
+		local a = axes[k]
+		local root = a.root
+		local valid = runs[a.run.player] == a.run and a.run.hum.Health > 0
+			and a.run.player.Character == root.Parent and root:IsDescendantOf(Workspace)
+		local pos = root.Position
+		if not valid or not center or math.abs(pos.X - center.X) > half + 2 or math.abs(pos.Z - center.Z) > half + 2
+			or (pos - a.lastOwner).Magnitude > 48 then
+			table.remove(axes, k) -- cancel on death, leave, respawn, arena exit or teleport; never reward
+			axesDirty = true
+		else
+			a.lastOwner = pos
+		end
+	end
+end
+
+local function moveAxes(dt: number)
+	for k = #axes, 1, -1 do
+		local a = axes[k]
+		a.age += dt
+		local remaining, done = dt, a.age >= 4.5
+		while remaining > 0.00001 and not done do
+			local x0, z0 = a.x, a.z
+			if a.leg == 1 then
+				local travel = math.min(a.left, a.speed * remaining)
+				a.x, a.z = x0 + a.dx * travel, z0 + a.dz * travel
+				a.left -= travel
+				remaining -= travel / a.speed
+				axeSweep(a, x0, z0, a.x, a.z)
+				if a.left < 0.00001 then
+					a.leg = 2
+					table.clear(a.hit) -- the same living target can be hit once more on return
+				end
+			else
+				local pos = a.root.Position -- home to the owner's CURRENT position
+				local dx, dz = pos.X - x0, pos.Z - z0
+				local distance = math.sqrt(dx * dx + dz * dz)
+				local travel = math.min(distance, a.returnSpeed * remaining)
+				if distance > 0.00001 then a.x, a.z = x0 + dx / distance * travel, z0 + dz / distance * travel end
+				axeSweep(a, x0, z0, a.x, a.z)
+				done = distance <= travel + 0.00001
+				remaining = 0
+			end
+		end
+		if done then table.remove(axes, k); axesDirty = true end
+	end
+end
+-- END GAME-12 axe simulation
+
 local function fireWeapons(run, root: BasePart, dt: number)
 	local pos = root.Position
 	local haste = 1 - math.min(run.bonus.haste, 0.6)
@@ -446,6 +525,21 @@ local function fireWeapons(run, root: BasePart, dt: number)
 			around(pos.X, pos.Z, s.Radius * area, function(i)
 				hit(i, s.Damage * might, run, id, pos.X, pos.Z, s.Knock, s.Stun ~= false)
 			end)
+		elseif id == "axe" then
+			local owned = 0
+			for _, a in axes do if a.run == run then owned += 1 end end
+			local aim = nearest(pos.X, pos.Z, 1)[1]
+			if not aim or owned >= 3 then run.cd[id] = 0.1; continue end
+			local dx, dz = px[aim] - pos.X, pz[aim] - pos.Z
+			local distance = math.sqrt(dx * dx + dz * dz)
+			if distance < 0.001 then dx, dz, distance = 0, -1, 1 end
+			run.cd[id] = s.Cooldown * haste
+			axeSerial += 1
+			table.insert(axes, { id = axeSerial, run = run, root = root, lastOwner = pos,
+				x = pos.X, z = pos.Z, dx = dx / distance, dz = dz / distance, y = pos.Y - 0.4,
+				left = s.Range * area, radius = s.Radius * area, speed = s.Speed, returnSpeed = s.ReturnSpeed,
+				damage = s.Damage * might, knock = s.Knock, level = lv, leg = 1, age = 0, hit = {} })
+			axesDirty = true
 		elseif id == "fire" then
 			local aims = nearest(pos.X, pos.Z, s.Count)
 			if #aims == 0 then
@@ -496,6 +590,7 @@ local lastHit: { [Humanoid]: number } = {}
 local taken = {} -- Player -> gem numbers picked up since the last send
 
 local function step(dt: number)
+	pruneAxes() -- also runs while the existing global card pause is active
 	local center, half = arena()
 	local now = Workspace:GetServerTimeNow()
 	table.clear(targets)
@@ -613,6 +708,7 @@ local function step(dt: number)
 		end
 	end
 	moveShots(dt)
+	moveAxes(dt)
 	for g, gem in gems do
 		for _, t in targets do
 			if t.run then
@@ -651,6 +747,7 @@ local function step(dt: number)
 			local i = table.remove(free) or top + 1
 			top, count = math.max(top, i), count + 1
 			alive[i], hp[i] = true, health
+			generation[i] = (generation[i] or 0) + 1
 			kvx[i], kvz[i], stunUntil[i], slowUntil[i] = 0, 0, 0, 0
 			px[i] = math.clamp(t.X + math.cos(a) * r, center.X - half, center.X + half)
 			pz[i] = math.clamp(t.Z + math.sin(a) * r, center.Z - half, center.Z + half)
@@ -665,6 +762,14 @@ local function step(dt: number)
 end
 
 local function send(): number
+	if #axes > 0 or axesDirty then
+		local packet = {}
+		for _, a in axes do
+			table.insert(packet, { a.id, a.run.player, a.x, a.z, a.y, a.radius, a.level, a.age })
+		end
+		fx:FireAllClients("axes", packet) -- same 10 Hz cadence as the horde; positions are authoritative
+		axesDirty = false
+	end
 	if #dead > 0 then -- before the snapshot, so the client knows these are deaths and not just gone
 		local b = buffer.create(2 + #dead * 2)
 		buffer.writeu16(b, 0, deadFirstGem)
@@ -710,10 +815,15 @@ end
 
 -- GAME-23: opt-in measurement only; normal Studio/production runs do not allocate samples.
 local benchmarkArgs, benchmarkSample
+local axeTestArgs
 if RunService:IsStudio() then
 	local ok, args = pcall(function() return game:GetService("StudioTestService"):GetTestArgs() end)
 	if ok and typeof(args) == "table" and args.name == "GAME23Baseline" then
 		benchmarkArgs = args
+	end
+	if ok and typeof(args) == "table" and args.name == "GAME12Axe" then
+		axeTestArgs = args
+		Shared:SetAttribute("GAME12AxeActive", true)
 	end
 end
 local simAcc, sendAcc, statAcc = 0, 0, 0
@@ -726,7 +836,7 @@ RunService.Heartbeat:Connect(function(dt)
 	while simAcc >= 1 / H.SimRate do
 		simAcc -= 1 / H.SimRate
 		local t0 = os.clock()
-		step(1 / H.SimRate)
+		if not axeTestArgs then step(1 / H.SimRate) end -- the named acceptance fixture drives exact steps
 		local elapsed = os.clock() - t0
 		simTime += elapsed
 		if benchmarkSample then
@@ -745,6 +855,125 @@ RunService.Heartbeat:Connect(function(dt)
 		end
 	end
 end)
+
+-- GAME-12: opt-in acceptance fixture. Normal play never creates this bridge or alters characters.
+if axeTestArgs then
+	local STS = game:GetService("StudioTestService")
+	local bridge = Instance.new("RemoteFunction")
+	bridge.Name, bridge.Parent = "GAME12AxeTest", Shared
+	local ready, errors, checks = {}, {}, {}
+	bridge.OnServerInvoke = function(player) ready[player] = true; return true end
+	game:GetService("ScriptContext").Error:Connect(function(message, _, source)
+		if source and string.find(source.Name, "Goblin", 1, true) then table.insert(errors, message) end
+	end)
+	local function check(value, label)
+		assert(value, label); table.insert(checks, label)
+	end
+	local function untilTrue(fn, timeout)
+		local deadline = os.clock() + timeout
+		repeat if fn() then return end; task.wait(0.05) until os.clock() > deadline
+		error("fixture timeout")
+	end
+	task.spawn(function()
+		local report = { checks = checks, errors = errors, mode = "real solo client / deterministic server fixture" }
+		local ok, err = xpcall(function()
+			untilTrue(function() return #Players:GetPlayers() > 0 end, 30)
+			local player = Players:GetPlayers()[1]
+			untilTrue(function() return ready[player] and player.Character and player.Character:FindFirstChild("HumanoidRootPart") end, 45)
+			Workspace:SetAttribute("Arena", "StressZone")
+			local center = assert(arena())
+			local root, hum = player.Character.HumanoidRootPart, player.Character:FindFirstChildOfClass("Humanoid")
+			root.Anchored = true
+			root.CFrame = CFrame.new(center + Vector3.new(0, 4, 0))
+			Instance.new("ForceField", player.Character).Visible = false
+			startRun(player, hum)
+			local run = runs[player]
+			local function target(x, z, health)
+				alive[1], px[1], pz[1], hp[1] = true, center.X+x, center.Z+z, health or 1000
+				generation[1] = (generation[1] or 0)+1
+				kvx[1],kvz[1],stunUntil[1],slowUntil[1] = 0,0,0,0
+				top,count=1,1; table.clear(free); table.clear(grid)
+				grid[key(px[1]//CELL,pz[1]//CELL)]={1}
+			end
+			local function throw()
+				clearRunAxes(player); run.cd.axe=0; fireWeapons(run,root,0)
+				check(#axes==1,"throw creates one authoritative axe")
+				return axes[1]
+			end
+			local function travel()
+				for _=1,160 do
+					pruneAxes(); moveAxes(1/30); task.wait(1/30)
+					if #axes==0 then return end
+				end
+				error("axe did not return")
+			end
+			-- Exercise the real card remote, then real HUD/loadout replication.
+			run.cards={{kind="weapon",id="axe",level=1,rarity=1}}; run.pending=1
+			run.pausedAt=Workspace:GetServerTimeNow()
+			levelUp:FireClient(player,run.cards,run.rerolls,run.level)
+			task.wait(0.4)
+			local beforePick=bridge:InvokeClient(player,"report")
+			check(beforePick.visibleAxeIcons>=1,"axe pixel art visible on real upgrade card")
+			bridge:InvokeClient(player,"pick")
+			untilTrue(function() return run.weapons.axe==1 and not run.cards end,5)
+			check(table.find(run.wOrder,"axe")~=nil,"real card selection acquires axe")
+			run.weapons={axe=1}; run.wOrder={"axe"}; publish(run)
+			target(8,0); local damage=run.damage.axe or 0; throw(); travel()
+			check(hp[1]==968 and run.damage.axe-damage==32,"one hit per target on each leg, correct damage ownership")
+			check(stunUntil[1]>0,"axe applies existing stun interaction")
+			local first=bridge:InvokeClient(player,"report")
+			check(first.peakAxes>=1 and first.nonCosmeticParts==0,"client rendered non-colliding non-queryable axe")
+			check(first.visibleAxeIcons>=1,"axe pixel art visible in real HUD")
+			-- A single large step must sweep through enemies, not skip them.
+			target(8,0); local a=throw(); moveAxes(0.4)
+			check(hp[1]==984,"swept hit prevents tunneling on a long step")
+			axeSweep(a,center.X,center.Z,center.X+16,center.Z)
+			check(hp[1]==984,"same incarnation cannot be hit twice on one leg")
+			generation[1]+=1
+			axeSweep(a,center.X,center.Z,center.X+16,center.Z)
+			check(hp[1]==968,"reused slot is a new hit identity")
+			-- A projectile from a previous run must not survive a replacement run for the same player.
+			runs[player]={};pruneAxes()
+			check(#axes==0,"replaced run identity cancels old projectile")
+			runs[player]=run
+			clearRunAxes(player); target(8,0,16); local kills=run.kills; throw(); moveAxes(0.4)
+			check(run.kills==kills+1 and not alive[1],"lethal axe hit credits kill once and drops existing XP gem")
+			local gemCount=0; for _ in gems do gemCount+=1 end
+			moveAxes(0.4); check(run.kills==kills+1 and gemCount==1,"no duplicate kill or gem from dead target")
+			table.clear(gems); table.clear(dead)
+			-- Passive scaling and higher tiers use the same path, not separate damage code.
+			run.weapons.axe=5; run.bonus.might=0.5; run.bonus.area=0.5; run.bonus.haste=0.5; run.bonus.force=1
+			target(8,0); a=throw()
+			check(a.damage==51 and math.abs(a.radius-3.6)<0.0001 and a.left==45 and run.cd.axe==0.9,"Might Area Haste and Lv5 stats applied")
+			moveAxes(0.4); check(kvx[1]~=0 or kvz[1]~=0,"Force knockback applied")
+			run.bonus.might=0;run.bonus.area=0;run.bonus.haste=0;run.bonus.force=0
+			run.weapons.axe=1
+			-- Return target moves; cancellation also runs during the global card pause.
+			target(8,0); a=throw(); moveAxes(24/38)
+			root.CFrame+=Vector3.new(0,0,8); pruneAxes(); moveAxes(0.1)
+			check(a.leg==2 and a.z>center.Z,"return homes to moving owner")
+			travel(); check(#axes==0,"catch cleans up server projectile")
+			root.CFrame=CFrame.new(center+Vector3.new(0,4,0)); target(8,0); a=throw()
+			run.cards={{kind="weapon",id="axe",level=2,rarity=1}}
+			local age,x=a.age,a.x; step(1/30)
+			check(a.age==age and a.x==x,"existing global upgrade pause freezes axe")
+			root.CFrame+=Vector3.new(80,0,0); step(1/30)
+			check(#axes==0,"teleport cancels axe even while paused")
+			run.cards=nil;root.CFrame=CFrame.new(center+Vector3.new(0,4,0))
+			target(8,0);a=throw();a.age=4.49;moveAxes(0.02)
+			check(#axes==0,"maximum lifetime bounds projectile retention")
+			target(8,0);throw();endRun(player)
+			check(#axes==0 and runs[player]==nil,"run end cancels axes immediately")
+			task.wait(0.4)
+			local last=bridge:InvokeClient(player,"report")
+			check(last.axes==0,"client visual cleaned up after run end")
+			check(#last.errors==0 and #errors==0,"no captured Goblin server/client errors")
+			report.client=last;report.firstClient=first
+		end,debug.traceback)
+		report.ok,report.error=ok,if ok then nil else tostring(err)
+		STS:EndTest(report)
+	end)
+end
 
 -- GAME-23: isolated stress fixture, enabled only by explicit StudioTestService arguments.
 if benchmarkArgs then

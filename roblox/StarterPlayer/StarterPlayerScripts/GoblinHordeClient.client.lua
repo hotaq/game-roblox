@@ -368,6 +368,81 @@ local function slash(root: BasePart, range: number, from: number, to: number, ti
 		task.delay(0.05, sweep, root, range * 0.75, from, to, tier)
 	end
 end
+-- GAME-12 axe visual: voxel silhouette, matte steel/wood, restrained gold/jade accents.
+-- Snapshot-driven: no independent client projectile simulation or damage prediction.
+local axeViews = {}
+local function makeAxeVisual(parent: Instance, level: number, scale: number)
+	local model = Instance.new("Model")
+	model.Name = "BoomerangAxe"
+	local wood = Color3.fromRGB(98, 61, 36)
+	local steel = Color3.fromRGB(130, 151, 157)
+	local edge = Color3.fromRGB(224, 234, 221)
+	local trim = if level >= 2 then Color3.fromRGB(207, 157, 67) else Color3.fromRGB(148, 104, 53)
+	local inlay = if level >= 4 then Color3.fromRGB(74, 185, 150) else trim
+	local function block(name, size, pos, color)
+		local p = Instance.new("Part")
+		p.Name, p.Size, p.CFrame, p.Color = name, size * scale, CFrame.new(pos * scale), color
+		p.Material = Enum.Material.Plastic
+		p.TopSurface, p.BottomSurface = Enum.SurfaceType.Smooth, Enum.SurfaceType.Smooth
+		p.Anchored, p.CanCollide, p.CanTouch, p.CanQuery, p.CastShadow = true, false, false, false, false
+		p.Parent = model
+		return p
+	end
+	local hub = block("Binding", Vector3.new(0.52, 0.48, 0.72), Vector3.new(0, 0, -0.5), trim)
+	model.PrimaryPart = hub
+	block("OakHaft", Vector3.new(0.3, 0.32, 2.7), Vector3.new(0, 0, 0.3), wood)
+	block("Grip", Vector3.new(0.42, 0.4, 0.6), Vector3.new(0, 0, 1.14), Color3.fromRGB(58, 39, 31))
+	block("Pommel", Vector3.new(0.48, 0.44, 0.25), Vector3.new(0, 0, 1.55), trim)
+	for _, side in {-1, 1} do
+		block("SteelCheek", Vector3.new(0.75, 0.32, 0.88), Vector3.new(side * 0.58, 0, -0.5), steel)
+		block("Blade", Vector3.new(0.42, 0.28, 1.38), Vector3.new(side * 1.12, 0, -0.5), steel)
+		block("CuttingEdge", Vector3.new(0.18, 0.24, 1.64), Vector3.new(side * 1.42, 0, -0.5), edge)
+		block("Rivet", Vector3.new(0.24, 0.12, 0.24), Vector3.new(side * 0.64, 0.22, -0.5), trim)
+	end
+	block("Crest", Vector3.new(0.28, 0.12, 0.4), Vector3.new(0, 0.29, -0.5), inlay)
+	if level == 5 then
+		for _, side in {-1, 1} do
+			block("GoldInlay", Vector3.new(0.15, 0.08, 0.66), Vector3.new(side * 1.03, 0.2, -0.5), trim)
+		end
+	end
+	local a0, a1 = Instance.new("Attachment"), Instance.new("Attachment")
+	a0.Position, a1.Position = Vector3.new(1.4, 0, -0.15) * scale, Vector3.new(1.4, 0, 0.15) * scale
+	a0.Parent, a1.Parent = hub, hub
+	local trail = Instance.new("Trail")
+	trail.Name, trail.Attachment0, trail.Attachment1 = "ShortSpinTrail", a0, a1
+	trail.Color = ColorSequence.new(trim, edge)
+	trail.Transparency = NumberSequence.new({NumberSequenceKeypoint.new(0, 0.45), NumberSequenceKeypoint.new(1, 1)})
+	trail.Lifetime, trail.MinLength, trail.LightEmission, trail.FaceCamera = 0.1, 0.08, 0, true
+	trail.Parent = hub
+	-- Pivot at the shaft centre, not the off-centre binding part.
+	model.WorldPivot = CFrame.identity
+	hub.PivotOffset = CFrame.new(0, 0, 0.5 * scale)
+	model.Parent = parent
+	return model, trail
+end
+
+local function receiveAxes(packet)
+	local seen = {}
+	for _, row in packet do
+		local id, owner, x, z, y, radius, level, age = table.unpack(row)
+		local character = owner and owner.Character
+		if not character then continue end
+		local v = axeViews[id]
+		if not v then
+			local model, trail = makeAxeVisual(folder, level, radius / 1.8)
+			v = { model = model, trail = trail, owner = owner, character = character, x = x, z = z, age = age }
+			axeViews[id] = v
+			model:PivotTo(CFrame.new(x, y, z) * CFrame.Angles(0, age * 18, 0))
+		end
+		v.tx, v.tz, v.y, v.targetAge = x, z, y, age
+		seen[id] = true
+	end
+	for id, v in axeViews do
+		if not seen[id] then v.model:Destroy(); axeViews[id] = nil end
+	end
+end
+-- END GAME-12 axe visual
+
 Shared:WaitForChild("HordeFx").OnClientEvent:Connect(function(kind: string, ...)
 	if kind == "slash" then
 		local player, range, arc, back, lx, lz = ...
@@ -382,6 +457,8 @@ Shared:WaitForChild("HordeFx").OnClientEvent:Connect(function(kind: string, ...)
 		if back then
 			slash(root, range, aim + math.pi + half * side, aim + math.pi - half * side, tier)
 		end
+	elseif kind == "axes" then
+		receiveAxes(...)
 	elseif kind == "fire" then
 		local x, z, dx, dz, speed, range = ...
 		local p = pooled(ballPool, function()
@@ -401,6 +478,19 @@ end
 
 local parts, cframes = {}, {}
 RunService.RenderStepped:Connect(function(dt)
+	local axeAlpha = 1 - math.exp(-dt * 24)
+	for id, v in axeViews do
+		local hum = v.character:FindFirstChildOfClass("Humanoid")
+		if v.owner.Parent ~= Players or v.owner.Character ~= v.character or not hum or hum.Health <= 0
+			or not v.owner:GetAttribute("RunStart") then
+			v.model:Destroy(); axeViews[id] = nil
+		else
+			v.x += (v.tx - v.x) * axeAlpha
+			v.z += (v.tz - v.z) * axeAlpha
+			v.age += (v.targetAge - v.age) * axeAlpha -- also freezes when the server's card pause freezes it
+			v.model:PivotTo(CFrame.new(v.x, v.y, v.z) * CFrame.Angles(0, v.age * 18, 0))
+		end
+	end
 	for k = #balls, 1, -1 do
 		local b = balls[k]
 		local step = b.speed * dt
