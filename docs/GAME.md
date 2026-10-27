@@ -70,7 +70,7 @@ The ids are in `ReplicatedStorage/Goblin/GoblinSounds.lua`. Every one is a free 
 
 | Sound | Asset | Plays when | Cooldown |
 |---|---|---|---|
-| Slash | 134671877618939 | your sword slashes (pitch rises a little per sword level) | 0.05 s |
+| Slash | 135315310485417 | your sword slashes (pitch rises a little per sword level) | 0.05 s |
 | Fireball | 118217695193917 | your Fireball fires | 0.08 s |
 | Hit | 139520673393967 | your hits land (HordeHits) | 0.06 s |
 | GoblinPop | 72264591133889 | goblins die (HordeDied) | 0.05 s |

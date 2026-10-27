@@ -6,7 +6,7 @@
 export type Sound = { Id: string, Volume: number, Pitch: { number }?, Cooldown: number, Source: string }
 
 local Sounds: { [string]: Sound } = {
-	Slash = { Id = "134671877618939", Volume = 0.55, Pitch = { 0.95, 1.08 }, Cooldown = 0.05, Source = "Sword Swing Sound (0FFZ3TI)" },
+	Slash = { Id = "135315310485417", Volume = 0.55, Pitch = { 0.95, 1.08 }, Cooldown = 0.05, Source = "sword-swing-whoosh-sound-effect-1 (Akin_TR), picked by the owner" },
 	Fireball = { Id = "118217695193917", Volume = 0.4, Pitch = { 0.95, 1.1 }, Cooldown = 0.08, Source = "fireball-whoosh-5-179129 (mheedeng)" },
 	Hit = { Id = "139520673393967", Volume = 0.35, Pitch = { 0.9, 1.15 }, Cooldown = 0.06, Source = "Hit sound (Juniur_TripleWapper)" },
 	GoblinPop = { Id = "72264591133889", Volume = 0.45, Pitch = { 0.85, 1.2 }, Cooldown = 0.05, Source = "ui-pop-sound-316482 (BIushney)" },
