@@ -9,6 +9,18 @@ boundary coverage, then evaluate RunGAME29(1) and RunGAME29(2) from Edit/MCP in 
 Each launcher creates disposable background StudioTestService multiplayer helpers and
 writes JSON to ServerStorage.GAME29_<guid>.Report; Status must be Complete and result.ok true.
 Do not stop unrelated Play contexts. The named fixture alone enables this prototype.
+RunGAME29(clients,true) adds a60s marker review window before the functional scenarios.
+
+HUD fallback inspection when the owner Rojo host has not pulled the latest patch:
+launch the same background test with name GAME29VisualOnly (no production fixture),
+evaluate BuildGAME29HUDProbe against repository server source in Edit, then execute the
+returned command in that test's Server via MCP. It stops only that disposable helper's
+ordinary horde Script and creates controlled runs for real players. Script.Source is never
+assigned. Call ServerStorage.GAME29HUDProbe.Action:Invoke with progress/remove-first/success/
+reset; inspect both actual Client PlayerGuis and capture the HUD. End only this test using
+StudioTestService:EndTest. This checks UI replication/cleanup; its reward callback is mocked
+and cannot replace the full ordinary-card acceptance above. A final sync remains necessary
+before interactive testing of the latest integrated source in the owner's main place.
 
 Functional checks: default-off absence, replicated marker, ignore without penalty,
 progress decay/pause, normal reward-card delivery and selection, exactly-once completion,

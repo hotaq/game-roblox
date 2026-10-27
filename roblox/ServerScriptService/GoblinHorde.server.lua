@@ -450,7 +450,7 @@ local function objectiveMarker(state)
 		-- Exact state tests use mock owners; live recipients receive an ordinary screen HUD.
 		local playerGui=typeof(player)=="Instance" and player:FindFirstChildOfClass("PlayerGui")
 		if playerGui then
-			local gui=Instance.new("ScreenGui");gui.Name="OptionalHoldTrialUI";gui.ResetOnSpawn=false;gui.IgnoreGuiInset=true;gui.DisplayOrder=2
+			local gui=Instance.new("ScreenGui");gui.Name="OptionalHoldTrialUI";gui.ResetOnSpawn=false;gui.IgnoreGuiInset=true;gui.DisplayOrder=-1 -- ordinary card overlays stay above the objective
 			local label=Instance.new("TextLabel");label.AnchorPoint=Vector2.new(.5,0);label.Position=UDim2.new(.5,0,0,120)
 			label.Size=UDim2.new(.8,0,0,54);label.BackgroundColor3=Color3.fromRGB(35,29,25);label.BackgroundTransparency=.15;label.BorderSizePixel=0
 			local limit=Instance.new("UISizeConstraint");limit.MaxSize=Vector2.new(380,54);limit.Parent=label
