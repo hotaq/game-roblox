@@ -481,20 +481,51 @@ local function receiveAxes(packet)
 end
 -- END GAME-12 axe visual
 
+-- One sword swing around `root` aimed at (lx, lz); `key` remembers which way the last swing went so they alternate.
+local function swing(key: any, root: BasePart, tier, range: number, arc: number, back: boolean?, lx: number, lz: number)
+	local aim, half = math.atan2(lz, lx), math.rad(arc / 2)
+	local side = -(swingSide[key] or 1)
+	swingSide[key] = side
+	slash(root, range, aim - half * side, aim + half * side, tier)
+	if back then
+		-- Smaller, a beat later: the two ink crescents read as two strokes instead of closing into a hoop
+		task.delay(0.08, slash, root, range, aim + math.pi + half * side, aim + math.pi - half * side, tier, 0.7)
+	end
+end
+
+-- Sword FX showcase (Workspace.SwordFXZone, built by roblox/BuildSwordFXZone.luau): station LvN swings forever at sword
+-- level N, with that level's Range/Arc/Back from Config, while the local player is within 120 studs. Place-only.
+task.spawn(function()
+	local zone = Workspace:WaitForChild("SwordFXZone", 10)
+	if not zone then
+		return
+	end
+	local levels = Config.Weapons.sword.Levels
+	while true do
+		local char = Players.LocalPlayer.Character
+		local me = char and char:FindFirstChild("HumanoidRootPart")
+		if me and (me.Position - zone:GetPivot().Position).Magnitude < 120 then
+			local stats = {}
+			for n = 1, #SLASH_TIERS do
+				for k, v in levels[n] or {} do
+					stats[k] = v -- levels only list what changes, so stats build up level by level
+				end
+				local station = zone:FindFirstChild("Lv" .. n)
+				if station then
+					swing(station, station, SLASH_TIERS[n], stats.Range, stats.Arc, stats.Back, 0, 1)
+				end
+			end
+		end
+		task.wait(1.6)
+	end
+end)
+
 Shared:WaitForChild("HordeFx").OnClientEvent:Connect(function(kind: string, ...)
 	if kind == "slash" then
 		local player, range, arc, back, lx, lz = ...
 		local root = player and player.Character and player.Character:FindFirstChild("HumanoidRootPart")
-		if not root then
-			return
-		end
-		local aim, half, tier = math.atan2(lz, lx), math.rad(arc / 2), swordTier(player)
-		local side = -(swingSide[player] or 1)
-		swingSide[player] = side
-		slash(root, range, aim - half * side, aim + half * side, tier)
-		if back then
-			-- Smaller, a beat later: the two ink crescents read as two strokes instead of closing into a hoop
-			task.delay(0.08, slash, root, range, aim + math.pi + half * side, aim + math.pi - half * side, tier, 0.7)
+		if root then
+			swing(player, root, swordTier(player), range, arc, back, lx, lz)
 		end
 	elseif kind == "axes" then
 		receiveAxes(...)
