@@ -12,6 +12,12 @@
 --    They have a ForceField and no active weapons, so no death, XP, upgrade pause or DPS drift.
 --    This is an isolated horde workload, NOT a full-combat, corpse-churn or real-device test.
 --    Pools remain warm across phases; reset does not destroy reusable client pools.
+--    IMPORTANT: ascending kill-all + LIFO slot reuse makes round 2 sparse at low populations.
+--    Run the entire launcher twice in fresh sessions (archive/rename the first results folder).
+--    Compare round 1 with round 1 across batches as the PRIMARY baseline; compare round 2
+--    with round 2 separately as a warm-pool/sparse-slot diagnostic. Do not mix these states.
+--    Normal population reduction kills top slots, so sparse-fixture bandwidth is not proof
+--    of bandwidth waste in normal reductions. All reports must preserve this distinction.
 --    Seed is fixed, but real heartbeat scheduling and equal-distance target ties may vary.
 -- 5. Inspect ServerStorage.GAME23Results after Status=Complete.
 --    There must be 3 successful session results, 6 phases each, and 1/2/4 client reports per phase.
@@ -44,7 +50,8 @@
 return {
     schema = 1,
     baselineGameplayCommit = "c8712eaf3fd3c051fa627272f3756fab094a16a2",
-    instrumentCommit = "e2bc7ba",
+    instrumentCommit = "f17b8fc",
+    independentBatches = 2,
     populations = {100,500,1000},
     clients = {1,2,4},
     repeats = 2,
@@ -62,6 +69,6 @@ return {
         network = "set after baseline and target-player-count decision",
         memory = "set after warm-up/cleanup trends and target-device decision",
     },
-    hardware = "Studio host CPU/GPU/RAM/platform not exposed by current MCP; owner input pending",
-    measuredResults = "pending Rojo sync and execution; this file contains no benchmark results",
+    hardware = "Windows 11 Pro 10.0.26200; i5-12400F 6C/12T; 31.86 GiB RAM; RTX 3070 driver 32.0.16.1088. Local Studio window title matches the connected place.",
+    measuredResults = "GAME23Report.lua plus raw GAME23Batch1.lua and GAME23Batch2.lua; 36 validated phases and 84 client reports",
 }
