@@ -924,8 +924,11 @@ if axeTestArgs then
 			run.cards={{kind="weapon",id="axe",level=1,rarity=1}}; run.pending=1
 			run.pausedAt=Workspace:GetServerTimeNow()
 			levelUp:FireClient(player,run.cards,run.rerolls,run.level)
-			task.wait(0.4)
-			local beforePick=bridge:InvokeClient(player,"report")
+			local beforePick
+			untilTrue(function()
+				beforePick=bridge:InvokeClient(player,"report")
+				return beforePick.visibleAxeIcons>=1
+			end,5)
 			check(beforePick.visibleAxeIcons>=1,"axe pixel art visible on real upgrade card")
 			bridge:InvokeClient(player,"pick")
 			untilTrue(function() return run.weapons.axe==1 and not run.cards end,5)

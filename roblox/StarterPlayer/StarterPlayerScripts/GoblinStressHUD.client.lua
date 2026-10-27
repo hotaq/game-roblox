@@ -50,6 +50,9 @@ if ReplicatedStorage.Goblin:GetAttribute("GAME12AxeActive") then
 			end end end
 			return {axes=countAxes(),peakAxes=peak,nonCosmeticParts=nonCosmetic,visibleAxeIcons=icons,errors=errors}
 		end
+		-- GoblinRunUI parents its ScreenGui only after connecting all card handlers.
+		-- A second Studio client can load this participant earlier than that UI.
+		assert(player:WaitForChild("PlayerGui"):WaitForChild("GoblinRunUI",45),"axe acceptance UI readiness timeout")
 		bridge:InvokeServer("ready")
 	end)
 end
