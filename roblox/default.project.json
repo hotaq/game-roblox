@@ -31,6 +31,9 @@
       },
       "GoblinAI": {
         "$path": "ServerScriptService/GoblinAI.server.lua"
+      },
+      "Map1Builder": {
+        "$path": "ServerScriptService/Map1Builder.lua"
       }
     },
     "StarterPlayer": {
