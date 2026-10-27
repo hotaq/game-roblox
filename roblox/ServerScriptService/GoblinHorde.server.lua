@@ -314,7 +314,8 @@ pickCard.OnServerEvent:Connect(function(player, index, offerId)
 		run.passives[c.id] = c.level
 		run.bonus[c.id] = (run.bonus[c.id] or 0)+Config.passiveAmount(c.id,c.rarity)
 		if c.id=="speed" then
-			run.speedApplied=run.baseWalkSpeed*(1+math.min(run.bonus.speed,.75));run.hum.WalkSpeed=run.speedApplied
+			run.hum.WalkSpeed=run.baseWalkSpeed*(1+math.min(run.bonus.speed,.75))
+			run.speedApplied=run.hum.WalkSpeed -- retain engine float precision for the ownership check on restore
 		end
 	else
 		run.hum.Health = math.min(run.hum.MaxHealth, run.hum.Health + R.Heal)
