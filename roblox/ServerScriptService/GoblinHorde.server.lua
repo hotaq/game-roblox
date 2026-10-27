@@ -2278,6 +2278,7 @@ if completeTestArgs then
 			repeat moveTotems(1/H.SimRate);fireWeapons(ra,rootA,1/H.SimRate);if rb then fireWeapons(rb,rootB,1/H.SimRate)end;task.wait(1/H.SimRate)until os.clock()>=stop
 			report.review={a=snap(a),b=if b then snap(b)else nil}
 			check(report.review.a.bolts<=48,"lightning segment count bounded")
+			if b then clearRunTotems(b);rb.cd.totem=0;fireWeapons(rb,rootB,0)end -- fixed phase for owner-isolation assertion
 			endRun(a);send();waitFor(function()return snap(a).totems==(if b then 1 else 0)end,"one end")
 			check(#totems==(if b then 1 else 0),"ending owner preserves only peer totem")
 			ra,rootA=prepare(a,-5);check(next(ra.evolved)==nil and ra.bonus.duration==0 and ra.bonus.projectile==0 and ra.bonus.luck==0,"fresh run resets all evolution and passive state")

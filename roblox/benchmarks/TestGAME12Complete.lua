@@ -24,6 +24,13 @@ local r={weapons={sword=5,fire=5,ring=5,axe=5},wOrder={"sword","fire","ring","ax
 for _,c in makeCards(r)do assert(c.kind=="evolve")end
 check(true,"full slots still permit evolution and exclude new acquisitions")
 r.evolved={sword=true,fire=true,ring=true,axe=true};check(makeCards(r)[1].kind=="heal","fully maxed and evolved loadout falls back to heal")
+]=]..span(serverSource,"local function restoreRunSpeed(","local function endRun(")..[=[
+local hum=Instance.new("Humanoid");local run={hum=hum,baseWalkSpeed=hum.WalkSpeed}
+run.bonus={speed=.72}
+]=]..span(serverSource,"\t\t\trun.hum.WalkSpeed=run.baseWalkSpeed", "\n\t\tend")..[=[
+restoreRunSpeed(run);check(hum.WalkSpeed==run.baseWalkSpeed,"engine float value restores original speed")
+hum.WalkSpeed=25.123;run.speedApplied=hum.WalkSpeed;hum.WalkSpeed=30;restoreRunSpeed(run)
+check(hum.WalkSpeed==30,"speed cleanup preserves another system's later change");hum:Destroy()
 return {checks=checks,rarity={before=before,after=after}}
 ]=]
 	local result=assert(loadstring(code,"CompleteCardsExact"))()
