@@ -8,7 +8,7 @@
 --            stray tap can't pick); Reroll.
 --   Results  from Goblin.RunOver: time, kills, level, damage share per weapon; Play Again (back to the arena) or Lobby.
 -- Card text comes from GoblinConfig, so the server only sends {kind, id, level, rarity}.
--- Icons are pixel art from one sprite sheet (Config.Icons). Until Roblox approves that upload it won't load, so every
+-- Icons are pixel art from one sprite sheet (Config.Icons). While the sheet is loading, every
 -- icon keeps a glyph-on-colour fallback underneath and swaps to the art as soon as the sheet loads.
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -108,15 +108,24 @@ local function art(parent: GuiObject, fallback, tile: Frame?)
 	table.insert(arts, a)
 	return a
 end
-task.spawn(function() -- poll until the sheet is approved and loads, then swap every icon to its art
+task.spawn(function()
+	-- Preload an ImageLabel so Roblox requests the image texture content type.
+	-- A bare asset-id string can report Failure even when this same image is available.
+	local probe = Instance.new("ImageLabel")
+	probe.Image = ICONS.Image
 	while not iconsReady do
-		game:GetService("ContentProvider"):PreloadAsync({ ICONS.Image }, function(_, status)
-			iconsReady = status == Enum.AssetFetchStatus.Success
+		local ok = pcall(function()
+			game:GetService("ContentProvider"):PreloadAsync({ probe }, function(_, status)
+				if status == Enum.AssetFetchStatus.Success then
+					iconsReady = true
+				end
+			end)
 		end)
-		if not iconsReady then
+		if not ok or not iconsReady then
 			task.wait(20)
 		end
 	end
+	probe:Destroy()
 	for _, a in arts do
 		if a.image.Parent then
 			setArt(a, a.key)
