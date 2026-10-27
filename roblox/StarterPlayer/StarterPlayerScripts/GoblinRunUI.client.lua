@@ -168,20 +168,20 @@ local function setArt(a, key: string?)
 	end
 end
 local function art(parent: GuiObject, fallback, tile: Frame?)
-	local image = new("ImageLabel", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Image = ICONS.Image, ImageRectSize = Vector2.new(ICONS.Cell, ICONS.Cell), ResampleMode = Enum.ResamplerMode.Pixelated, ZIndex = 3, Visible = false, Parent = parent })
+	local image = new("ImageLabel", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Image = ICONS.Image, ImageRectSize = Vector2.new(ICONS.Cell, ICONS.Cell), ZIndex = 3, Visible = false, Parent = parent })
 	local a = { image = image, fallback = fallback, tile = tile }
 	table.insert(arts, a)
 	return a
 end
-task.spawn(function() -- poll until the sheet is approved and loads, then swap every icon to its art
-	while not iconsReady do
-		game:GetService("ContentProvider"):PreloadAsync({ ICONS.Image }, function(_, status)
-			iconsReady = status == Enum.AssetFetchStatus.Success
-		end)
-		if not iconsReady then
-			task.wait(20)
-		end
+task.spawn(function() -- wait until the sheet loads, then swap every icon to its art
+	-- A shown ImageLabel's IsLoaded, not PreloadAsync: PreloadAsync reports Failure for this sheet even when it loads.
+	local probe = new("ScreenGui", { Name = "GoblinIconProbe" }, { new("ImageLabel", { Image = ICONS.Image, Size = UDim2.fromOffset(1, 1), ImageTransparency = 0.99, BackgroundTransparency = 1 }) })
+	probe.Parent = player:WaitForChild("PlayerGui")
+	while not probe:FindFirstChildOfClass("ImageLabel").IsLoaded do
+		task.wait(1)
 	end
+	probe:Destroy()
+	iconsReady = true
 	for _, a in arts do
 		if a.image.Parent then
 			setArt(a, a.key)
