@@ -518,6 +518,54 @@ local function receiveAxes(packet)
 end
 -- END GAME-12 axe visual
 
+-- GAME-12 rocks visual: matte ruin stones; geometry never participates in hit detection.
+local rockViews={}
+local function makeRockVisual(parent,level,radius)
+	local model=Instance.new("Model");model.Name="OrbitRock"
+	local scale=radius/1.25
+	local stone=if level>=5 then Color3.fromRGB(101,112,104) else Color3.fromRGB(130,139,126)
+	local function piece(class,name,size,cf,color)
+		local p=Instance.new(class);p.Name=name;p.Size=size*scale;p.CFrame=CFrame.new(cf.Position*scale)*cf.Rotation
+		p.Color=color;p.Material=Enum.Material.Plastic;p.Anchored=true
+		p.CanCollide,p.CanTouch,p.CanQuery,p.CastShadow=false,false,false,false;p.Parent=model
+		return p
+	end
+	local core=piece("Part","Stone",Vector3.new(1.65,1.35,1.45),CFrame.identity,stone)
+	model.PrimaryPart=core
+	piece("WedgePart","Facet",Vector3.new(.65,1.3,1.45),CFrame.new(.85,0,0)*CFrame.Angles(0,0,math.pi/2),Color3.fromRGB(96,107,99))
+	piece("WedgePart","LightFacet",Vector3.new(.6,1.25,1.35),CFrame.new(-.8,0,0)*CFrame.Angles(0,0,-math.pi/2),Color3.fromRGB(164,171,151))
+	piece("Part","Moss",Vector3.new(.85,.12,.8),CFrame.new(-.25,.72,.12),Color3.fromRGB(88,119,62))
+	local gold=if level>=5 then Color3.fromRGB(227,185,85) else Color3.fromRGB(172,148,91)
+	piece("Part","Rune",Vector3.new(.16,.68,.06),CFrame.new(.1,.02,-.75),gold)
+	piece("Part","RuneTop",Vector3.new(.5,.14,.06),CFrame.new(.1,.3,-.75),gold)
+	if level>=3 then piece("Part","RuneBase",Vector3.new(.5,.14,.06),CFrame.new(.1,-.25,-.75),gold) end
+	model.WorldPivot=CFrame.identity;model.Parent=parent
+	return model
+end
+local function clearRockView(owner)
+	local v=rockViews[owner]
+	if v then for _,m in v.models do m:Destroy() end;rockViews[owner]=nil end
+end
+local function receiveRocks(packet)
+	local seen={}
+	for _,row in packet do
+		local owner,serial,x,z,y,phase,count,radius,orbit,level=table.unpack(row)
+		local character=owner and owner.Character
+		if not character then continue end
+		local v=rockViews[owner]
+		if v and (v.serial~=serial or v.character~=character) then clearRockView(owner);v=nil end
+		if not v then
+			v={serial=serial,character=character,models={},x=x,z=z,phase=phase}
+			for _=1,count do table.insert(v.models,makeRockVisual(folder,level,radius)) end
+			rockViews[owner]=v
+		end
+		v.tx,v.tz,v.y,v.targetPhase,v.orbit=x,z,y,phase,orbit
+		seen[owner]=true
+	end
+	for owner in rockViews do if not seen[owner] then clearRockView(owner) end end
+end
+-- END GAME-12 rocks visual
+
 -- One sword swing around `root` aimed at (lx, lz); `key` remembers which way the last swing went so they alternate.
 local function swing(key: any, root: BasePart, tier, range: number, arc: number, back: boolean?, lx: number, lz: number)
 	local aim, half = math.atan2(lz, lx), math.rad(arc / 2)
@@ -576,6 +624,8 @@ Shared:WaitForChild("HordeFx").OnClientEvent:Connect(function(kind: string, ...)
 		end
 	elseif kind == "axes" then
 		receiveAxes(...)
+	elseif kind == "rocks" then
+		receiveRocks(...)
 	elseif kind == "fire" then
 		local x, z, dx, dz, speed, range = ...
 		local p = pooled(ballPool, function()
@@ -589,6 +639,7 @@ end)
 local RING = Config.Weapons.ring
 local rings = {} -- Player -> part
 Players.PlayerRemoving:Connect(function(player)
+	clearRockView(player)
 	local ring = rings[player]
 	if ring then ring:Destroy(); rings[player] = nil end
 	swingSide[player] = nil
@@ -600,6 +651,20 @@ end
 
 local parts, cframes = {}, {}
 RunService.RenderStepped:Connect(function(dt)
+	local rockAlpha=1-math.exp(-dt*24)
+	for owner,v in rockViews do
+		local hum=v.character:FindFirstChildOfClass("Humanoid")
+		if owner.Parent~=Players or owner.Character~=v.character or not hum or hum.Health<=0 or not owner:GetAttribute("RunStart") then
+			clearRockView(owner)
+		else
+			v.x+=(v.tx-v.x)*rockAlpha;v.z+=(v.tz-v.z)*rockAlpha
+			v.phase+=((v.targetPhase-v.phase+math.pi)%(math.pi*2)-math.pi)*rockAlpha
+			for k,m in v.models do
+				local angle=v.phase+(k-1)*math.pi*2/#v.models
+				m:PivotTo(CFrame.new(v.x+math.cos(angle)*v.orbit,v.y,v.z+math.sin(angle)*v.orbit)*CFrame.Angles(.12*math.sin(angle),-angle+.3,.15))
+			end
+		end
+	end
 	local axeAlpha = 1 - math.exp(-dt * 24)
 	for id, v in axeViews do
 		local hum = v.character:FindFirstChildOfClass("Humanoid")

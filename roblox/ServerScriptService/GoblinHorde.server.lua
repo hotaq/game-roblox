@@ -226,6 +226,7 @@ local function endRun(player: Player)
 		return
 	end
 	runs[player] = nil
+	run.rocks = nil
 	local damage = {}
 	for _, id in run.wOrder do
 		table.insert(damage, { id = id, level = run.weapons[id], amount = math.round(run.damage[id] or 0) })
@@ -327,6 +328,7 @@ end)
 
 Players.PlayerRemoving:Connect(function(player)
 	clearRunAxes(player)
+	if runs[player] then runs[player].rocks=nil end
 	runs[player] = nil
 	views[player], viewReadyAt[player] = nil, nil
 end)
@@ -505,12 +507,92 @@ local function moveAxes(dt: number)
 end
 -- END GAME-12 axe simulation
 
+-- GAME-12 Orbit Rocks: server contact sweeps, one shared cooldown per target incarnation.
+local rockSerial, rocksWereVisible = 0, false
+local function validRockOwner(run, root)
+	local center,half=arena()
+	local pos=root.Position
+	return runs[run.player]==run and run.player.Parent==Players and run.hum.Health>0
+		and run.player.Character==root.Parent and root:IsDescendantOf(Workspace) and center
+		and math.abs(pos.X-center.X)<=half+2 and math.abs(pos.Z-center.Z)<=half+2
+end
+local function pruneRocks()
+	for _,run in runs do
+		local state=run.rocks
+		if state and (not run.weapons.rocks or not validRockOwner(run,state.root)
+			or (state.root.Position-state.lastOwner).Magnitude>48) then run.rocks=nil end
+	end
+end
+local function rockSweep(run,state,x0,z0,x1,z1,s)
+	local dx,dz=x1-x0,z1-z0
+	local length2=dx*dx+dz*dz
+	around((x0+x1)/2,(z0+z1)/2,math.sqrt(length2)/2+state.radius,function(slot)
+		local incarnation=generation[slot] or 0
+		local previous=state.hit[slot]
+		if previous and previous.incarnation==incarnation and previous.untilAge>state.age then return end
+		local t=if length2>0 then math.clamp(((px[slot]-x0)*dx+(pz[slot]-z0)*dz)/length2,0,1) else 0
+		local ex,ez=px[slot]-x0-dx*t,pz[slot]-z0-dz*t
+		if alive[slot] and ex*ex+ez*ez<=state.radius*state.radius then
+			state.hit[slot]={incarnation=incarnation,untilAge=state.age+s.Interval*(1-math.min(run.bonus.haste,0.6))}
+			hit(slot,s.Damage*(1+run.bonus.might),run,"rocks",x0,z0,s.Knock,false)
+		end
+	end)
+end
+local function moveRocks(run,root,dt)
+	local level=run.weapons.rocks
+	if not level or not validRockOwner(run,root) then run.rocks=nil;return end
+	local s=Config.weaponStats("rocks",level)
+	local pos=root.Position
+	local state=run.rocks
+	local radius,orbit=s.Radius*(1+run.bonus.area),s.Orbit*(1+run.bonus.area)
+	if not state or state.root~=root or state.level~=level or state.radius~=radius
+		or (pos-state.lastOwner).Magnitude>48 then
+		rockSerial+=1
+		state={serial=rockSerial,root=root,lastOwner=pos,x=pos.X,z=pos.Z,y=pos.Y-0.7,
+			phase=0,age=0,hit={},radius=radius,orbit=orbit,count=s.Count,level=level}
+		run.rocks=state
+	end
+	-- Normal simulation supplies 1/30s. Bound exceptional callers and subdivide curved motion.
+	dt=math.clamp(dt,0,0.25)
+	local delta=s.Speed*dt
+	local steps=math.max(1,math.ceil(delta/0.2))
+	for sub=1,steps do
+		local t0,t1=(sub-1)/steps,sub/steps
+		state.age+=dt/steps
+		for k=1,s.Count do
+			local angle=state.phase+(k-1)*math.pi*2/s.Count
+			local x0=state.x+(pos.X-state.x)*t0+math.cos(angle+delta*t0)*orbit
+			local z0=state.z+(pos.Z-state.z)*t0+math.sin(angle+delta*t0)*orbit
+			local x1=state.x+(pos.X-state.x)*t1+math.cos(angle+delta*t1)*orbit
+			local z1=state.z+(pos.Z-state.z)*t1+math.sin(angle+delta*t1)*orbit
+			rockSweep(run,state,x0,z0,x1,z1,s)
+		end
+	end
+	state.phase=(state.phase+delta)%(math.pi*2)
+	state.x,state.z,state.y,state.lastOwner=pos.X,pos.Z,pos.Y-0.7,pos
+	for slot,record in state.hit do
+		if not alive[slot] or generation[slot]~=record.incarnation or record.untilAge<=state.age then state.hit[slot]=nil end
+	end
+end
+local function sendRocks()
+	local packet={}
+	for _,run in runs do
+		local s=run.rocks
+		if s then table.insert(packet,{run.player,s.serial,s.x,s.z,s.y,s.phase,s.count,s.radius,s.orbit,s.level}) end
+	end
+	if #packet>0 or rocksWereVisible then fx:FireAllClients("rocks",packet) end
+	rocksWereVisible=#packet>0
+end
+-- END GAME-12 rocks simulation
+
 local function fireWeapons(run, root: BasePart, dt: number)
+	if run.weapons.rocks then moveRocks(run,root,dt) end
 	local pos = root.Position
 	local haste = 1 - math.min(run.bonus.haste, 0.6)
 	local might = 1 + run.bonus.might
 	local area = 1 + run.bonus.area
 	for id, lv in run.weapons do
+		if id=="rocks" then continue end -- continuous contacts use their own per-target cooldown
 		run.cd[id] = (run.cd[id] or 0) - dt
 		if run.cd[id] > 0 then
 			continue
@@ -616,6 +698,7 @@ local taken = {} -- Player -> gem numbers picked up since the last send
 
 local function step(dt: number)
 	pruneAxes() -- also runs while the existing global card pause is active
+	pruneRocks()
 	-- Lifetime cleanup must run even when another player is choosing a card.
 	for k = #shots, 1, -1 do
 		local run = shots[k].run
@@ -1023,6 +1106,7 @@ local function sendNearby(): number
 end
 
 local function send(): number
+	sendRocks()
 	if networkMode=="broadcast" then
 		local bytes=sendBroadcast()
 		if networkSample then for _,p in Players:GetPlayers() do networkSample.bytes[p]=(networkSample.bytes[p] or 0)+bytes end end
@@ -1035,6 +1119,7 @@ end
 -- GAME-23: opt-in measurement only; normal Studio/production runs do not allocate samples.
 local benchmarkArgs, benchmarkSample
 local axeTestArgs
+local rocksTestArgs
 local cleanupTestArgs
 local networkTestArgs, networkManual
 if RunService:IsStudio() then
@@ -1045,6 +1130,9 @@ if RunService:IsStudio() then
 	if ok and typeof(args) == "table" and args.name == "GAME12Axe" then
 		axeTestArgs = args
 		Shared:SetAttribute("GAME12AxeActive", true)
+	end
+	if ok and typeof(args)=="table" and args.name=="GAME12Rocks" then
+		rocksTestArgs=args;Shared:SetAttribute("GAME12RocksActive",true)
 	end
 	if ok and typeof(args) == "table" and args.name == "GAME25Cleanup" then
 		cleanupTestArgs = args
@@ -1065,7 +1153,7 @@ RunService.Heartbeat:Connect(function(dt)
 	while simAcc >= 1 / H.SimRate do
 		simAcc -= 1 / H.SimRate
 		local t0 = os.clock()
-		if not axeTestArgs and not cleanupTestArgs and not networkManual then step(1 / H.SimRate) end -- named fixtures drive exact steps
+		if not axeTestArgs and not rocksTestArgs and not cleanupTestArgs and not networkManual then step(1 / H.SimRate) end -- named fixtures drive exact steps
 		local elapsed = os.clock() - t0
 		if networkSample then table.insert(networkSample.step,elapsed*1000) end
 		simTime += elapsed
@@ -1590,6 +1678,113 @@ if cleanupTestArgs then
 		end,debug.traceback)
 		report.ok,report.error=ok,if ok then nil else tostring(err)
 		finish()
+	end)
+end
+
+-- GAME-12 Rocks: opt-in real two-client acceptance. No changes to ordinary startup.
+if rocksTestArgs then
+	local sts=game:GetService("StudioTestService")
+	local bridge=Instance.new("RemoteFunction");bridge.Name,bridge.Parent="GAME12RocksTest",Shared
+	local ready,checks,errors={},{},{}
+	bridge.OnServerInvoke=function(p) ready[p]=true;return true end
+	local finished=false
+	local function finish(report) if not finished then finished=true;sts:EndTest(report) end end
+	task.delay(240,function() finish({ok=false,error="Rocks deadline",checks=checks,errors=errors}) end)
+	game:GetService("ScriptContext").Error:Connect(function(message,_,source)
+		if source and source.Name:find("Goblin",1,true) then table.insert(errors,message) end
+	end)
+	local function check(v,label) assert(v,label);table.insert(checks,label) end
+	local function waitFor(fn,label)
+		local stop=os.clock()+45
+		repeat if fn() then return end;task.wait(.05) until os.clock()>stop
+		error("Rocks timeout: "..label)
+	end
+	local function snapshot(p) return bridge:InvokeClient(p,"report") end
+	task.spawn(function()
+		local report={checks=checks,errors=errors,clients=2,mode="real card/replication/ownership/lifecycle"}
+		local ok,err=xpcall(function()
+			waitFor(function()
+				if #Players:GetPlayers()~=2 then return false end
+				for _,p in Players:GetPlayers() do if not ready[p] or not p.Character or not p.Character:FindFirstChild("HumanoidRootPart") then return false end end
+				return true
+			end,"two participants")
+			Workspace:SetAttribute("Arena","Map1");override=0
+			local center=assert(arena());report.map1Instances=#Workspace.Map1:GetDescendants()
+			local list=Players:GetPlayers();local a,b=list[1],list[2]
+			local function prepare(p,x)
+				local root,hum=p.Character.HumanoidRootPart,p.Character:FindFirstChildOfClass("Humanoid")
+				root.Anchored=true;root.CFrame=CFrame.new(center+Vector3.new(x,4,0))
+				Instance.new("ForceField",p.Character).Visible=false;startRun(p,hum)
+				local run=runs[p];run.weapons={};run.wOrder={};run.next=1e9;publish(run)
+				return run,root
+			end
+			local ra,rootA=prepare(a,-10);local rb,rootB=prepare(b,10)
+			local function acquire(p,run)
+				run.cards={{kind="weapon",id="rocks",level=1,rarity=1}};run.pending=1
+				levelUp:FireClient(p,run.cards,run.rerolls,run.level)
+				waitFor(function() return snapshot(p).icons>=1 end,"rocks card art")
+				check(snapshot(p).icons>=1,"real rocks card icon visible for "..p.Name)
+				bridge:InvokeClient(p,"pick");waitFor(function() return run.weapons.rocks==1 and not run.cards end,"pick")
+				check(table.find(run.wOrder,"rocks")~=nil,"real card selection acquires rocks for "..p.Name)
+			end
+			acquire(a,ra);acquire(b,rb)
+			local function target(x,z,health)
+				while count>0 do kill(top) end;table.clear(free);table.clear(grid)
+				alive[1],px[1],pz[1],hp[1]=true,x,z,health or 1000
+				generation[1]=(generation[1] or 0)+1;kvx[1],kvz[1],stunUntil[1],slowUntil[1]=0,0,0,0
+				top,count=1,1;grid[key(x//CELL,z//CELL)]={1}
+			end
+			target(rootA.Position.X+7,0);fireWeapons(ra,rootA,0);fireWeapons(rb,rootB,0);send()
+			waitFor(function() return snapshot(a).rocks==4 and snapshot(b).rocks==4 end,"both owners visible")
+			check(snapshot(a).rocks==4 and snapshot(b).rocks==4,"both real clients see both owners' two stones")
+			check(ra.damage.rocks==12 and not rb.damage.rocks and hp[1]==988,"server gives contact damage only to the correct owner")
+			check(stunUntil[1]==0,"rocks do not permanently stun enemies")
+			local old=hp[1];fireWeapons(ra,rootA,0);check(hp[1]==old,"same-frame overlaps do not duplicate damage")
+			generation[1]+=1;fireWeapons(ra,rootA,0);check(hp[1]==old-12,"reused slot receives a fresh contact")
+			for _,level in {1,3,5} do
+				ra.weapons.rocks=level;publish(ra);fireWeapons(ra,rootA,0);send()
+				local expected=Config.weaponStats("rocks",level).Count+2
+				waitFor(function() return snapshot(a).rocks==expected and snapshot(b).rocks==expected end,"level visuals")
+				check(snapshot(a).rocks==expected and snapshot(b).rocks==expected,"level "..level.." stone count replicated to both clients")
+			end
+			check(snapshot(a).nonCosmetic==0 and snapshot(b).nonCosmetic==0,"all stones are anchored and non-colliding/non-queryable")
+			check(snapshot(a).icons>=1 and snapshot(b).icons>=1,"rocks art appears in both HUDs")
+			ra.cards={{kind="heal"}};local phaseA,phaseB=ra.rocks.phase,rb.rocks.phase
+			for _=1,10 do step(1/H.SimRate) end
+			check(ra.rocks.phase==phaseA and rb.rocks.phase==phaseB,"global card pause freezes both authoritative orbits")
+			rootA.Position+=Vector3.new(60,0,0);step(1/H.SimRate);send()
+			waitFor(function() return snapshot(a).rocks==2 and snapshot(b).rocks==2 end,"paused teleport cleanup")
+			check(not ra.rocks and rb.rocks~=nil,"teleport cleanup runs during card pause and preserves peer")
+			ra.cards=nil;rootA.CFrame=CFrame.new(center+Vector3.new(-10,4,0))
+			ra.weapons.rocks=1;ra.rocks=nil;target(rootA.Position.X+7,0,12)
+			local kills,gained=ra.kills,ra.gems;fireWeapons(ra,rootA,0);send()
+			check(ra.kills==kills+1 and not alive[1],"lethal rock contact awards exactly one kill")
+			rootA.Position+=Vector3.new(7,0,0);step(1/H.SimRate);send()
+			check(ra.gems==gained+1,"real pickup awards exactly one gem after rock kill")
+			-- Optional actual client motion review, anchored on existing Map1.
+			rootA.CFrame=CFrame.new(center+Vector3.new(-10,4,0));rootB.CFrame=CFrame.new(center+Vector3.new(10,4,0))
+			ra.weapons.rocks=5;rb.weapons.rocks=1;publish(ra);publish(rb)
+			bridge:InvokeClient(a,"review");bridge:InvokeClient(b,"review")
+			Shared:SetAttribute("GAME12RocksProgress","review")
+			local stop=os.clock()+math.clamp(rocksTestArgs.reviewSeconds or 0,0,60)
+			repeat fireWeapons(ra,rootA,1/H.SimRate);fireWeapons(rb,rootB,1/H.SimRate);task.wait(1/H.SimRate) until os.clock()>=stop
+			report.review={a=snapshot(a),b=snapshot(b)}
+			Shared:SetAttribute("GAME12RocksProgress","cleanup")
+			endRun(a);send();waitFor(function() return snapshot(b).rocks==2 end,"one run end")
+			check(not ra.rocks and snapshot(b).rocks==2,"ending one run removes only its stones")
+			local oldCharacter=a.Character;a:LoadCharacter();waitFor(function() return a.Character~=oldCharacter and a.Character:FindFirstChild("HumanoidRootPart") end,"respawn")
+			ra,rootA=prepare(a,-10);ra.weapons={rocks=1};ra.wOrder={"rocks"};publish(ra);fireWeapons(ra,rootA,0);send()
+			waitFor(function() return snapshot(a).rocks==4 end,"new run")
+			check(snapshot(a).rocks==4,"new character/run creates one fresh orbit")
+			bridge:InvokeClient(b,"leave");waitFor(function() return b.Parent~=Players end,"peer disconnect")
+			send();waitFor(function() return snapshot(a).rocks==2 end,"departed visuals")
+			check(runs[b]==nil and snapshot(a).rocks==2,"real departure releases peer orbit and preserves survivor")
+			ra.hum.Health=0;waitFor(function() return runs[a]==nil end,"death");send()
+			waitFor(function() return snapshot(a).rocks==0 end,"final cleanup")
+			check(not ra.rocks and snapshot(a).rocks==0,"death clears final server/client orbit")
+			check(#errors==0 and #snapshot(a).errors==0 and #report.review.b.errors==0,"zero captured Goblin errors")
+		end,debug.traceback)
+		report.ok,report.error=ok,if ok then nil else tostring(err);finish(report)
 	end)
 end
 

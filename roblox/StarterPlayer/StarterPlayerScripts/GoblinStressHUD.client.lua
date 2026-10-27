@@ -57,6 +57,43 @@ if ReplicatedStorage.Goblin:GetAttribute("GAME12AxeActive") then
 	end)
 end
 
+if ReplicatedStorage.Goblin:GetAttribute("GAME12RocksActive") then
+	task.spawn(function()
+		local shared=ReplicatedStorage.Goblin
+		local bridge=shared:WaitForChild("GAME12RocksTest",45)
+		local errors={}
+		game:GetService("ScriptContext").Error:Connect(function(message,_,source)
+			if source and source.Name:find("Goblin",1,true) then table.insert(errors,message) end
+		end)
+		bridge.OnClientInvoke=function(action)
+			if action=="pick" then shared.RunPick:FireServer(1);return true end
+			if action=="leave" then
+				assert(game:GetService("StudioTestService"):CanLeaveTest())
+				task.delay(.2,function() game:GetService("StudioTestService"):LeaveTest() end);return true
+			end
+			if action=="review" then
+				local camera=Workspace.CurrentCamera;camera.CameraType=Enum.CameraType.Scriptable
+				camera.CFrame=CFrame.lookAt(Vector3.new(1000,39,34),Vector3.new(1000,2,0));return true
+			end
+			local count,nonCosmetic,icons=0,0,0
+			local folder=Workspace:FindFirstChild("Horde")
+			if folder then for _,m in folder:GetChildren() do if m.Name=="OrbitRock" then
+				count+=1
+				for _,p in m:GetDescendants() do if p:IsA("BasePart") and (p.CanCollide or p.CanTouch or p.CanQuery or not p.Anchored) then nonCosmetic+=1 end end
+			end end end
+			local ui=player.PlayerGui:FindFirstChild("GoblinRunUI")
+			if ui then for _,d in ui:GetDescendants() do if d.Name=="RocksIcon" and d.Visible then
+				local visible=true;local p=d.Parent
+				while p and p~=ui do if p:IsA("GuiObject") and not p.Visible then visible=false end;p=p.Parent end
+				if visible then icons+=1 end
+			end end end
+			return {rocks=count,icons=icons,nonCosmetic=nonCosmetic,errors=table.clone(errors)}
+		end
+		assert(player:WaitForChild("PlayerGui"):WaitForChild("GoblinRunUI",45),"rocks UI readiness")
+		bridge:InvokeServer("ready")
+	end)
+end
+
 -- GAME-23 measurement participant. The server creates this flag only for the named test.
 if ReplicatedStorage.Goblin:GetAttribute("GAME23Active") then
 	task.spawn(function()

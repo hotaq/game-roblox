@@ -108,10 +108,27 @@ local function axeIcon(parent)
 	end
 	return holder
 end
+local function rocksIcon(parent)
+	local holder=new("Frame",{Name="RocksIcon",Size=UDim2.fromScale(1,1),BackgroundTransparency=1,Visible=false,ZIndex=3,Parent=parent})
+	local pixels={"................",".....GGGG.......","...GG....GG.....","..G........G....",".G..OOOO....G...",".G.OMMMLO...G...","G..OLSSSO....G..","G..OLSSSO....G..","G...OOOO..OOO.G.",".G.......OMMLO..",".G.......OLSSO..","..G......OLSSO..","...GG.....OOO...",".....GGGGG......","................","................"}
+	local palette={O=INK,G=Color3.fromRGB(205,169,85),M=Color3.fromRGB(88,119,62),L=Color3.fromRGB(179,185,162),S=Color3.fromRGB(122,136,126)}
+	for y,row in pixels do
+		local x=1
+		while x<=#row do
+			local c,last=row:sub(x,x),x
+			while last<#row and row:sub(last+1,last+1)==c do last+=1 end
+			if palette[c] then new("Frame",{BorderSizePixel=0,BackgroundColor3=palette[c],ZIndex=3,Position=UDim2.fromScale((x-1)/16,(y-1)/16),Size=UDim2.fromScale((last-x+1)/16,1/16),Parent=holder}) end
+			x=last+1
+		end
+	end
+	return holder
+end
 local function setArt(a, key: string?)
 	a.key = key
 	if key == "axe" and not a.axe then a.axe = axeIcon(a.image.Parent) end
 	if a.axe then a.axe.Visible = key == "axe" end
+	if key=="rocks" and not a.rocks then a.rocks=rocksIcon(a.image.Parent) end
+	if a.rocks then a.rocks.Visible=key=="rocks" end
 	local cell = key and ICONS.Cells[key]
 	if cell then
 		a.image.ImageRectOffset = Vector2.new(cell[1], cell[2])
@@ -119,7 +136,7 @@ local function setArt(a, key: string?)
 	local showArt = iconsReady and cell ~= nil
 	a.image.Visible = showArt
 	for _, f in a.fallback do
-		f.Visible = not showArt and key ~= "axe"
+		f.Visible = not showArt and key ~= "axe" and key ~= "rocks"
 	end
 	if a.tile then
 		a.tile.BackgroundTransparency = if showArt then 1 else 0

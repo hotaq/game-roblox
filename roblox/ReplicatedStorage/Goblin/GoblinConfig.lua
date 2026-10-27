@@ -142,7 +142,17 @@ Config.Run = {
 -- Weapons fire on their own. Levels add up: level 3 = Levels[1] + [2] + [3]. Text is the card line for that level.
 -- Knock = its share of the Force knockback; Stun = false for a weapon whose hits must not stun (they still slow).
 Config.Weapons = {
-	Order = { "sword", "fire", "ring", "axe" },
+	Order = { "sword", "fire", "ring", "axe", "rocks" },
+	rocks = {
+		Name = "Orbit Rocks", Icon = "RO", Color = Color3.fromRGB(153, 177, 132),
+		Levels = {
+			{ Text = "Two stones orbit and strike nearby goblins", Damage = 12, Count = 2, Orbit = 7, Radius = 1.25, Speed = 1.8, Interval = 0.55, Knock = 0.35, Stun = false },
+			{ Text = "Heavier hits", Damage = 18 },
+			{ Text = "+1 orbiting stone", Count = 3 },
+			{ Text = "+1 stone, larger rocks", Count = 4, Radius = 1.55 },
+			{ Text = "Ancient stones hit harder and orbit faster", Damage = 26, Speed = 2.2 },
+		},
+	},
 	axe = {
 		Name = "Boomerang Axe",
 		Icon = "AX",
