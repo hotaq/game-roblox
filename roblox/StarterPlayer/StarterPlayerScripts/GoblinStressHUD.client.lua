@@ -15,6 +15,63 @@ local stress = ReplicatedStorage:WaitForChild("Goblin"):WaitForChild("Stress")
 local horde = ReplicatedStorage.Goblin:WaitForChild("Horde")
 local player = Players.LocalPlayer
 
+-- GAME-23 measurement participant. The server creates this flag only for the named test.
+if ReplicatedStorage.Goblin:GetAttribute("GAME23Active") then
+	task.spawn(function()
+		local Stats=game:GetService("Stats")
+		local bridge=ReplicatedStorage.Goblin:WaitForChild("GAME23Benchmark",30)
+		if not bridge then return end
+		local sample
+		local function summary(values)
+			table.sort(values)
+			if #values==0 then return {n=0} end
+			return {n=#values,p50=values[math.ceil(#values*0.5)],p95=values[math.ceil(#values*0.95)],max=values[#values]}
+		end
+		local errors={}
+		game:GetService("ScriptContext").Error:Connect(function(message,_,source)
+			if source and string.find(source.Name,"Goblin",1,true) then table.insert(errors,{source=source.Name,message=message}) end
+		end)
+		RunService.RenderStepped:Connect(function(dt)
+			if not sample then return end
+			table.insert(sample.frame,dt*1000)
+			table.insert(sample.cpu,Stats.RenderCPUFrameTime*1000)
+			table.insert(sample.gpu,Stats.RenderGPUFrameTime*1000)
+		end)
+		ReplicatedStorage.Goblin.HordeSnap.OnClientEvent:Connect(function(b)
+			if sample then sample.bytes+=buffer.len(b); sample.packets+=1 end
+		end)
+		local lastStats=0
+		RunService.Heartbeat:Connect(function()
+			if not sample or os.clock()-lastStats<1 then return end
+			lastStats=os.clock()
+			table.insert(sample.memory,Stats:GetTotalMemoryUsageMb())
+			table.insert(sample.instances,Stats.InstanceCount)
+			table.insert(sample.receive,Stats.DataReceiveKbps)
+		end)
+		bridge.OnClientInvoke=function(action)
+			if action=="begin" then
+				sample={frame={},cpu={},gpu={},memory={},instances={},receive={},bytes=0,packets=0,start=os.clock()}
+				return true
+			elseif action=="finish" then
+				local s=assert(sample,"no active sample")
+				sample=nil
+				local elapsed=os.clock()-s.start
+				local folder=workspace:FindFirstChild("Horde")
+				local models,visible=0,0
+				if folder then for _,m in folder:GetChildren() do if m:IsA("Model") then
+					models+=1; local root=m:FindFirstChild("HumanoidRootPart")
+					if root and root.Position.Y>-500 then visible+=1 end
+				end end end
+				return {seconds=elapsed,frameMs=summary(s.frame),renderCpuMs=summary(s.cpu),renderGpuMs=summary(s.gpu),
+					memoryMb=summary(s.memory),instances=summary(s.instances),totalReceiveKbps=summary(s.receive),
+					snapshotPayloadKiBps=s.bytes/elapsed/1024,packets=s.packets,models=models,visible=visible,errors=errors}
+			end
+			return false
+		end
+		bridge:InvokeServer("ready")
+	end)
+end
+
 local gui = Instance.new("ScreenGui")
 gui.Name, gui.ResetOnSpawn = "GoblinStressHUD", false
 local panel = Instance.new("Frame")

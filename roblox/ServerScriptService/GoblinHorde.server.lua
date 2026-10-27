@@ -696,9 +696,18 @@ local function send(): number
 	return buffer.len(b)
 end
 
+-- GAME-23: opt-in measurement only; normal Studio/production runs do not allocate samples.
+local benchmarkArgs, benchmarkSample
+if RunService:IsStudio() then
+	local ok, args = pcall(function() return game:GetService("StudioTestService"):GetTestArgs() end)
+	if ok and typeof(args) == "table" and args.name == "GAME23Baseline" then
+		benchmarkArgs = args
+	end
+end
 local simAcc, sendAcc, statAcc = 0, 0, 0
 local simTime, sentBytes = 0, 0
 RunService.Heartbeat:Connect(function(dt)
+	if benchmarkSample then table.insert(benchmarkSample.heartbeat,dt*1000) end
 	simAcc += dt
 	sendAcc += dt
 	statAcc += dt
@@ -706,13 +715,153 @@ RunService.Heartbeat:Connect(function(dt)
 		simAcc -= 1 / H.SimRate
 		local t0 = os.clock()
 		step(1 / H.SimRate)
-		simTime += os.clock() - t0
+		local elapsed = os.clock() - t0
+		simTime += elapsed
+		if benchmarkSample then
+			table.insert(benchmarkSample.step,elapsed*1000)
+			table.insert(benchmarkSample.count,count)
+		end
 	end
 	if sendAcc >= 1 / H.SendRate then
 		sendAcc = 0
-		sentBytes += send()
+		local t0 = os.clock()
+		local bytes = send()
+		sentBytes += bytes
+		if benchmarkSample then
+			table.insert(benchmarkSample.send,(os.clock()-t0)*1000)
+			benchmarkSample.bytes += bytes
+		end
 	end
 end)
+
+-- GAME-23: isolated stress fixture, enabled only by explicit StudioTestService arguments.
+if benchmarkArgs then
+	local STS = game:GetService("StudioTestService")
+	local Stats = game:GetService("Stats")
+	local bridge = Instance.new("RemoteFunction")
+	bridge.Name, bridge.Parent = "GAME23Benchmark", Shared
+	Shared:SetAttribute("GAME23Active", true)
+	local ready, replies, errors = {}, {}, {}
+	local activeRequest = 0
+	bridge.OnServerInvoke = function(player, action, request, value)
+		if action == "ready" then ready[player] = true
+		elseif action == "report" and request == activeRequest and typeof(value) == "table" then replies[player] = value end
+		return true
+	end
+	game:GetService("ScriptContext").Error:Connect(function(message, _, source)
+		if source and string.find(source.Name, "Goblin", 1, true) then table.insert(errors, {source=source.Name,message=message}) end
+	end)
+	local function summary(values)
+		table.sort(values)
+		if #values == 0 then return {n=0} end
+		return {n=#values,p50=values[math.ceil(#values*0.5)],p95=values[math.ceil(#values*0.95)],max=values[#values]}
+	end
+	local function untilTrue(fn, timeout, message)
+		local deadline = os.clock()+timeout
+		repeat if fn() then return end task.wait(0.1) until os.clock()>deadline
+		error(message)
+	end
+	-- Client calls are issued asynchronously and bounded by this server deadline.
+	local function clientsCommand(list, action)
+		activeRequest += 1
+		table.clear(replies)
+		local request = activeRequest
+		for _,player in list do
+			task.spawn(function()
+				local ok, value = pcall(function() return bridge:InvokeClient(player, action, request) end)
+				if ok and activeRequest == request then replies[player] = value end
+			end)
+		end
+		untilTrue(function()
+			for _,player in list do if replies[player] == nil then return false end end
+			return true
+		end, 20, "client measurement timeout: "..action)
+		local out = {}
+		for i,player in list do out[i] = replies[player] end
+		return out
+	end
+	local finished = false
+	local function finish(result)
+		if finished then return end
+		finished = true
+		benchmarkSample = nil
+		STS:EndTest(result)
+	end
+	task.delay(420, function() finish({ok=false,error="GAME23 timeout",errors=errors}) end)
+	task.spawn(function()
+		local report = {schema=1,baseCommit=benchmarkArgs.baseCommit,fixture="circle24-speed12-no-weapons-shield",
+			studioVersion=version(),placeId=game.PlaceId,placeVersion=game.PlaceVersion,
+			clients=benchmarkArgs.clients,seed=23001,warmupSeconds=10,sampleSeconds=20,phases={},errors=errors,
+			renderContext="background simulated clients; not device FPS"}
+		local ok, err = xpcall(function()
+			assert(benchmarkArgs.clients==1 or benchmarkArgs.clients==2 or benchmarkArgs.clients==4,"unsupported client count")
+			untilTrue(function()
+				local list=Players:GetPlayers()
+				if #list~=benchmarkArgs.clients then return false end
+				for _,p in list do if not ready[p] or not p.Character or not p.Character:FindFirstChild("HumanoidRootPart") then return false end end
+				return true
+			end, 60, "players/measurement clients not ready")
+			local list=Players:GetPlayers()
+			table.sort(list,function(a,b) return a.UserId<b.UserId end)
+			local center=assert(arena(),"StressZone missing")
+			for _,p in list do
+				local root=p.Character.HumanoidRootPart
+				root.Anchored=true
+				p.Character:PivotTo(CFrame.new(center+Vector3.new(24,4,0)))
+				local shield=Instance.new("ForceField")
+				shield.Visible=false; shield.Parent=p.Character
+			end
+			untilTrue(function() for _,p in list do if not runs[p] then return false end end return true end, 15, "runs did not start")
+			-- A fixed enemy count isolates horde simulation/render/network cost from upgrades and DPS.
+			-- These changes affect this disposable test session only, never saved Config.
+			for _,p in list do runs[p].wOrder={} end
+			for repeatIndex=1,2 do
+				for _,population in {100,500,1000} do
+					benchmarkSample=nil
+					for i=1,top do if alive[i] then kill(i) end end
+					rng=Random.new(23001)
+					override=population
+					local routeStart=os.clock()
+					local mover=RunService.Heartbeat:Connect(function()
+						local angle=(os.clock()-routeStart)*0.5
+						for i,p in list do
+							local a=angle+(i-1)*math.pi*2/#list
+							p.Character:PivotTo(CFrame.new(center+Vector3.new(math.cos(a)*24,4,math.sin(a)*24)))
+						end
+					end)
+					task.wait(report.warmupSeconds)
+					assert(count==population,"population failed to stabilize")
+					clientsCommand(list,"begin")
+					local sample={step={},send={},heartbeat={},memory={},instances={},count={},bytes=0}
+					benchmarkSample=sample
+					local start=os.clock()
+					local baselineMemory=Stats:GetTotalMemoryUsageMb()
+					local baselineInstances=Stats.InstanceCount
+					repeat
+						table.insert(sample.memory,Stats:GetTotalMemoryUsageMb())
+						table.insert(sample.instances,Stats.InstanceCount)
+						task.wait(1)
+					until os.clock()-start>=report.sampleSeconds
+					local elapsed=os.clock()-start
+					benchmarkSample=nil
+					mover:Disconnect()
+					local clients=clientsCommand(list,"finish")
+					local nmin=math.huge
+					for _,n in sample.count do nmin=math.min(nmin,n) end
+					local phase={repeatIndex=repeatIndex,population=population,seconds=elapsed,
+						stepMs=summary(sample.step),sendMs=summary(sample.send),heartbeatMs=summary(sample.heartbeat),
+						memoryMb=summary(sample.memory),instances=summary(sample.instances),
+						memoryStartMb=baselineMemory,instancesStart=baselineInstances,
+						minAlive=nmin,maxAlive=count,snapshotPayloadKiBps=sample.bytes/elapsed/1024,clientReports=clients}
+					assert(nmin==population and count==population,"population changed during sample")
+					table.insert(report.phases,phase)
+				end
+			end
+		end, debug.traceback)
+		report.ok, report.error = ok, if ok then nil else tostring(err)
+		finish(report)
+	end)
+end
 
 if RunService:IsStudio() then -- load-test controls; never in a live server
 	local ctl = remote("Horde")
