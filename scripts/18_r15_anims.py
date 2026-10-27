@@ -1,5 +1,6 @@
 # 18_r15_anims.py: player sword animations on the R15 rig from 17_r15_rig.py (GAME-35).
-#   SwordIdle  (loop, 2.4 s): sword across the shoulders, left hand on the hip, wide stance, slow breathing.
+#   SwordIdle  (loop, 3 s): sword across the shoulders, left hand on the hip, wide stance, breathing, weight shift,
+#              looks around.
 #   SwordWalk  (loop, 1.0 s at walk speed 16): swaggering walk, sword stays across the shoulders, left arm swings,
 #              hips and shoulders counter-twist, slight lean back, body bobs on each step.
 # Run headless (opens blender/r15_rig.blend, adds the actions, saves it back and renders previews):
@@ -74,24 +75,26 @@ def new_action(rig, name, frames):
 
 
 def idle(rig):
-    n = int(2.4 * FPS)
+    n = 3 * FPS
     new_action(rig, "EXP_SwordIdle", n)
-    for f in range(0, n + 1, 3):
+    for f in range(0, n + 1, 2):
         ph = 2 * math.pi * f / n
-        b = math.sin(ph)
+        w = math.sin(ph)  # weight shift, once per loop
+        b = math.sin(2 * ph)  # breathing, twice per loop
         rot = dict(CARRY)
         rot.update(HIP_HAND)
-        rot["RightUpperArm"] = (19.9 + 2 * b, 239.6, 115.8)
+        rot["RightUpperArm"] = (19.9 + 4 * b, 239.6, 115.8)  # sword bobs on the shoulder
+        rot["LeftUpperArm"] = (29.5, 0.3 + 4 * b, -27.0)  # hip elbow flares with the breath
         rot.update({
-            "LowerTorso": (0, 1.5 * b, 0),  # weight shift side to side
-            "UpperTorso": (2 + 1.5 * b, -1.5 * b, 0),  # breathing, a slight lean back
-            "Head": (-1 * b, 1 * b, 0),
-            "LeftUpperLeg": (0, -10 - 1.5 * b, 0),  # wide stance
-            "RightUpperLeg": (0, 10 - 1.5 * b, 0),
-            "LeftFoot": (0, 10 + 1.5 * b, 0),
-            "RightFoot": (0, -10 + 1.5 * b, 0),
+            "LowerTorso": (0, 4 * w, 0),  # weight shift side to side
+            "UpperTorso": (3 + 4 * b, -2.5 * w, 4 * math.cos(ph)),  # breathing, lean back, slight twist
+            "Head": (-3 * b, 2 * w, 12 * w),  # looks around
+            "LeftUpperLeg": (0, -10 - 4 * w, 0),  # wide stance
+            "RightUpperLeg": (0, 10 - 4 * w, 0),
+            "LeftFoot": (0, 10 + 4 * w, 0),
+            "RightFoot": (0, -10 + 4 * w, 0),
         })
-        key(rig, f, rot, lift=-0.06 - 0.03 * (1 - math.cos(ph)) / 2)  # wide stance sits a little lower
+        key(rig, f, rot, lift=-0.06 - 0.04 * (1 - math.cos(2 * ph)) / 2)  # wide stance sits a little lower
 
 
 def walk(rig):

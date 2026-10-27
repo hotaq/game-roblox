@@ -69,10 +69,17 @@ def bake(action_name, new_name):
     xen.animation_data_create()
     xen.animation_data.action = new
     worst = 0.0
+    prev = {}
     for f in range(f0, f1 + 1):
         tg = targets(f)
         xen.animation_data.action = None  # pose freely, then key
         apply(tg)
+        for ctrl, _ in CONTROLS:  # no +-180 degree euler flips between keys (they spin the body when interpolated)
+            pb = xen.pose.bones[ctrl]
+            if pb.rotation_mode != "QUATERNION":
+                if ctrl in prev:
+                    pb.rotation_euler.make_compatible(prev[ctrl])
+                prev[ctrl] = pb.rotation_euler.copy()
         for part, m in tg.items():
             worst = max(worst, (xen.pose.bones[part].matrix.translation - m.translation).length)
         xen.animation_data.action = new
