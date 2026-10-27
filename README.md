@@ -5,7 +5,7 @@ A Megabonk-style horde game: voxel goblins built in Blender, run in Roblox.
 ## Layout
 - `roblox/`: game code, the source of truth. `roblox/default.project.json` maps each script into the place with Rojo.
 - `scripts/`: Blender Python (model, rig, animations, horde mesh, icons). `blender/`: .blend files. `export/`: FBX for Studio import.
-- `textures/`, `renders/`, `docs/`: art and reference.
+- `textures/`, `renders/`, `docs/`: art and reference. **[docs/GAME.md](docs/GAME.md)**: setup, the Explorer map, and the VFX and sound manifests.
 
 ## Working on code (people and agents)
 1. `git pull`.

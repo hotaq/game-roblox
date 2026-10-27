@@ -9,16 +9,29 @@
       "Goblin": {
         "$className": "Folder",
         "$ignoreUnknownInstances": true,
-        "GoblinConfig": { "$path": "ReplicatedStorage/Goblin/GoblinConfig.lua" },
-        "GoblinAnimData": { "$path": "ReplicatedStorage/Goblin/GoblinAnimData.lua" },
-        "GoblinVFX": { "$path": "ReplicatedStorage/Goblin/GoblinVFX.lua" }
+        "GoblinConfig": {
+          "$path": "ReplicatedStorage/Goblin/GoblinConfig.lua"
+        },
+        "GoblinAnimData": {
+          "$path": "ReplicatedStorage/Goblin/GoblinAnimData.lua"
+        },
+        "GoblinVFX": {
+          "$path": "ReplicatedStorage/Goblin/GoblinVFX.lua"
+        },
+        "GoblinSounds": {
+          "$path": "ReplicatedStorage/Goblin/GoblinSounds.lua"
+        }
       }
     },
     "ServerScriptService": {
       "$className": "ServerScriptService",
       "$ignoreUnknownInstances": true,
-      "GoblinHorde": { "$path": "ServerScriptService/GoblinHorde.server.lua" },
-      "GoblinAI": { "$path": "ServerScriptService/GoblinAI.server.lua" }
+      "GoblinHorde": {
+        "$path": "ServerScriptService/GoblinHorde.server.lua"
+      },
+      "GoblinAI": {
+        "$path": "ServerScriptService/GoblinAI.server.lua"
+      }
     },
     "StarterPlayer": {
       "$className": "StarterPlayer",
@@ -26,10 +39,21 @@
       "StarterPlayerScripts": {
         "$className": "StarterPlayerScripts",
         "$ignoreUnknownInstances": true,
-        "GoblinHordeClient": { "$path": "StarterPlayer/StarterPlayerScripts/GoblinHordeClient.client.lua" },
-        "GoblinRunUI": { "$path": "StarterPlayer/StarterPlayerScripts/GoblinRunUI.client.lua" },
-        "GoblinVFXClient": { "$path": "StarterPlayer/StarterPlayerScripts/GoblinVFXClient.client.lua" },
-        "GoblinStressHUD": { "$path": "StarterPlayer/StarterPlayerScripts/GoblinStressHUD.client.lua" }
+        "GoblinHordeClient": {
+          "$path": "StarterPlayer/StarterPlayerScripts/GoblinHordeClient.client.lua"
+        },
+        "GoblinRunUI": {
+          "$path": "StarterPlayer/StarterPlayerScripts/GoblinRunUI.client.lua"
+        },
+        "GoblinVFXClient": {
+          "$path": "StarterPlayer/StarterPlayerScripts/GoblinVFXClient.client.lua"
+        },
+        "GoblinStressHUD": {
+          "$path": "StarterPlayer/StarterPlayerScripts/GoblinStressHUD.client.lua"
+        },
+        "GoblinSFX": {
+          "$path": "StarterPlayer/StarterPlayerScripts/GoblinSFX.client.lua"
+        }
       }
     }
   }
