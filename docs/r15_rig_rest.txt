@@ -1,0 +1,32 @@
+# R15 rest pose from scripts/17_r15_rig.py (Roblox model space, HumanoidRootPart at y = 3)
+P HumanoidRootPart 0 3 0 1 0 0 0 1 0 0 0 1
+P LowerTorso 0 2.2 0 1 0 0 0 1 0 0 0 1
+P UpperTorso 0 3.2 0 1 0 0 0 1 0 0 0 1
+P Head 0 4.586 0 1 0 0 0 1 0 0 0 1
+P LeftUpperArm -1.5 3.3687 0 1 0 0 0 1 0 0 0 1
+P LeftLowerArm -1.5 2.7759 0 1 0 0 0 1 0 0 0 1
+P LeftHand -1.5 2.1499 0 1 0 0 0 1 0 0 0 1
+P RightUpperArm 1.5 3.3687 0 1 0 0 0 1 0 0 0 1
+P RightLowerArm 1.5 2.7759 0 1 0 0 0 1 0 0 0 1
+P RightHand 1.5 2.1499 0 1 0 0 0 1 0 0 0 1
+P LeftUpperLeg -0.5 1.5792 0 1 0 0 0 1 0 0 0 1
+P LeftLowerLeg -0.5 0.7991 0 1 0 0 0 1 0 0 0 1
+P LeftFoot -0.5 0.15 0 1 0 0 0 1 0 0 0 1
+P RightUpperLeg 0.5 1.5792 0 1 0 0 0 1 0 0 0 1
+P RightLowerLeg 0.5 0.7991 0 1 0 0 0 1 0 0 0 1
+P RightFoot 0.5 0.15 0 1 0 0 0 1 0 0 0 1
+J LowerTorso HumanoidRootPart 0 -1 0 1 0 0 0 1 0 0 0 1 0 -0.2 0 1 0 0 0 1 0 0 0 1
+J UpperTorso LowerTorso 0 0.2 0 1 0 0 0 1 0 0 0 1 0 -0.849 0 1 0 0 0 1 0 0 0 1
+J Head UpperTorso 0 0.849 0 1 0 0 0 1 0 0 0 1 0 -0.5758 0 1 0 0 0 1 0 0 0 1
+J LeftUpperArm UpperTorso -0.9716 0.5975 0 1 0 0 0 1 0 0 0 1 0.5005 0.4189 0 1 0 0 0 1 0 0 0 1
+J LeftLowerArm LeftUpperArm 0 -0.3549 0 1 0 0 0 1 0 0 0 1 0 0.2748 0 1 0 0 0 1 0 0 0 1
+J LeftHand LeftLowerArm 0 -0.5322 0 1 0 0 0 1 0 0 0 1 0 0.1316 0 1 0 0 0 1 0 0 0 1
+J RightUpperArm UpperTorso 0.9716 0.5975 0 1 0 0 0 1 0 0 0 1 -0.5005 0.4189 0 1 0 0 0 1 0 0 0 1
+J RightLowerArm RightUpperArm 0 -0.355 0 1 0 0 0 1 0 0 0 1 0 0.2747 0 1 0 0 0 1 0 0 0 1
+J RightHand RightLowerArm 0 -0.5322 0 1 0 0 0 1 0 0 0 1 0 0.1316 0 1 0 0 0 1 0 0 0 1
+J LeftUpperLeg LowerTorso -0.5 -0.2 0 1 0 0 0 1 0 0 0 1 0 0.4714 0 1 0 0 0 1 0 0 0 1
+J LeftLowerLeg LeftUpperLeg 0 -0.4493 0 1 0 0 0 1 0 0 0 1 0 0.4132 0 1 0 0 0 1 0 0 0 1
+J LeftFoot LeftLowerLeg 0 -0.5965 0 1 0 0 0 1 0 0 0 1 0 0.106 0 1 0 0 0 1 0 0 0 1
+J RightUpperLeg LowerTorso 0.5 -0.2 0 1 0 0 0 1 0 0 0 1 0 0.4714 0 1 0 0 0 1 0 0 0 1
+J RightLowerLeg RightUpperLeg 0 -0.4492 0 1 0 0 0 1 0 0 0 1 0 0.4134 0 1 0 0 0 1 0 0 0 1
+J RightFoot RightLowerLeg 0 -0.5965 0 1 0 0 0 1 0 0 0 1 0 0.106 0 1 0 0 0 1 0 0 0 1
