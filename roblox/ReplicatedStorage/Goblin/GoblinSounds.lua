@@ -22,6 +22,9 @@ local Sounds: { [string]: Sound } = {
 	SwordDrag = { Id = "136913781328946", Volume = 0.18, Cooldown = 0, Source = "metal_box_scrape_rough_loop1 (Mariolighyer), looped while running" },
 	SwordHit = { Id = "135448977656112", Volume = 0.45, Pitch = { 0.9, 1.1 }, Cooldown = 0.06, Source = "p-skill-hit-iori (xzphp)" },
 	SwordWave = { Id = "99957106744883", Volume = 0.35, Pitch = { 0.95, 1.05 }, Cooldown = 0.4, Source = "Flame Slam (Ground) (Timbulat99), Lv4+ shockwave" },
+	-- Music (GAME-38), looped and cross-faded by GoblinSFX (Id "" = not uploaded: skipped, silent)
+	LobbyMusic = { Id = "107054322966820", Volume = 0.35, Cooldown = 0, Source = "Temple_Campfire_Loop.mp3 (owner, AI-generated), 60 s loop" },
+	RunMusic = { Id = "123174068317908", Volume = 0.3, Cooldown = 0, Source = "Temple_Horde_Run.mp3 (owner, AI-generated), 60 s loop" },
 }
 
 return Sounds

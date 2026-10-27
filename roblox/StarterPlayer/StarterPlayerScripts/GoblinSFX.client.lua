@@ -16,6 +16,9 @@ folder.Name = "GoblinSFX"
 folder.Parent = SoundService
 local templates: { [string]: Sound } = {}
 for name, def in Sounds do
+	if def.Id == "" then
+		continue -- not uploaded yet
+	end
 	local s = Instance.new("Sound")
 	s.Name, s.SoundId, s.Volume = name, "rbxassetid://" .. def.Id, def.Volume
 	s.Parent = folder
@@ -139,3 +142,30 @@ me.CharacterAdded:Connect(watchHealth)
 if me.Character then
 	watchHealth(me.Character)
 end
+
+-- Music (GAME-38): the lobby loop while out of a run, the run loop while in one (the server sets RunStart for the
+-- run's length), cross-faded; a faded-out track stops so it doesn't keep streaming.
+local MUSIC_FADE = 1.5
+local function music()
+	local inRun = me:GetAttribute("RunStart") ~= nil
+	for name, on in { LobbyMusic = not inRun, RunMusic = inRun } do
+		local s = templates[name]
+		if not s then
+			continue
+		end
+		s.Looped = true
+		if on and not s.IsPlaying then
+			s.Volume = 0
+			s:Play()
+		end
+		local fade = game:GetService("TweenService"):Create(s, TweenInfo.new(MUSIC_FADE), { Volume = if on then Sounds[name].Volume else 0 })
+		fade.Completed:Once(function()
+			if not on and s.Volume == 0 then
+				s:Stop()
+			end
+		end)
+		fade:Play()
+	end
+end
+me:GetAttributeChangedSignal("RunStart"):Connect(music)
+music()
