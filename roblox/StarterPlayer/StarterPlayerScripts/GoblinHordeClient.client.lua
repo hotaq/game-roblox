@@ -311,10 +311,17 @@ local function newSweeper()
 	sparks.Lifetime, sparks.Speed = NumberRange.new(0.2, 0.35), NumberRange.new(8, 16)
 	sparks.SpreadAngle, sparks.Drag = Vector2.new(60, 60), 5
 	sparks.Parent = head
+	-- Afterimage: one flat crescent particle flashed over the finished arc (velocity up + VelocityPerpendicular = lies flat)
+	local arc = Instance.new("ParticleEmitter")
+	arc.Texture, arc.Rate, arc.LightEmission, arc.LockedToPart = Config.Textures.SlashArc, 0, 0.5, true
+	arc.EmissionDirection, arc.Orientation = Enum.NormalId.Top, Enum.ParticleOrientation.VelocityPerpendicular
+	arc.Speed, arc.Lifetime = NumberRange.new(0.01), NumberRange.new(0.22)
+	arc.Transparency = keys({ 0, 0.15 }, { 1, 1 })
+	arc.Parent = p
 	local light = Instance.new("PointLight")
 	light.Range, light.Brightness, light.Enabled = 10, 3, false
 	light.Parent = head
-	return { part = p, tail = tail, head = head, beam = beam, sparks = sparks, light = light }
+	return { part = p, tail = tail, head = head, beam = beam, sparks = sparks, arc = arc, light = light }
 end
 local function easeOut(t: number): number
 	t = math.clamp(t, 0, 1)
@@ -327,6 +334,11 @@ local function sweep(root: BasePart, range: number, from: number, to: number, ti
 	s.beam.Width0, s.beam.Width1 = 0.15, range * tier.width -- thin tail, thick leading edge
 	s.beam.Color, s.sparks.Color = tier.colors, tier.colors
 	s.light.Enabled, s.light.Color = tier.light ~= nil, tier.light or Color3.new(1, 1, 1)
+	local kp = tier.colors.Keypoints
+	s.arc.Color = ColorSequence.new(kp[#kp].Value, kp[2].Value) -- bright edge colour fading to the tier colour
+	s.arc.Size = keys({ 0, r * 2 }, { 1, r * 2.3 }) -- the crescent's radius is ~half the image
+	-- Rotation 0 points the crescent at -Z, 90 at +X; the arc is centred on the middle of the swing
+	s.arc.Rotation = NumberRange.new(math.deg((from + to) / 2) + 90)
 	local function point(at: Attachment, a: number, c: Vector3)
 		local out = Vector3.new(math.cos(a), 0, math.sin(a))
 		-- X (the curve axis) along the swing, Y outward: the ribbon lies flat
@@ -350,6 +362,7 @@ local function sweep(root: BasePart, range: number, from: number, to: number, ti
 		if t >= SWEEP and not sparked then
 			sparked = true
 			s.sparks:Emit(tier.sparks)
+			s.arc:Emit(1)
 		end
 		if t >= SWEEP + CLOSE then
 			conn:Disconnect()

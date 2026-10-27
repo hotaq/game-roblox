@@ -8,6 +8,7 @@ Config.Tag = "Goblin" -- CollectionService tag on every goblin model
 -- Uploaded 2026-10-25 from goblin/textures/vfx/*.png. Re-upload + replace if you edit the PNGs.
 Config.Textures = {
 	Slash = "rbxassetid://125436767772213", -- vfx_slash.png  (sword trail)
+	SlashArc = "rbxassetid://12402858850", -- soft crescent from the VFX Studio plugin library ("Slashes" #23): slash afterimage
 	Spark = "rbxassetid://73368593132738", -- vfx_spark.png  (impact sparks, telegraph glint, stun stars)
 	Burst = "rbxassetid://101702985444399", -- vfx_burst.png  (hit flash)
 	Dust = "rbxassetid://102159467271043", -- vfx_dust.png   (footsteps, lunge, slam, body fall)
