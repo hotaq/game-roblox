@@ -12,7 +12,7 @@ import bmesh
 import bpy
 
 ROOT = "/Users/chinnaphat/Desktop/cedt/roblox/goblin"
-V = 2  # studs per voxel
+V = 2  # default studs per voxel (props can build at 1 for finer detail)
 STUD_R, STUD_H, STUD_SEG = 0.3, 0.18, 8
 CHUNK = 20  # voxels per side of one mesh chunk
 TRI_LIMIT = 20000
@@ -48,7 +48,7 @@ def stud(bm, cx, cy, z):
     bm.faces.new(ring_hi)
 
 
-def build(name, voxels, colors, offset=(0, 0, 0)):
+def build(name, voxels, colors, offset=(0, 0, 0), v=V):
     """voxels: {(x, y, z): colour name}. Returns (root empty, mesh objects): one per colour per chunk."""
     root = bpy.data.objects.new(name, None)
     bpy.context.collection.objects.link(root)
@@ -58,15 +58,16 @@ def build(name, voxels, colors, offset=(0, 0, 0)):
         by_colour.setdefault(c, []).append(p)
     objs = []
     for colour, cells in sorted(by_colour.items()):
-        ob = mesh_object(f"{name}_{colour}", cells, voxels, colour, colors)
-        if tris(ob) > TRI_LIMIT:  # too big for one MeshPart: split this colour into CHUNK x CHUNK columns
-            bpy.data.objects.remove(ob, do_unlink=True)
+        ob = mesh_object(f"{name}_{colour}", cells, voxels, colour, colors, v)
+        parts, size = [ob], CHUNK
+        while max(tris(o) for o in parts) > TRI_LIMIT and size >= 2:  # too big for one MeshPart: split into columns
+            for o in parts:
+                bpy.data.objects.remove(o, do_unlink=True)
             chunks = {}
             for x, y, z in cells:
-                chunks.setdefault((x // CHUNK, y // CHUNK), []).append((x, y, z))
-            parts = [mesh_object(f"{name}_{colour}_{cx}_{cy}", part, voxels, colour, colors) for (cx, cy), part in sorted(chunks.items())]
-        else:
-            parts = [ob]
+                chunks.setdefault((x // size, y // size), []).append((x, y, z))
+            parts = [mesh_object(f"{name}_{colour}_{cx}_{cy}", part, voxels, colour, colors, v) for (cx, cy), part in sorted(chunks.items())]
+            size //= 2
         for o in parts:
             o.parent = root
         objs += parts
@@ -75,17 +76,17 @@ def build(name, voxels, colors, offset=(0, 0, 0)):
     return root, objs
 
 
-def mesh_object(label, cells, voxels, colour, colors):
+def mesh_object(label, cells, voxels, colour, colors, v=V):
     bm = bmesh.new()
     for x, y, z in cells:
         for (dx, dy, dz), corners in FACES:
             if (x + dx, y + dy, z + dz) in voxels:
                 continue
-            bm.faces.new([bm.verts.new(((x + ox) * V, (y + oy) * V, (z + oz) * V)) for ox, oy, oz in corners])
-            if dz == 1:  # exposed top: V x V studs
-                for i in range(V):
-                    for j in range(V):
-                        stud(bm, x * V + i + 0.5, y * V + j + 0.5, (z + 1) * V)
+            bm.faces.new([bm.verts.new(((x + ox) * v, (y + oy) * v, (z + oz) * v)) for ox, oy, oz in corners])
+            if dz == 1:  # exposed top: v x v studs
+                for i in range(v):
+                    for j in range(v):
+                        stud(bm, x * v + i + 0.5, y * v + j + 0.5, (z + 1) * v)
     bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=1e-4)
     me = bpy.data.meshes.new(label)
     bm.to_mesh(me)
@@ -121,10 +122,11 @@ def clear_scene():
 
 
 def export_all(pieces, blend_name):
-    """pieces: [(name, voxels, colors, preview offset)]. Exports each at the origin, keeps them laid out for previews."""
+    """pieces: [(name, voxels, colors, preview offset[, studs per voxel])]. Exports each at the origin, keeps them laid
+    out for previews."""
     os.makedirs(os.path.join(ROOT, "export"), exist_ok=True)
-    for name, vox, colors, at in pieces:
-        root, objs = build(name, vox, colors, at)
+    for name, vox, colors, at, *v in pieces:
+        root, objs = build(name, vox, colors, at, *v)
         saved = root.location.copy()
         root.location = (0, 0, 0)
         export(root, objs, os.path.join(ROOT, "export", name + ".fbx"))
