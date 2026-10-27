@@ -312,18 +312,34 @@ local function colors(...) -- ColorSequence from { time, r, g, b } stops
 	return ColorSequence.new(k)
 end
 -- How the slash looks at each sword level: the default sword skin (black blade, red deepening with the level, like
--- ReplicatedStorage.Swords); a future skin swaps this table. width is the leading edge as a fraction of the range;
--- echo adds a second, smaller crescent right behind; light makes the edge glow; glitter leaves embers along the arc.
+-- ReplicatedStorage.Swords); a future skin swaps this table. Every level adds one thing you can see:
+-- Lv2 light (the edge glows), Lv3 echo (a second, smaller crescent right behind) + scorch (a burnt crescent left on the
+-- ground), Lv4 wave (a red shockwave ring from the player; the back slash comes from Config), Lv5 glitter (embers
+-- along the arc) + smoke (black puffs off the edge). width is the leading edge as a fraction of the range.
 local SLASH_TIERS = {
 	{ colors = colors({ 0, 40, 30, 34 }, { 0.8, 120, 40, 40 }, { 1, 235, 215, 210 }), width = 0.45, sparks = 4 },
-	{ colors = colors({ 0, 60, 20, 24 }, { 0.8, 180, 40, 40 }, { 1, 255, 225, 215 }), width = 0.6, sparks = 8 },
-	{ colors = colors({ 0, 80, 18, 22 }, { 0.8, 210, 40, 40 }, { 1, 255, 230, 220 }), width = 0.65, sparks = 10, echo = true },
+	{
+		colors = colors({ 0, 60, 20, 24 }, { 0.8, 180, 40, 40 }, { 1, 255, 225, 215 }),
+		width = 0.6,
+		sparks = 8,
+		light = Color3.fromRGB(220, 40, 40),
+	},
+	{
+		colors = colors({ 0, 80, 18, 22 }, { 0.8, 210, 40, 40 }, { 1, 255, 230, 220 }),
+		width = 0.65,
+		sparks = 10,
+		echo = true,
+		light = Color3.fromRGB(235, 45, 40),
+		scorch = true,
+	},
 	{
 		colors = colors({ 0, 110, 14, 20 }, { 0.75, 235, 45, 40 }, { 1, 255, 235, 225 }),
 		width = 0.7,
 		sparks = 14,
 		echo = true,
 		light = Color3.fromRGB(255, 60, 50),
+		scorch = true,
+		wave = true,
 	},
 	{
 		colors = colors({ 0, 140, 10, 20 }, { 0.45, 255, 50, 40 }, { 0.8, 255, 150, 70 }, { 1, 255, 245, 230 }),
@@ -331,7 +347,10 @@ local SLASH_TIERS = {
 		sparks = 22,
 		echo = true,
 		light = Color3.fromRGB(255, 90, 60),
+		scorch = true,
+		wave = true,
 		glitter = Color3.fromRGB(255, 80, 40),
+		smoke = true,
 	},
 }
 local function swordTier(player: Player)
@@ -342,30 +361,37 @@ end
 -- Sword hit impact: a flash and sparks in the tier's red on each goblin hit, its run frozen for HITSTOP (a hit-stop
 -- on the enemy only; the world keeps moving), and a camera kick for the attacker that grows with the goblins hit.
 local HITSTOP = 0.06
-local impactAt = fxPart(Vector3.one * 0.2, Color3.new())
-impactAt.Transparency = 1
-local impactFlash = Instance.new("ParticleEmitter")
-impactFlash.Texture, impactFlash.Rate, impactFlash.LightEmission = Config.Textures.Burst, 0, 0.6
-impactFlash.Size, impactFlash.Lifetime, impactFlash.Speed = keys({ 0, 1.4 }, { 1, 2.6 }), NumberRange.new(0.1, 0.14), NumberRange.new(0)
-impactFlash.Transparency, impactFlash.Rotation = keys({ 0, 0 }, { 1, 1 }), NumberRange.new(0, 360)
-impactFlash.Parent = impactAt
-local impactSparks = Instance.new("ParticleEmitter")
-impactSparks.Texture, impactSparks.Rate, impactSparks.LightEmission = Config.Textures.Spark, 0, 0.8
-impactSparks.Orientation = Enum.ParticleOrientation.VelocityParallel
-impactSparks.Size, impactSparks.Lifetime, impactSparks.Speed = keys({ 0, 0.35 }, { 1, 0 }), NumberRange.new(0.15, 0.3), NumberRange.new(12, 20)
-impactSparks.SpreadAngle, impactSparks.Acceleration, impactSparks.Drag = Vector2.new(180, 180), Vector3.new(0, -40, 0), 4
-impactSparks.Parent = impactAt
+-- One attachment per goblin hit in a batch: Emit spawns where the emitter is when particles next update, so moving a
+-- single emitter between Emit calls in one frame would put every hit's sparks on the last goblin.
+local impacts = {}
+for i = 1, 8 do -- a crowd hit stays readable and cheap
+	local at = Instance.new("Attachment")
+	at.Parent = Workspace.Terrain
+	local flash = Instance.new("ParticleEmitter")
+	flash.Texture, flash.Rate, flash.LightEmission = Config.Textures.Burst, 0, 0.6
+	flash.Size, flash.Lifetime, flash.Speed = keys({ 0, 1.4 }, { 1, 2.6 }), NumberRange.new(0.1, 0.14), NumberRange.new(0)
+	flash.Transparency, flash.Rotation = keys({ 0, 0 }, { 1, 1 }), NumberRange.new(0, 360)
+	flash.Parent = at
+	local sparks = Instance.new("ParticleEmitter")
+	sparks.Texture, sparks.Rate, sparks.LightEmission = Config.Textures.Spark, 0, 0.8
+	sparks.Orientation = Enum.ParticleOrientation.VelocityParallel
+	sparks.Size, sparks.Lifetime, sparks.Speed = keys({ 0, 0.35 }, { 1, 0 }), NumberRange.new(0.15, 0.3), NumberRange.new(12, 20)
+	sparks.SpreadAngle, sparks.Acceleration, sparks.Drag = Vector2.new(180, 180), Vector3.new(0, -40, 0), 4
+	sparks.Parent = at
+	impacts[i] = { at = at, flash = flash, sparks = sparks }
+end
 swordImpact = function(struck)
 	local red = swordTier(Players.LocalPlayer).colors.Keypoints[2].Value
-	impactFlash.Color = ColorSequence.new(Color3.new(1, 1, 1), red)
-	impactSparks.Color = ColorSequence.new(Color3.fromRGB(255, 230, 200), red)
 	for i, e in struck do
-		if i > 8 then
-			break -- a crowd hit stays readable and cheap
+		local fx = impacts[i]
+		if not fx then
+			break
 		end
-		impactAt.Position = Vector3.new(e.x, HIP_Y + 1.5, e.z)
-		impactFlash:Emit(1)
-		impactSparks:Emit(5)
+		fx.at.WorldPosition = Vector3.new(e.x, HIP_Y + 1.5, e.z)
+		fx.flash.Color = ColorSequence.new(Color3.new(1, 1, 1), red)
+		fx.sparks.Color = ColorSequence.new(Color3.fromRGB(255, 230, 200), red)
+		fx.flash:Emit(1)
+		fx.sparks:Emit(5)
 		if e.run.Speed > 0 then
 			e.hitstopSpeed = e.run.Speed
 		end
@@ -418,10 +444,30 @@ local function newSweeper()
 	glitter.SpreadAngle, glitter.Acceleration = Vector2.new(180, 180), Vector3.new(0, 2, 0)
 	glitter.Rotation, glitter.RotSpeed = NumberRange.new(0, 360), NumberRange.new(-180, 180)
 	glitter.Parent = head
+	-- Scorch (tiers with `scorch`): the same ink crescent, dark red and slow, left burnt on the ground after the slash
+	local scorch = arc:Clone()
+	scorch.Lifetime, scorch.Color = NumberRange.new(0.9), ColorSequence.new(Color3.fromRGB(70, 8, 8))
+	scorch.Transparency = keys({ 0, 0.15 }, { 0.5, 0.35 }, { 1, 1 })
+	scorch.Parent = p
+	-- Shockwave (tiers with `wave`): a flat ring that races out from the player as the slash starts
+	local wave = Instance.new("ParticleEmitter")
+	wave.Texture, wave.Rate, wave.LockedToPart, wave.LightEmission = Config.Textures.SlashWave, 0, true, 0.4
+	wave.EmissionDirection, wave.Orientation = Enum.NormalId.Top, Enum.ParticleOrientation.VelocityPerpendicular
+	wave.Speed, wave.Lifetime = NumberRange.new(0.01), NumberRange.new(0.35)
+	wave.Transparency = keys({ 0, 0.1 }, { 1, 1 })
+	wave.Parent = p
+	-- Smoke (tiers with `smoke`): black puffs shed by the sweeping edge, drifting up
+	local smoke = Instance.new("ParticleEmitter")
+	smoke.Texture, smoke.Rate, smoke.Color = Config.Textures.SlashSmoke, 0, ColorSequence.new(Color3.fromRGB(25, 15, 15))
+	smoke.Size, smoke.Transparency = keys({ 0, 1 }, { 1, 2.6 }), keys({ 0, 0.35 }, { 1, 1 })
+	smoke.Lifetime, smoke.Speed = NumberRange.new(0.6, 0.9), NumberRange.new(1, 3)
+	smoke.SpreadAngle, smoke.Acceleration = Vector2.new(180, 180), Vector3.new(0, 4, 0)
+	smoke.Rotation, smoke.RotSpeed = NumberRange.new(0, 360), NumberRange.new(-60, 60)
+	smoke.Parent = head
 	local light = Instance.new("PointLight")
 	light.Range, light.Brightness, light.Enabled = 10, 3, false
 	light.Parent = head
-	return { part = p, tail = tail, head = head, beam = beam, sparks = sparks, arc = arc, glitter = glitter, light = light }
+	return { part = p, tail = tail, head = head, beam = beam, sparks = sparks, arc = arc, glitter = glitter, light = light, scorch = scorch, wave = wave, smoke = smoke }
 end
 local function easeOut(t: number): number
 	t = math.clamp(t, 0, 1)
@@ -449,6 +495,11 @@ local function sweep(root: BasePart, range: number, from: number, to: number, ti
 	s.arc.Size = keys({ 0, inkR * 1.3 }, { 1, inkR * 1.45 }) -- crescent radius is ~0.95 x Size: just outside the arc, clear of the horde
 	-- Rotation 0 points the crescent at +Z; the arc is centred on the middle of the swing
 	s.arc.Rotation = NumberRange.new(math.deg((from + to) / 2) - 90)
+	s.scorch.Size, s.scorch.Rotation = keys({ 0, inkR * 1.35 }, { 1, inkR * 1.4 }), s.arc.Rotation
+	if tier.wave and ink then
+		s.wave.Color = ColorSequence.new(tier.light or tier.colors.Keypoints[2].Value)
+		s.wave.Size = keys({ 0, r * 0.4 }, { 1, range * 2.2 })
+	end
 	local function point(at: Attachment, a: number, c: Vector3)
 		local out = Vector3.new(math.cos(a), 0, math.sin(a))
 		-- X (the curve axis) along the swing, Y outward: the ribbon lies flat
@@ -465,6 +516,9 @@ local function sweep(root: BasePart, range: number, from: number, to: number, ti
 	end
 	draw(from, from)
 	s.beam.Enabled = true
+	if tier.wave and ink then
+		s.wave:Emit(1)
+	end
 	local conn
 	conn = RunService.RenderStepped:Connect(function()
 		local t = os.clock() - t0
@@ -472,11 +526,17 @@ local function sweep(root: BasePart, range: number, from: number, to: number, ti
 		if tier.glitter and ink and t < SWEEP then
 			s.glitter:Emit(3)
 		end
+		if tier.smoke and ink and t < SWEEP then
+			s.smoke:Emit(1)
+		end
 		if t >= SWEEP and not sparked then
 			sparked = true
 			s.sparks:Emit(tier.sparks)
 			if ink then -- one ink crescent per slash; the echo's would stack into a muddy ring
 				s.arc:Emit(1)
+				if tier.scorch then
+					s.scorch:Emit(1)
+				end
 			end
 		end
 		if t >= SWEEP + CLOSE then
