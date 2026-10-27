@@ -259,6 +259,11 @@ function Builder.build(origin: Vector3?, stages: { string }?)
 		map.Name = "Map1"
 		map.Parent = workspace
 	end
+	-- Arena attributes read by GoblinHorde's arena(): the Map1Pad sends runs here.
+	local model = map :: Model
+	model:SetAttribute("Center", o.Position)
+	model:SetAttribute("Size", 2 * HALF)
+	model:SetAttribute("Spawn", o.Position + Vector3.new(CLEARINGS.Spawn.x, 0, CLEARINGS.Spawn.z))
 	local report = {}
 	for _, stage in stages or ORDER do
 		local folderName = stage:sub(1, 1):upper() .. stage:sub(2)

@@ -6,9 +6,9 @@
 -- SendRate times a second all clients get one buffer of {x, z} per slot (4 bytes; the slot number is implicit, free
 -- slots are a sentinel, and the client works out facing from movement) plus the slots that died; GoblinHordeClient
 -- draws pooled client-only models from that (the single-mesh Goblin.HordeModel).
--- No physics, no pathfinding: the arena (workspace.StressZone for now) is open and flat at y = 0. Humanoid goblins
+-- No physics, no pathfinding: the arena (workspace.StressZone, or Map1 via its pad) is flat at y = 0. Humanoid goblins
 -- (GoblinAI) stay for elites.
--- Runs: entering the arena starts one (PlayPad by the spawn teleports there). Weapons (Config.Weapons) fire on
+-- Runs: entering the arena starts one (PlayPad / Map1Pad by the spawn teleport there). Weapons (Config.Weapons) fire on
 -- their own and hit the same goblin arrays; each kill drops an XP gem; level-ups pause the horde while the player
 -- picks 1 of 3 cards (GoblinRunUI); dying ends the run with a results screen. Player attributes carry the HUD state.
 -- Studio test: GoblinStressHUD's H buttons override the horde size (Goblin.Horde remote).
@@ -83,12 +83,15 @@ local function kill(i: number, run)
 	end
 end
 
-local function arena(): (Vector3?, number)
-	local zone = Workspace:FindFirstChild("StressZone")
+-- The run arena: workspace.StressZone unless a pad switched the Workspace "Arena" attribute (e.g. to "Map1"). A zone
+-- carries Center and Size attributes, and optionally Spawn (where pads drop you; defaults to Center).
+local function arena(): (Vector3?, number, Vector3?)
+	local zone = Workspace:FindFirstChild(Workspace:GetAttribute("Arena") or "StressZone")
 	if not zone then
-		return nil, 0
+		return nil, 0, nil
 	end
-	return zone:GetAttribute("Center"), zone:GetAttribute("Size") / 2 - 2
+	local center = zone:GetAttribute("Center")
+	return center, zone:GetAttribute("Size") / 2 - 2, zone:GetAttribute("Spawn") or center
 end
 
 -- Spatial hash of live goblins, rebuilt each step (positions move < 0.5 stud per step, so it stays good enough).
@@ -289,13 +292,13 @@ rerollCards.OnServerEvent:Connect(function(player)
 end)
 
 restart.OnServerEvent:Connect(function(player)
-	local center = arena()
+	local center, _, spawn = arena()
 	if runs[player] or not center then
 		return
 	end
 	player:LoadCharacter()
 	if player.Character then
-		player.Character:PivotTo(CFrame.new(center + Vector3.new(0, 4, 0)))
+		player.Character:PivotTo(CFrame.new(spawn + Vector3.new(0, 4, 0)))
 	end
 end)
 
@@ -309,17 +312,18 @@ Players.PlayerRemoving:Connect(function(player)
 	runs[player] = nil
 end)
 
--- A glowing pad beside the spawn that sends you into the arena.
-do
+-- Glowing pads beside the spawn that send you into an arena. With no run going, a pad switches the arena to its zone;
+-- during a run every pad sends you to the arena already in use, so players always share one horde.
+local function makePad(name: string, position: Vector3, color: Color3, caption: string, zone: string)
 	local pad = Instance.new("Part")
-	pad.Name = "PlayPad"
+	pad.Name = name
 	pad.Anchored, pad.CanCollide = true, false
-	pad.Size, pad.Position = Vector3.new(6, 0.4, 6), Vector3.new(11, 1.2, 10)
-	pad.Material, pad.Color = Enum.Material.Neon, Color3.fromRGB(255, 210, 90)
+	pad.Size, pad.Position = Vector3.new(6, 0.4, 6), position
+	pad.Material, pad.Color = Enum.Material.Neon, color
 	local label = Instance.new("BillboardGui")
 	label.Size, label.StudsOffset, label.AlwaysOnTop = UDim2.fromOffset(160, 50), Vector3.new(0, 3, 0), true
 	local text = Instance.new("TextLabel")
-	text.Size, text.BackgroundTransparency, text.Text = UDim2.fromScale(1, 1), 1, "PLAY"
+	text.Size, text.BackgroundTransparency, text.Text = UDim2.fromScale(1, 1), 1, caption
 	text.FontFace, text.TextScaled = Font.fromEnum(Enum.Font.FredokaOne), true
 	text.TextColor3, text.TextStrokeTransparency = Color3.new(1, 1, 1), 0
 	text.Parent = label
@@ -329,16 +333,24 @@ do
 	pad.Touched:Connect(function(hit)
 		local char = hit.Parent
 		local player = char and Players:GetPlayerFromCharacter(char)
-		local center = arena()
-		if player and center and not busy[player] then
+		if not player or busy[player] or not Workspace:FindFirstChild(zone) then
+			return
+		end
+		if next(runs) == nil then
+			Workspace:SetAttribute("Arena", zone)
+		end
+		local center, _, spawn = arena()
+		if center then
 			busy[player] = true
-			char:PivotTo(CFrame.new(center + Vector3.new(0, 4, 0)))
+			char:PivotTo(CFrame.new(spawn + Vector3.new(0, 4, 0)))
 			task.delay(1, function()
 				busy[player] = nil
 			end)
 		end
 	end)
 end
+makePad("PlayPad", Vector3.new(11, 1.2, 10), Color3.fromRGB(255, 210, 90), "PLAY", "StressZone")
+makePad("Map1Pad", Vector3.new(11, 1.2, 20), Color3.fromRGB(110, 220, 120), "MAP 1", "Map1")
 
 ---------------------------------------------------------------- weapons
 
