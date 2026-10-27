@@ -329,17 +329,18 @@ local function easeOut(t: number): number
 	return 1 - (1 - t) ^ 3
 end
 -- One sweep from angle `from` to `to` (radians in the XZ plane), following the player while it swings.
-local function sweep(root: BasePart, range: number, from: number, to: number, tier)
+-- `ink` scales the ink crescent (nil = none, for the echo sweep).
+local function sweep(root: BasePart, range: number, from: number, to: number, tier, ink: number?)
 	local s = pooled(sweepPool, newSweeper)
 	local t0, r, side, sparked = os.clock(), range * 0.65, math.sign(to - from), false
 	s.beam.Width0, s.beam.Width1 = 0.15, range * tier.width -- thin tail, thick leading edge
 	s.beam.Color, s.sparks.Color = tier.colors, tier.colors
 	s.light.Enabled, s.light.Color = tier.light ~= nil, tier.light or Color3.new(1, 1, 1)
-	-- Ink tiers keep the black edge and tint the white (wood, gold); glowing tiers drop the black (LightEmission 1)
-	-- and take the tier's light colour (energy blue, legendary pink).
+	-- Ink slash at every tier: the black edge stays, the white takes the tier colour (wood, gold, energy blue, pink).
+	-- Glowing it (LightEmission 1) washed out once the back slash made a full ring at tier 4+.
 	s.arc.Color = ColorSequence.new(tier.light or tier.colors.Keypoints[2].Value)
-	s.arc.LightEmission = tier.light and 1 or 0
-	s.arc.Size = keys({ 0, r * 1.3 }, { 1, r * 1.45 }) -- crescent radius is ~0.95 x Size: just outside the arc, clear of the horde
+	local inkR = r * (ink or 1)
+	s.arc.Size = keys({ 0, inkR * 1.3 }, { 1, inkR * 1.45 }) -- crescent radius is ~0.95 x Size: just outside the arc, clear of the horde
 	-- Rotation 0 points the crescent at +Z; the arc is centred on the middle of the swing
 	s.arc.Rotation = NumberRange.new(math.deg((from + to) / 2) - 90)
 	local function point(at: Attachment, a: number, c: Vector3)
@@ -365,7 +366,9 @@ local function sweep(root: BasePart, range: number, from: number, to: number, ti
 		if t >= SWEEP and not sparked then
 			sparked = true
 			s.sparks:Emit(tier.sparks)
-			s.arc:Emit(1)
+			if ink then -- one ink crescent per slash; the echo's would stack into a muddy ring
+				s.arc:Emit(1)
+			end
 		end
 		if t >= SWEEP + CLOSE then
 			conn:Disconnect()
@@ -378,8 +381,8 @@ local function sweep(root: BasePart, range: number, from: number, to: number, ti
 	end)
 end
 -- A full slash: the main crescent, plus a smaller echo right behind it from the double-slash tier up.
-local function slash(root: BasePart, range: number, from: number, to: number, tier)
-	sweep(root, range, from, to, tier)
+local function slash(root: BasePart, range: number, from: number, to: number, tier, ink: number?)
+	sweep(root, range, from, to, tier, ink or 1)
 	if tier.echo then
 		task.delay(0.05, sweep, root, range * 0.75, from, to, tier)
 	end
@@ -471,7 +474,8 @@ Shared:WaitForChild("HordeFx").OnClientEvent:Connect(function(kind: string, ...)
 		swingSide[player] = side
 		slash(root, range, aim - half * side, aim + half * side, tier)
 		if back then
-			slash(root, range, aim + math.pi + half * side, aim + math.pi - half * side, tier)
+			-- Smaller, a beat later: the two ink crescents read as two strokes instead of closing into a hoop
+			task.delay(0.08, slash, root, range, aim + math.pi + half * side, aim + math.pi - half * side, tier, 0.7)
 		end
 	elseif kind == "axes" then
 		receiveAxes(...)
