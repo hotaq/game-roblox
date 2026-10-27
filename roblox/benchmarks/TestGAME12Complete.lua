@@ -3,13 +3,19 @@ return function(configSource,serverSource,clientSource)
 	local function span(s,a,b)local first=assert(s:find(a,1,true));return s:sub(first,assert(s:find(b,first+#a,true))-1)end
 	local code="local Config=(function()\n"..configSource.."\nend)()\n"..[=[
 local W,P,R=Config.Weapons,Config.Passives,Config.Run
-local fraction=0;local rng={NextNumber=function(_,low,high)return low+(high-low)*fraction end,NextInteger=function(_,low)return low end}
+local fraction,choice=0,1;local rng={NextNumber=function(_,low,high)return low+(high-low)*fraction end,NextInteger=function(_,low,high)return math.clamp(choice,low,high)end}
 ]=]..span(serverSource,"local function rollRarity(","local function offer(")..[=[
 local checks={};local function check(v,label)assert(v,label);table.insert(checks,label)end
 local before,after={0,0,0},{0,0,0}
 for i=1,1000 do fraction=(i-.5)/1000;before[rollRarity(0)]+=1;after[rollRarity(1)]+=1 end
 check(after[1]<before[1]and after[2]>before[2]and after[3]>before[3],"Luck raises Rare and Epic probability and lowers Common")
 fraction=.5;check(rollRarity(9)==rollRarity(1)and rollRarity(-5)==rollRarity(0),"Luck probability clamps at both bounds")
+local offered={};local fresh={weapons={sword=1},wOrder={"sword"},passives={},pOrder={},evolved={}}
+for index=1,15 do choice=index;for _,c in makeCards(fresh)do offered[c.id]=true end end;choice=1
+check(offered.totem and offered.duration and offered.projectile and offered.speed and offered.luck,"all new items are reachable through ordinary card pool")
+fresh.passives={duration=5,projectile=5,speed=5,luck=5,force=5};fresh.pOrder={"duration","projectile","speed","luck","force"}
+for index=1,15 do choice=index;for _,c in makeCards(fresh)do assert(c.kind~="passive")end end;choice=1
+check(true,"maxed new passives do not overflow five passive slots or level5")
 for _,id in W.Order do
  local r={weapons={[id]=5},wOrder={id},passives={},pOrder={},evolved={}}
  check(not Config.canEvolve(r,id),id.." needs its exact passive")

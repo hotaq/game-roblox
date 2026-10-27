@@ -1,0 +1,16 @@
+-- Full GAME12 closure, including previously verified Axe and Rocks slices.
+return {
+	date="2026-10-28",status="GAME12 verified complete",
+	commits={implementation="0d4bc18",speedFix="18e2b93",fixtureAndFallback="2c731ac",fixtureSlots="8068d05",testedRuntime="0068be0"},
+	delivery="Lightning Totem5 levels; Duration/Projectile/Speed/Luck5 levels; all6 weapons evolve through explicit card at weapon5 + paired passive>=1, once/run in existing slot. Common card pool, HUD and results integrated. Axe/Rocks earlier complete and regressed.",
+	evolvePairs={sword="Might",fire="Projectile",ring="Area",axe="Speed",rocks="Force",totem="Duration"},
+	checks={exactCardsAndVisual=50,exactServerHandlersAndCombat=48,axe=33,axeVisual=9,rocks=35,transport=17,cleanup=6,exactTotal=198,realSolo=80,realTeam=82},
+	results={solo="ServerStorage.GAME12Complete_4a76a777-160b-4504-89ab-aed61602f906",team="ServerStorage.GAME12Complete_7bc620e5-b28b-4a1b-b450-3c2879ba0b2c"},
+	verified="All five runtime sources matched repository before final two-client launch; following solo used same runtime. Both final reports Complete, zero captured Goblin errors. Four passives picked through real client remotes, six Evolve offers/queued old-pick and reroll rejection, five totem levels/damage/targets, range/pause/teleport, bounded lifetime/count, evolved fire+axe counts, both observers, independent18 vs136 owner pulse credit, end-run/new-run/departure/death cleanup. Server speed reset preserves later external overrides.",
+	visual="Actual Client captures reviewed on Map1:10/12/14/15-part totem geometry Lv1/3/5/6, matte stone/moss/gold with small cyan core; evolved top seal. Card names/prerequisite/effects fit bounds; new passive book art and EVO labels readable. Earlier fallback gallery/cards saved below. Final real run also displayed owner's loaded atlas and evolved weapon cells successfully (acceptance icons=1 on each client).",
+	images={"renders/game12_totem_levels.jpg","renders/game12_evolve_cards.jpg"},
+	imageContext="Visual-only disposable helper with controlled snapshots/camera; no combat claim from gallery. Final two-client combat fixture separately passed82 checks. Its review used anchored protected players and camera/position changes in helper only; no map/Lighting/Source mutation in main place.",
+	resolved="First pilot caught real engine float precision mismatch in Speed reset (fixed18e2b93). Later pilots caught fixture-only unprotected peer and inconsistent wOrder after synthetic weapon swap; both corrected, all assertions retained. Failed pilots retained in GAME12CompletePilots.lua; solo fixture failure noted here. Final live results supersede pilots.",
+	limits="Prototype tuning, not a new device-FPS/performance baseline. FX broadcast follows existing weapon policy. Ordinary progression/global pause unchanged. Bespoke sword special attack remains GAME34; this task supplies common named/stat evolution while retaining approved sword VFX/models. Owner atlas/music/sounds updates through0068be0 preserved.",
+	next="No remaining GAME12 work or sync blocker. Release reserved spans. Future UI must preserve offerId on pick/reroll, evolved level6 and Config.Evolutions names; separate GAME34/GAME40 follow their own board ownership.",
+}
