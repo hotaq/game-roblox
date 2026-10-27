@@ -343,7 +343,8 @@ end)
 
 -- Glowing pads beside the spawn that send you into an arena. With no run going, a pad switches the arena to its zone;
 -- during a run every pad sends you to the arena already in use, so players always share one horde.
-local function makePad(name: string, position: Vector3, color: Color3, caption: string, zone: string)
+-- A pad with warp instead just teleports you to the spot warp() returns (nothing happens if it returns nil).
+local function makePad(name: string, position: Vector3, color: Color3, caption: string, zone: string?, warp: (() -> Vector3?)?)
 	local pad = Instance.new("Part")
 	pad.Name = name
 	pad.Anchored, pad.CanCollide = true, false
@@ -362,16 +363,22 @@ local function makePad(name: string, position: Vector3, color: Color3, caption: 
 	pad.Touched:Connect(function(hit)
 		local char = hit.Parent
 		local player = char and Players:GetPlayerFromCharacter(char)
-		if not player or busy[player] or not Workspace:FindFirstChild(zone) then
+		if not player or busy[player] then
 			return
 		end
-		if next(runs) == nil then
-			Workspace:SetAttribute("Arena", zone)
+		local spot
+		if warp then
+			spot = warp()
+		elseif Workspace:FindFirstChild(zone) then
+			if next(runs) == nil then
+				Workspace:SetAttribute("Arena", zone)
+			end
+			local center, _, spawn = arena()
+			spot = center and spawn
 		end
-		local center, _, spawn = arena()
-		if center then
+		if spot then
 			busy[player] = true
-			char:PivotTo(CFrame.new(spawn + Vector3.new(0, 4, 0)))
+			char:PivotTo(CFrame.new(spot + Vector3.new(0, 4, 0)))
 			task.delay(1, function()
 				busy[player] = nil
 			end)
@@ -380,6 +387,17 @@ local function makePad(name: string, position: Vector3, color: Color3, caption: 
 end
 makePad("PlayPad", Vector3.new(11, 1.2, 10), Color3.fromRGB(255, 210, 90), "PLAY", "StressZone")
 makePad("Map1Pad", Vector3.new(11, 1.2, 20), Color3.fromRGB(110, 220, 120), "MAP 1", "Map1")
+-- The sword FX showcase (Workspace.SwordFXZone, place content from roblox/BuildSwordFXZone.luau) and back
+local fxView = Workspace:FindFirstChild("SwordFXZone") and Workspace.SwordFXZone:FindFirstChild("ViewPad")
+if fxView then
+	makePad("SwordFXPad", Vector3.new(11, 1.2, 30), Color3.fromRGB(255, 80, 60), "SWORD FX", nil, function()
+		return fxView.Position
+	end)
+	makePad("SwordFXBackPad", fxView.Position + Vector3.new(10, 0.7, 0), Color3.fromRGB(255, 210, 90), "BACK", nil, function()
+		local spawnPad = Workspace:FindFirstChild("SpawnLocation")
+		return spawnPad and spawnPad.Position
+	end)
+end
 
 ---------------------------------------------------------------- weapons
 

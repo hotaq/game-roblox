@@ -1,6 +1,7 @@
 -- BuildSwordFXZone.luau: run in the Command Bar (Edit mode). Safe to re-run: it rebuilds workspace.SwordFXZone.
 -- A viewing strip 400 studs west of the camp: five pedestals Lv1..Lv5 that GoblinHordeClient makes swing the sword at
--- that level, over and over, while you stand nearby (GAME-33). The GoblinStressHUD "FX" button drops you on ViewPad.
+-- that level, over and over, while you stand nearby (GAME-33). The SWORD FX pad by the spawn (GoblinHorde) and the
+-- Studio-only GoblinStressHUD "FX" button drop you on ViewPad; a BACK pad beside it returns you to the spawn.
 -- Undo: delete workspace.SwordFXZone.
 local CENTER, GAP = Vector3.new(-400, 0, 0), 26
 local NAMES = { "Wood", "Gold", "Double", "Energy", "Legendary" }
