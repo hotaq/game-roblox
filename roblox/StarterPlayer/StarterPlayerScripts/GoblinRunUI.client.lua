@@ -148,7 +148,7 @@ local function setArt(a, key: string?)
 		a.image.ImageRectOffset = Vector2.new(cell[1], cell[2])
 	end
 	local showArt = iconsReady and cell ~= nil
-	local stand = if showArt then nil else key -- the hand-drawn stand-ins only show until the sheet loads
+	local stand = if showArt then nil else (key and key:gsub("^evo_","")) -- reuse base art while an evolved atlas cell is unavailable
 	if a.roundTwo and a.roundTwoKey~=stand then a.roundTwo:Destroy();a.roundTwo=nil end
 	if roundTwoIcons[stand]and not a.roundTwo then a.roundTwo=roundTwoIcon(a.image.Parent,stand);a.roundTwoKey=stand end
 	if stand == "axe" and not a.axe then a.axe = axeIcon(a.image.Parent) end

@@ -14,6 +14,15 @@ end
 local stress = ReplicatedStorage:WaitForChild("Goblin"):WaitForChild("Stress")
 local horde = ReplicatedStorage.Goblin:WaitForChild("Horde")
 local player = Players.LocalPlayer
+local function acceptanceIcon(d,key)
+	local fallback={axe="AxeIcon",rocks="RocksIcon",totem="totemIcon"}
+	if d.Name==fallback[key]then return true end
+	if not d:IsA("ImageLabel")or not d.IsLoaded then return false end
+	local icons=require(ReplicatedStorage.Goblin.GoblinConfig).Icons
+	if d.Image~=icons.Image then return false end
+	for _,id in {key,"evo_"..key}do local cell=icons.Cells[id];if cell and d.ImageRectOffset==Vector2.new(cell[1],cell[2])then return true end end
+	return false
+end
 
 -- GAME12 complete: real RemoteEvent/card/UI and cosmetic lifecycle acceptance, named Studio test only.
 if ReplicatedStorage.Goblin:GetAttribute("GAME12CompleteActive") then
@@ -47,7 +56,7 @@ if ReplicatedStorage.Goblin:GetAttribute("GAME12CompleteActive") then
 				elseif m.Name=="TotemBolt"then report.bolts+=1 end
 			end end
 			if ui then for _,d in ui:GetDescendants()do if visible(d,ui)then
-				if d.Name=="totemIcon"then report.icons+=1 end
+				if acceptanceIcon(d,"totem")then report.icons+=1 end
 				if d:IsA("TextLabel")then table.insert(report.text,d.Text);if d.Text=="EVO"then report.evo+=1 end end
 			end end end
 			return report
@@ -85,7 +94,7 @@ if ReplicatedStorage.Goblin:GetAttribute("GAME12AxeActive") then
 			end
 			local icons=0
 			local ui=player.PlayerGui:FindFirstChild("GoblinRunUI")
-			if ui then for _,d in ui:GetDescendants() do if d.Name=="AxeIcon" and d.Visible then
+			if ui then for _,d in ui:GetDescendants() do if acceptanceIcon(d,"axe") and d.Visible then
 				local visible=true;local p=d.Parent
 				while p and p~=ui do if p:IsA("GuiObject") and not p.Visible then visible=false end;p=p.Parent end
 				if visible then icons+=1 end
@@ -124,7 +133,7 @@ if ReplicatedStorage.Goblin:GetAttribute("GAME12RocksActive") then
 				for _,p in m:GetDescendants() do if p:IsA("BasePart") and (p.CanCollide or p.CanTouch or p.CanQuery or not p.Anchored) then nonCosmetic+=1 end end
 			end end end
 			local ui=player.PlayerGui:FindFirstChild("GoblinRunUI")
-			if ui then for _,d in ui:GetDescendants() do if d.Name=="RocksIcon" and d.Visible then
+			if ui then for _,d in ui:GetDescendants() do if acceptanceIcon(d,"rocks") and d.Visible then
 				local visible=true;local p=d.Parent
 				while p and p~=ui do if p:IsA("GuiObject") and not p.Visible then visible=false end;p=p.Parent end
 				if visible then icons+=1 end

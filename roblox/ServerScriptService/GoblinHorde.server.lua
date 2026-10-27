@@ -2181,11 +2181,15 @@ if completeTestArgs then
 			local list=Players:GetPlayers();local a,b=list[1],list[2]
 			local function prepare(p,x)
 				if runs[p]then endRun(p)end
+				if not p.Character or p.Character:FindFirstChildOfClass("Humanoid").Health<=0 then
+					p:LoadCharacter();p.Character:WaitForChild("HumanoidRootPart");p.Character:WaitForChild("Humanoid")
+				end
 				local root,hum=p.Character.HumanoidRootPart,p.Character:FindFirstChildOfClass("Humanoid")
 				root.Anchored=true;root.CFrame=CFrame.new(center+Vector3.new(x,4,0))
 				if not p.Character:FindFirstChildOfClass("ForceField")then Instance.new("ForceField",p.Character).Visible=false end
 				startRun(p,hum);local r=runs[p];r.weapons={};r.wOrder={};r.next=1e9;publish(r);return r,root
 			end
+			if b then prepare(b,40)end -- keep peer alive while the first player's long card sequence runs
 			local ra,rootA=prepare(a,0)
 			local function forceCard(p,r,c)
 				r.cards={c};r.pending=1;r.pausedAt=Workspace:GetServerTimeNow();offerSerial+=1;r.offerId=offerSerial;p:SetAttribute("RunOfferId",offerSerial)
@@ -2266,7 +2270,7 @@ if completeTestArgs then
 			check(hp[1]==10000-34 and hp[4]==10000-34 and hp[5]==10000,"evolved shrine hits four nearest targets")
 			fireWeapons(ra,rootA,0)
 			if rb then rb.weapons={totem=1};rb.wOrder={"totem"};publish(rb);fireWeapons(rb,rootB,0)end
-			if rb then local before=ra.damage.totem;moveTotems(.01);check(rb.damage.totem==18 and ra.damage.totem==before,"second owner gets independent pulse damage credit")end
+			if rb then local before=ra.damage.totem;moveTotems(.01);report.peerPulse={damage=rb.damage.totem,ownerBefore=before,ownerAfter=ra.damage.totem,health=rb.hum.Health,totems=#totems};check(rb.damage.totem==18 and ra.damage.totem==before,"second owner gets independent pulse damage credit")end
 			send()
 			local expected=if b then 2 else 1
 			waitFor(function()return snap(a).totems==expected and snap(a).rocks==6 and (not b or snap(b).totems==expected)end,"shared visuals")
