@@ -50,7 +50,7 @@ Shared:WaitForChild("HordeFx").OnClientEvent:Connect(function(kind: string, ...)
 	local args = { ... }
 	if kind == "slash" and args[1] == me then
 		lastSlash = os.clock()
-		play("Slash", 0.95 + swordLevel() * 0.04) -- a little brighter with each sword level
+		play(if swordLevel() >= 4 then "SlashHeavy" else "Slash", 0.95 + swordLevel() * 0.04) -- a little brighter with each sword level
 		if swordLevel() >= 4 then
 			play("SwordWave") -- the shockwave ring (GoblinHordeClient SLASH_TIERS `wave`)
 		end
