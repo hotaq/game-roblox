@@ -97,6 +97,7 @@ local function animate(char: Model)
 			busy:Play(0.1)
 		end
 		state = new
+		char:SetAttribute("SwordState", new) -- GoblinSFX plays the pull / drag / plant sounds from it
 	end
 
 	local conn
@@ -110,6 +111,9 @@ local function animate(char: Model)
 				if track.IsPlaying then
 					track:Stop(0.2)
 				end
+			end
+			if state then
+				char:SetAttribute("SwordState", nil)
 			end
 			state, busy = nil, nil
 			return

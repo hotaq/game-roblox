@@ -16,6 +16,12 @@ local Sounds: { [string]: Sound } = {
 	LevelUp = { Id = "112485797063762", Volume = 0.6, Cooldown = 0.5, Source = "UI - Level Up (SodaBreadle)" },
 	Reroll = { Id = "72264591133889", Volume = 0.5, Pitch = { 1.3, 1.3 }, Cooldown = 0.1, Source = "ui-pop-sound-316482, pitched up" },
 	GameOver = { Id = "129285831966291", Volume = 0.6, Cooldown = 1, Source = "Arcade retro game over (agurkpaprika)" },
+	-- The held sword (GAME-37): plant / pull / drag follow PlayerSword's SwordState; hit and wave follow the slash
+	SwordPlant = { Id = "93066057522848", Volume = 0.6, Pitch = { 0.95, 1.05 }, Cooldown = 0.5, Source = "em0020_se_sword_stab_ground (kaaabbbooomm)" },
+	SwordPull = { Id = "123481357235946", Volume = 0.5, Pitch = { 0.95, 1.05 }, Cooldown = 0.3, Source = "Classic Sword Unsheathe (Vic_Yza)" },
+	SwordDrag = { Id = "136913781328946", Volume = 0.18, Cooldown = 0, Source = "metal_box_scrape_rough_loop1 (Mariolighyer), looped while running" },
+	SwordHit = { Id = "135448977656112", Volume = 0.45, Pitch = { 0.9, 1.1 }, Cooldown = 0.06, Source = "p-skill-hit-iori (xzphp)" },
+	SwordWave = { Id = "99957106744883", Volume = 0.35, Pitch = { 0.95, 1.05 }, Cooldown = 0.4, Source = "Flame Slam (Ground) (Timbulat99), Lv4+ shockwave" },
 }
 
 return Sounds

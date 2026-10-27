@@ -42,19 +42,52 @@ local function swordLevel(): number
 	return tonumber(string.match(me:GetAttribute("RunLoadout") or "", "sword=(%d+)")) or 1
 end
 
+local lastSlash = 0
 Shared:WaitForChild("HordeFx").OnClientEvent:Connect(function(kind: string, ...)
 	local args = { ... }
 	if kind == "slash" and args[1] == me then
+		lastSlash = os.clock()
 		play("Slash", 0.95 + swordLevel() * 0.04) -- a little brighter with each sword level
+		if swordLevel() >= 4 then
+			play("SwordWave") -- the shockwave ring (GoblinHordeClient SLASH_TIERS `wave`)
+		end
 	elseif kind == "fire" and args[7] == me then
 		play("Fireball")
 	end
 end)
 
--- HordeHits only reaches the player who landed them.
+-- HordeHits only reaches the player who landed them. Hits carry no weapon: the ones right after our slash are the
+-- sword's (as in GoblinHordeClient's impact), and get the heavier hit.
 Shared:WaitForChild("HordeHits").OnClientEvent:Connect(function()
-	play("Hit")
+	play(if os.clock() - lastSlash < 0.35 then "SwordHit" else "Hit")
 end)
+
+-- The held sword (PlayerSword sets the character's SwordState): pulled out of the ground when a run starts from idle,
+-- scraping along while running, slammed in when it plants (the slam lands ~0.35 s into SwordPlant).
+local drag = templates.SwordDrag
+drag.Looped = true
+local function watchSword(character: Model)
+	drag:Stop() -- a respawn mid-run
+	local last: string? = nil
+	character:GetAttributeChangedSignal("SwordState"):Connect(function()
+		local state = character:GetAttribute("SwordState")
+		if state == "run" and last == "idle" then
+			play("SwordPull")
+		elseif state == "idle" and last == "hold" then
+			task.delay(0.35, play, "SwordPlant")
+		end
+		if state == "run" then
+			drag:Play()
+		else
+			drag:Stop()
+		end
+		last = state
+	end)
+end
+me.CharacterAdded:Connect(watchSword)
+if me.Character then
+	watchSword(me.Character)
+end
 
 Shared:WaitForChild("HordeDied").OnClientEvent:Connect(function()
 	play("GoblinPop")
