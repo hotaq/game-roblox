@@ -446,6 +446,7 @@ local function objectiveMarker(state)
 	local gui=Instance.new("BillboardGui");gui.Size=UDim2.fromOffset(280,70);gui.StudsOffset=Vector3.new(0,4,0);gui.AlwaysOnTop=true;gui.Parent=p
 	local label=Instance.new("TextLabel");label.Size=UDim2.fromScale(1,1);label.BackgroundTransparency=1
 	label.TextColor3=Color3.new(1,1,1);label.TextStrokeTransparency=0;label.Font=Enum.Font.GothamBold;label.TextSize=17;label.Parent=gui
+	label.Text=("OPTIONAL: HOLD 0.0 / %ds\nTEAM UPGRADE  |  %ds left"):format(c.Hold,c.Window)
 	p.Parent=Workspace;state.marker,state.label=p,label
 end
 local function objectiveTick(dt,paused)
@@ -1832,6 +1833,7 @@ if objectiveTestArgs then
 			end,"participants")
 			Workspace:SetAttribute("Arena","Map1");override=0
 			local center=assert(arena());local zone=center+Vector3.new(0,4,94)
+			report.map1Instances=#Workspace.Map1:GetDescendants()
 			local players=Players:GetPlayers();local a,b=players[1],players[2]
 			local function prepare(p,position)
 				if runs[p]then endRun(p)end
@@ -1908,6 +1910,7 @@ if objectiveTestArgs then
 			if b then rb,rootB=prepare(b,zone+Vector3.new(30,0,0))end
 			objectiveTick(30,false)
 			if b then
+				check(#bridge:InvokeClient(b,"report").errors==0,"peer has no captured Goblin errors before departure")
 				bridge:InvokeClient(b,"leave");waitFor(function()return b.Parent~=Players end,"peer departure")
 				objectiveTick(0,true);check(objectiveState.roster[b]==nil,"actual disconnect removes eligibility during pause")
 			end
