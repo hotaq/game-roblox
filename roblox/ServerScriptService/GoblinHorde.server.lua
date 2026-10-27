@@ -814,7 +814,13 @@ if benchmarkArgs then
 			untilTrue(function() for _,p in list do if not runs[p] then return false end end return true end, 15, "runs did not start")
 			-- A fixed enemy count isolates horde simulation/render/network cost from upgrades and DPS.
 			-- These changes affect this disposable test session only, never saved Config.
-			for _,p in list do runs[p].wOrder={} end
+			for _,p in list do
+				local run=runs[p]
+				run.weapons,run.wOrder={},{}
+				run.cards,run.pausedAt,run.pending=nil,nil,0
+			end
+			table.clear(gems)
+			table.clear(shots)
 			for repeatIndex=1,2 do
 				for _,population in {100,500,1000} do
 					benchmarkSample=nil
@@ -831,6 +837,7 @@ if benchmarkArgs then
 					end)
 					task.wait(report.warmupSeconds)
 					assert(count==population,"population failed to stabilize")
+					for _,run in runs do assert(not run.cards,"unexpected upgrade pause") end
 					clientsCommand(list,"begin")
 					local sample={step={},send={},heartbeat={},memory={},instances={},count={},bytes=0}
 					benchmarkSample=sample
