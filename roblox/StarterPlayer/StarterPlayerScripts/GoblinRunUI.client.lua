@@ -143,20 +143,21 @@ local function roundTwoIcon(parent,key)
 end
 local function setArt(a, key: string?)
 	a.key = key
-	if a.roundTwo and a.roundTwoKey~=key then a.roundTwo:Destroy();a.roundTwo=nil end
-	if roundTwoIcons[key]and not a.roundTwo then a.roundTwo=roundTwoIcon(a.image.Parent,key);a.roundTwoKey=key end
-	if key == "axe" and not a.axe then a.axe = axeIcon(a.image.Parent) end
-	if a.axe then a.axe.Visible = key == "axe" end
-	if key=="rocks" and not a.rocks then a.rocks=rocksIcon(a.image.Parent) end
-	if a.rocks then a.rocks.Visible=key=="rocks" end
 	local cell = key and ICONS.Cells[key]
 	if cell then
 		a.image.ImageRectOffset = Vector2.new(cell[1], cell[2])
 	end
 	local showArt = iconsReady and cell ~= nil
+	local stand = if showArt then nil else key -- the hand-drawn stand-ins only show until the sheet loads
+	if a.roundTwo and a.roundTwoKey~=stand then a.roundTwo:Destroy();a.roundTwo=nil end
+	if roundTwoIcons[stand]and not a.roundTwo then a.roundTwo=roundTwoIcon(a.image.Parent,stand);a.roundTwoKey=stand end
+	if stand == "axe" and not a.axe then a.axe = axeIcon(a.image.Parent) end
+	if a.axe then a.axe.Visible = stand == "axe" end
+	if stand=="rocks" and not a.rocks then a.rocks=rocksIcon(a.image.Parent) end
+	if a.rocks then a.rocks.Visible=stand=="rocks" end
 	a.image.Visible = showArt
 	for _, f in a.fallback do
-		f.Visible = not showArt and key ~= "axe" and key ~= "rocks" and not roundTwoIcons[key]
+		f.Visible = not showArt and stand ~= "axe" and stand ~= "rocks" and not roundTwoIcons[stand]
 	end
 	if a.tile then
 		a.tile.BackgroundTransparency = if showArt then 1 else 0
@@ -284,7 +285,7 @@ local function fillSlots(slots, items: string, defs)
 			s.glyph.Text = defs[it.id].Icon
 			s.level.Text = if defs==W and tonumber(it.lv)==6 then "EVO"else s.prefix .. it.lv
 			s.level.TextColor3=if defs==W and tonumber(it.lv)==6 then GOLD else WHITE
-			setArt(s.art, it.id)
+			setArt(s.art, if defs==W and tonumber(it.lv)==6 then "evo_"..it.id else it.id)
 		end
 	end
 end
@@ -394,7 +395,7 @@ local function showCards(cards, rerolls: number, level: number, offerId)
 		local s = stroke(3, rarity.Color)
 		local glyph = new("TextLabel", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, FontFace = FONT, Text = def.Icon, TextSize = 30, TextColor3 = INK })
 		local iconTile = new("Frame", { AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 30), Size = UDim2.fromOffset(64, 64), BackgroundColor3 = def.Color }, { corner(8), stroke(3), glyph })
-		setArt(art(iconTile, { glyph }, iconTile), if c.kind == "heal" then "heart" else c.id)
+		setArt(art(iconTile, { glyph }, iconTile), if c.kind == "heal" then "heart" elseif c.kind == "evolve" then "evo_"..c.id else c.id)
 		local b = new("TextButton", { Size = UDim2.fromOffset(196, 226), Position = UDim2.fromOffset(0, 8), BackgroundColor3 = SHADE, BackgroundTransparency = 0.15, Text = "", AutoButtonColor = false }, {
 			corner(8),
 			s,

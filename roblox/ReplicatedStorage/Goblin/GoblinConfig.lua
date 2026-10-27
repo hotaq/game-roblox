@@ -256,23 +256,37 @@ function Config.canEvolve(run, id)
 		and (run.passives[def.Passive] or 0)>0 and not (run.evolved and run.evolved[id])
 end
 
--- Pixel icons for the run UI: one sprite sheet from scripts/13_icons.py (textures/ui/icons.png), 128 px cells.
--- Re-upload and replace Image if the PNG changes; Cells come from the script's printout.
+-- Icons for the run UI: one 768x512 sprite sheet, 128 px cells, drawn in the Figma file's "Icons" page and rendered
+-- by scripts/21_icon_sheet.js (textures/ui/icons_v2.png). Evolved weapons use "evo_<weapon id>".
+-- Re-upload and replace Image if the PNG changes; Cells come from the script's cells.txt.
 Config.Icons = {
-	Image = "rbxassetid://120198065824163",
+	Image = "rbxassetid://76185045904132",
 	Cell = 128,
 	Cells = {
 		sword = { 0, 0 },
 		fire = { 128, 0 },
 		ring = { 256, 0 },
-		skull = { 384, 0 },
+		axe = { 384, 0 },
+		rocks = { 512, 0 },
+		totem = { 640, 0 },
 		might = { 0, 128 },
 		area = { 128, 128 },
 		haste = { 256, 128 },
 		magnet = { 384, 128 },
-		force = { 0, 256 },
-		gem = { 128, 256 },
-		heart = { 256, 256 },
+		force = { 512, 128 },
+		duration = { 640, 128 },
+		projectile = { 0, 256 },
+		speed = { 128, 256 },
+		luck = { 256, 256 },
+		skull = { 384, 256 },
+		gem = { 512, 256 },
+		heart = { 640, 256 },
+		evo_sword = { 0, 384 },
+		evo_fire = { 128, 384 },
+		evo_ring = { 256, 384 },
+		evo_axe = { 384, 384 },
+		evo_rocks = { 512, 384 },
+		evo_totem = { 640, 384 },
 	},
 }
 
