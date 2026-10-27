@@ -20,20 +20,20 @@ local swords = ReplicatedStorage:WaitForChild("Swords")
 local me = Players.LocalPlayer
 local scraping = {} -- held sword -> { tip = blade length from the grip, emitter, attachment }
 
--- Sparks where a dragged tip scrapes the ground: streaks thrown back and up, falling, hot white to red
+-- Sparks where a dragged tip scrapes the ground: streaks thrown back and up, falling, hot orange to red.
+-- The streak is BeamTexture40 from the VFX Studio plugin library (a long diamond), flying lengthwise.
 local SPARKS = Instance.new("ParticleEmitter")
-SPARKS.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+SPARKS.Texture = "rbxassetid://5320460025"
 SPARKS.Orientation = Enum.ParticleOrientation.VelocityParallel
 SPARKS.Color = ColorSequence.new({
-	ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 240, 190)),
-	ColorSequenceKeypoint.new(0.4, Color3.fromRGB(255, 130, 40)),
-	ColorSequenceKeypoint.new(1, Color3.fromRGB(200, 30, 20)),
+	ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 200, 110)),
+	ColorSequenceKeypoint.new(0.35, Color3.fromRGB(255, 110, 30)),
+	ColorSequenceKeypoint.new(1, Color3.fromRGB(190, 25, 15)),
 })
-SPARKS.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.45), NumberSequenceKeypoint.new(1, 0.05) })
-SPARKS.Squash = NumberSequence.new(2) -- thin streaks along their flight
+SPARKS.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.4), NumberSequenceKeypoint.new(1, 0.04) })
 SPARKS.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(0.7, 0.2), NumberSequenceKeypoint.new(1, 1) })
-SPARKS.LightEmission, SPARKS.LightInfluence, SPARKS.Brightness = 1, 0, 3
-SPARKS.Lifetime, SPARKS.Speed = NumberRange.new(0.15, 0.4), NumberRange.new(9, 17)
+SPARKS.LightEmission, SPARKS.LightInfluence, SPARKS.Brightness = 0.8, 0, 2 -- brighter washes the streaks into a white blob
+SPARKS.Lifetime, SPARKS.Speed = NumberRange.new(0.2, 0.45), NumberRange.new(9, 17)
 SPARKS.SpreadAngle, SPARKS.Acceleration, SPARKS.Drag = Vector2.new(35, 35), Vector3.new(0, -50, 0), 3
 SPARKS.ZOffset = 0.5
 SPARKS.Enabled = false
