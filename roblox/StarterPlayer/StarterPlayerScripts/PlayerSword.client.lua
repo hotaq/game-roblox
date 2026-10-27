@@ -18,25 +18,6 @@ local HOLD_TIME = 5 -- seconds standing still with the sword trailing (SwordHold
 
 local swords = ReplicatedStorage:WaitForChild("Swords")
 local me = Players.LocalPlayer
-local scraping = {} -- held sword -> { tip = blade length from the grip, emitter, attachment }
-
--- Sparks where a dragged tip scrapes the ground: streaks thrown back and up, falling, hot orange to red.
--- The streak is BeamTexture40 from the VFX Studio plugin library (a long diamond), flying lengthwise.
-local SPARKS = Instance.new("ParticleEmitter")
-SPARKS.Texture = "rbxassetid://5320460025"
-SPARKS.Orientation = Enum.ParticleOrientation.VelocityParallel
-SPARKS.Color = ColorSequence.new({
-	ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 200, 110)),
-	ColorSequenceKeypoint.new(0.35, Color3.fromRGB(255, 110, 30)),
-	ColorSequenceKeypoint.new(1, Color3.fromRGB(190, 25, 15)),
-})
-SPARKS.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.4), NumberSequenceKeypoint.new(1, 0.04) })
-SPARKS.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(0.7, 0.2), NumberSequenceKeypoint.new(1, 1) })
-SPARKS.LightEmission, SPARKS.LightInfluence, SPARKS.Brightness = 0.8, 0, 2 -- brighter washes the streaks into a white blob
-SPARKS.Lifetime, SPARKS.Speed = NumberRange.new(0.2, 0.45), NumberRange.new(9, 17)
-SPARKS.SpreadAngle, SPARKS.Acceleration, SPARKS.Drag = Vector2.new(35, 35), Vector3.new(0, -50, 0), 3
-SPARKS.ZOffset = 0.5
-SPARKS.Enabled = false
 
 local function swordLevel(player: Player): number?
 	return tonumber(string.match(player:GetAttribute("RunLoadout") or "", "sword=(%d+)"))
@@ -61,51 +42,13 @@ local function hold(player: Player)
 		return
 	end
 	held = swords[name]:Clone()
-	-- blade length: in ReplicatedStorage.Swords the grip sits unrotated and the blade runs up +Y
-	local tip = 0
-	for _, part in held:GetDescendants() do
-		if part:IsA("BasePart") then
-			tip = math.max(tip, part.Position.Y - held.PrimaryPart.Position.Y + part.Size.Y / 2)
-		end
-	end
 	held.Name = "HeldSword"
 	held:SetAttribute("Model", name)
 	local weld = Instance.new("Weld")
 	weld.Part0, weld.Part1, weld.C0 = hand, held.PrimaryPart, HAND_GRIP
 	weld.Parent = held.PrimaryPart
 	held.Parent = char
-	local attachment = Instance.new("Attachment") -- in Terrain so it can face away from the run, not along the blade
-	attachment.Parent = workspace.Terrain
-	local emitter = SPARKS:Clone()
-	emitter.Rate = 40 + 15 * math.clamp(level, 1, 5)
-	emitter.Parent = attachment
-	scraping[held] = { tip = tip, emitter = emitter, attachment = attachment }
 end
-
-RunService.Heartbeat:Connect(function()
-	for held, fx in scraping do
-		local char = held.Parent
-		local hum = char and char:FindFirstChildOfClass("Humanoid")
-		local root = char and char:FindFirstChild("HumanoidRootPart")
-		if not (hum and root) then
-			fx.attachment:Destroy()
-			scraping[held] = nil
-			continue
-		end
-		local tip = held.PrimaryPart.CFrame:PointToWorldSpace(Vector3.new(0, fx.tip, 0))
-		local ground = root.Position.Y - hum.HipHeight - root.Size.Y / 2
-		local velocity = root.AssemblyLinearVelocity * Vector3.new(1, 0, 1)
-		-- dragging: moving with the tip at the ground. Planted it is 2 studs under, raised well above; avatars smaller
-		-- than the default R15 sink a dragged tip up to half a stud, hence the lopsided window.
-		local depth = tip.Y - ground
-		local on = velocity.Magnitude > 4 and depth > -1 and depth < 0.6
-		fx.emitter.Enabled = on
-		if on then
-			local back = -velocity.Unit
-			fx.attachment.WorldCFrame = CFrame.fromMatrix(Vector3.new(tip.X, ground + 0.05, tip.Z), back:Cross(Vector3.yAxis), (back + Vector3.yAxis * 0.8).Unit)
-		end
-	end
-end)
 
 local function clip(name: string): Animation?
 	local id = ANIMS[name]
