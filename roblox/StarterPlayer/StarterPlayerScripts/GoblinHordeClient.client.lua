@@ -40,6 +40,11 @@ local function acquire()
 	local e = table.remove(pool)
 	if not e then
 		local m = template:Clone()
+		for _, part in m:GetDescendants() do -- client-only: the player must never stand on or bump into one
+			if part:IsA("BasePart") then
+				part.CanCollide, part.CanTouch = false, false
+			end
+		end
 		m.Parent = folder
 		local animator = m:FindFirstChildOfClass("AnimationController"):FindFirstChildOfClass("Animator")
 		e = { root = m:FindFirstChild("HumanoidRootPart"), run = animator:LoadAnimation(RUN), death = animator:LoadAnimation(DEATH), swing = animator:LoadAnimation(SWING), flinch = animator:LoadAnimation(FLINCH) }

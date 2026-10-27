@@ -29,7 +29,7 @@ local model = Instance.new("Model")
 model.Name = "HordeModel"
 local hrp = source.HumanoidRootPart:Clone()
 hrp:ClearAllChildren()
-hrp.Anchored, hrp.Transparency = true, 1
+hrp.Anchored, hrp.Transparency, hrp.CanCollide, hrp.CanTouch = true, 1, false, false
 hrp.Parent = model
 model.PrimaryPart = hrp
 mesh.Name = "LowerTorso"
