@@ -260,7 +260,7 @@ end
 -- by scripts/21_icon_sheet.js (textures/ui/icons_v2.png). Evolved weapons use "evo_<weapon id>".
 -- Re-upload and replace Image if the PNG changes; Cells come from the script's cells.txt.
 Config.Icons = {
-	Image = "rbxassetid://76185045904132",
+	Image = "rbxassetid://101038375378802", -- owner's Creator Dashboard upload (decal 114200795236040)
 	Cell = 128,
 	Cells = {
 		sword = { 0, 0 },
