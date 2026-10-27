@@ -1,6 +1,7 @@
 # 16_swords.py: the held Wooden Sword at levels 1-5 ("phases" on the owner's concept sheet, GAME-35), low-poly and
-# flat shaded: faceted dark blade (diamond cross-section, barbs from phase 2), purple grip and guard, gold horns and
-# pommel, amber / cyan / pink gems, neon lines on the blade at phase 4 (cyan) and 5 (cyan fork + pink).
+# flat shaded. Shapes follow the concept: faceted diamond-section blade with barbs from phase 2, banded grip, guard with
+# horns and wings, diamond pommel, inlay with three gems from phase 3, neon line at phase 4, forked line at phase 5.
+# Colours are the owner's black-and-red pick: nearly all black at phase 1, the red rising level by level (palette()).
 # Run headless:
 #   /Applications/Blender.app/Contents/MacOS/Blender -b --factory-startup --python goblin/scripts/16_swords.py
 # Built in studs, Z up; the grip is centred on the origin, the blade points +Z, flat faces toward +/-Y. One mesh object
@@ -17,16 +18,29 @@ from mathutils import Matrix, Vector
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)) if "__file__" in dir() else "/Users/chinnaphat/Desktop/cedt/roblox/goblin/scripts")
 import voxel_kit  # noqa: E402
 
-COLORS = {  # sRGB 0-255, the same values go to MeshPart.Color in Studio
-    "Steel": (58, 60, 76),
-    "Silver": (196, 200, 212),
-    "Gold": (214, 168, 72),
-    "Purple": (92, 64, 140),
-    "PurpleDark": (60, 42, 96),
-    "Amber": (255, 196, 40),
-    "CyanGlow": (80, 230, 255),
-    "PinkGlow": (255, 80, 230),
-}
+def palette(n):
+    """Black sword, red rising with the level (sRGB 0-255; the same values go to MeshPart.Color in Studio).
+    Phase 1 is nearly all black with a red eye; the horns, bands, wings and inlay redden step by step; *Glow parts
+    are Neon in Studio and get hotter at phase 5."""
+    t = (n - 1) / 4
+
+    def mix(a, b):
+        return tuple(round(x + (y - x) * t) for x, y in zip(a, b))
+
+    return {
+        "Blade": mix((26, 24, 30), (30, 18, 22)),
+        "Grip": (30, 28, 34),
+        "Band": mix((58, 20, 24), (170, 22, 32)),
+        "Guard": (38, 34, 42),
+        "Trim": mix((52, 48, 56), (120, 24, 32)),
+        "Horn": mix((56, 50, 60), (215, 32, 42)),
+        "Wing": mix((60, 20, 26), (150, 22, 32)),
+        "Inlay": mix((90, 22, 28), (160, 28, 36)),
+        "Eye": mix((220, 30, 40), (255, 60, 50)),
+        "Glow": mix((200, 24, 34), (255, 40, 40)),
+        "GlowHot": (255, 120, 70),
+    }
+
 # What changes per phase: blade length / half-width, barbs per edge, horn length, purple wing layers, blade gems,
 # neon line style.
 PHASES = [
@@ -110,7 +124,7 @@ def blade(kit, ph, z0):
             zb = z0 + 0.45 + i * step
             prof += [(zb - 0.001, hw), (zb, hw + bw), (zb + bh, hw)]
     prof += [(z0 + body, hw), (z0 + length, 0.0)]
-    bm = kit.bm("Steel")
+    bm = kit.bm("Blade")
     rings = []
     for z, w in prof:
         t = RIDGE * (min(w, hw) / hw if w < hw else 1.0)
@@ -133,35 +147,35 @@ def build(n):
     ph = PHASES[n - 1]
     kit = Kit()
     # Grip: octagonal purple core, dark bands, collar; pommel: gold diamond with a cyan gem
-    kit.cone("Purple", 0.13, 0.13, 1.1, Vector((0, 0, -0.55)), segs=8)
+    kit.cone("Grip", 0.13, 0.13, 1.1, Vector((0, 0, -0.55)), segs=8)
     for z in (-0.35, 0.0, 0.35):
-        kit.cone("PurpleDark", 0.155, 0.155, 0.08, Vector((0, 0, z - 0.04)), segs=8)
-    kit.cone("PurpleDark", 0.17, 0.14, 0.14, Vector((0, 0, -0.69)), segs=8)
-    kit.cone("Gold", 0.2, 0.0, 0.22, Vector((0, 0, -0.84)), scale=(1, 0.55, 1))  # pommel, upper half
-    kit.cone("Gold", 0.2, 0.0, 0.22, Vector((0, 0, -0.84)), rot=Matrix.Rotation(math.pi, 4, "X"), scale=(1, 0.55, 1))
-    kit.gem("CyanGlow", 0.1, Vector((0, 0, -0.84)), depth_scale=1.4)
+        kit.cone("Band", 0.155, 0.155, 0.08, Vector((0, 0, z - 0.04)), segs=8)
+    kit.cone("Band", 0.17, 0.14, 0.14, Vector((0, 0, -0.69)), segs=8)
+    kit.cone("Trim", 0.2, 0.0, 0.22, Vector((0, 0, -0.84)), scale=(1, 0.55, 1))  # pommel, upper half
+    kit.cone("Trim", 0.2, 0.0, 0.22, Vector((0, 0, -0.84)), rot=Matrix.Rotation(math.pi, 4, "X"), scale=(1, 0.55, 1))
+    kit.gem("Glow", 0.1, Vector((0, 0, -0.84)), depth_scale=1.4)
     # Guard: purple block, gold collar, amber centre gem in a gold rim, gold horns, purple wings and down-spikes
     gw = 0.7 + 0.08 * n
-    kit.cube("Gold", (0.5, 0.3, 0.1), Vector((0, 0, 0.6)), bevel=0.02)
-    kit.cube("Purple", (gw, 0.3, 0.3), Vector((0, 0, 0.8)), bevel=0.05)
-    kit.cone("Gold", 0.2, 0.2, 0.32, Vector((0, -0.16, 0.8)), rot=Matrix.Rotation(-math.pi / 2, 4, "X"), segs=8)
-    kit.gem("Amber", 0.15, Vector((0, 0, 0.8)), depth_scale=1.9)
+    kit.cube("Trim", (0.5, 0.3, 0.1), Vector((0, 0, 0.6)), bevel=0.02)
+    kit.cube("Guard", (gw, 0.3, 0.3), Vector((0, 0, 0.8)), bevel=0.05)
+    kit.cone("Trim", 0.2, 0.2, 0.32, Vector((0, -0.16, 0.8)), rot=Matrix.Rotation(-math.pi / 2, 4, "X"), segs=8)
+    kit.gem("Eye", 0.15, Vector((0, 0, 0.8)), depth_scale=1.9)
     for out in (-1, 1):
-        kit.cone("Gold", 0.15, 0.0, ph["horn"], Vector((out * gw * 0.42, 0, 0.9)), rot=lean(out, 28), scale=(1, 0.55, 1))
+        kit.cone("Horn", 0.15, 0.0, ph["horn"], Vector((out * gw * 0.42, 0, 0.9)), rot=lean(out, 28), scale=(1, 0.55, 1))
         for w in range(1, ph["wings"] + 1):
-            kit.cone("Purple", 0.12, 0.0, ph["horn"] * (0.85 - 0.12 * w), Vector((out * (gw * 0.47 + 0.04 * w), 0, 0.93 - 0.06 * w)),
+            kit.cone("Wing", 0.12, 0.0, ph["horn"] * (0.85 - 0.12 * w), Vector((out * (gw * 0.47 + 0.04 * w), 0, 0.93 - 0.06 * w)),
                      rot=lean(out, 44 + 16 * w), scale=(1, 0.5, 1))
         if n >= 3:
-            kit.cone("PurpleDark", 0.07, 0.0, 0.32, Vector((out * gw * 0.22, 0, 0.68)), rot=lean(out, 150), scale=(1, 0.6, 1))
+            kit.cone("Wing", 0.07, 0.0, 0.32, Vector((out * gw * 0.22, 0, 0.68)), rot=lean(out, 150), scale=(1, 0.6, 1))
         if ph["side_gems"]:
-            kit.gem("CyanGlow", 0.085, Vector((out * gw * 0.36, 0, 0.8)), depth_scale=2.3)
+            kit.gem("Glow", 0.085, Vector((out * gw * 0.36, 0, 0.8)), depth_scale=2.3)
     # Blade, the silver insert with cyan / pink / cyan gems, neon lines
     z0 = 0.95
     body = blade(kit, ph, z0)
     if ph["gems"]:
         for side in (-1, 1):  # silver inlay on each face: a triangle tapering up from the guard
-            kit.plate("Silver", [(-ph["hw"] * 0.7, z0), (ph["hw"] * 0.7, z0), (0, z0 + 1.05)], side * (RIDGE + 0.004))
-        for i, c in enumerate(("CyanGlow", "PinkGlow", "CyanGlow")):
+            kit.plate("Inlay", [(-ph["hw"] * 0.7, z0), (ph["hw"] * 0.7, z0), (0, z0 + 1.05)], side * (RIDGE + 0.004))
+        for i, c in enumerate(("Glow", "GlowHot", "Glow")):
             kit.gem(c, 0.085 - 0.01 * i, Vector((0, 0, z0 + 0.2 + 0.27 * i)), depth_scale=2.1)
     lo, hi = z0 + 1.05, z0 + body - 0.12
 
@@ -171,13 +185,13 @@ def build(n):
 
     if ph["line"] == "cyan":
         mid = lo + (hi - lo) * 0.5
-        line("CyanGlow", 0, lo, mid - 0.06)
-        line("CyanGlow", 0, mid + 0.06, hi)
+        line("Glow", 0, lo, mid - 0.06)
+        line("Glow", 0, mid + 0.06, hi)
     elif ph["line"] == "fork":
         mid = lo + (hi - lo) * 0.5
-        line("CyanGlow", -0.07, lo, mid)
-        line("CyanGlow", 0.07, lo, mid)
-        line("PinkGlow", 0, mid + 0.08, hi)
+        line("Glow", -0.07, lo, mid)
+        line("Glow", 0.07, lo, mid)
+        line("GlowHot", 0, mid + 0.08, hi)
     # Objects, one per colour
     root = bpy.data.objects.new(f"Sword_Phase{n}", None)
     bpy.context.collection.objects.link(root)
@@ -190,7 +204,7 @@ def build(n):
         for p in me.polygons:
             p.use_smooth = False
         ob = bpy.data.objects.new(me.name, me)
-        ob.data.materials.append(voxel_kit.material(colour, COLORS[colour]))
+        ob.data.materials.append(voxel_kit.material(f"Sword{n}_{colour}", palette(n)[colour]))
         bpy.context.collection.objects.link(ob)
         ob.parent = root
         objs.append(ob)
