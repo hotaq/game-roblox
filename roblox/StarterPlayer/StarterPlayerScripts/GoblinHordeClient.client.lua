@@ -832,6 +832,9 @@ end)
 local RING = Config.Weapons.ring
 local TEX = Config.Textures
 local rings = {} -- Player or showcase key -> ring fx
+local CIRCLE_LIFE = 6 -- seconds per ground-circle particle
+local ringRay = RaycastParams.new()
+ringRay.FilterType = Enum.RaycastFilterType.Exclude
 local function seq(a: number, b: number?): NumberSequence
 	return NumberSequence.new(a, b or a)
 end
@@ -849,7 +852,7 @@ local function flames(host: BasePart, rim: number, size: number, speed: NumberRa
 	return emitter(host, {
 		Texture = TEX.RingFlame, FlipbookLayout = Enum.ParticleFlipbookLayout.Grid2x2, FlipbookMode = Enum.ParticleFlipbookMode.OneShot,
 		Shape = Enum.ParticleEmitterShape.Disc, ShapePartial = rim, EmissionDirection = Enum.NormalId.Top,
-		Speed = speed, Lifetime = life, Size = seq(size, size * 0.3), Color = color,
+		Speed = speed, Lifetime = life, Size = seq(size, size * 0.3), Color = color, LightEmission = 0.75, -- 1 turned red fire yellow on grass
 		Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.15), NumberSequenceKeypoint.new(0.7, 0.4), NumberSequenceKeypoint.new(1, 1) }),
 	})
 end
@@ -871,16 +874,18 @@ local function ringFx(tier: number)
 			Lifetime = NumberRange.new(0.8, 1.5), Size = seq(0.35, 0), Color = fire,
 		})
 	end
-	if tier >= 3 then -- one flat particle that lives for ages and turns; LockedToPart keeps it under the player
+	if tier >= 3 then -- a flat turning particle, re-emitted by placeRing; LockedToPart keeps it under the player
 		local center = Instance.new("Attachment")
 		center.Parent = fx.host
+		fx.spin = if evo then -35 else 20
 		fx.circle = emitter(center, {
 			Texture = TEX.RingCircle, Orientation = Enum.ParticleOrientation.VelocityPerpendicular,
-			EmissionDirection = Enum.NormalId.Top, Speed = NumberRange.new(0.01), Lifetime = NumberRange.new(10000),
-			LockedToPart = true, RotSpeed = NumberRange.new(if evo then -35 else 20), Color = ColorSequence.new(hot),
-			Transparency = seq(0.3),
+			EmissionDirection = Enum.NormalId.Top, Speed = NumberRange.new(0.01), Lifetime = NumberRange.new(CIRCLE_LIFE),
+			LockedToPart = true, RotSpeed = NumberRange.new(fx.spin), Color = ColorSequence.new(hot), LightEmission = 0.5,
+			Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.08, 0.3),
+				NumberSequenceKeypoint.new(0.92, 0.3), NumberSequenceKeypoint.new(1, 1) }),
 		})
-		fx.circle:Emit(1)
+		fx.nextCircle = 0
 	end
 	if tier >= 4 then
 		fx.pulse = flames(fx.host, 0.08, 3.2, NumberRange.new(5, 8), NumberRange.new(0.3, 0.45), fire)
@@ -939,7 +944,8 @@ local function ringLevel(player: Player): (number?, number?)
 	local lv = tonumber(string.match(player:GetAttribute("RunLoadout") or "", "ring=(%d)"))
 	return lv, lv and Config.weaponStats("ring", lv).Radius * (1 + (player:GetAttribute("RunArea") or 0))
 end
--- placeRing(key, pos, r, tier): keeps key's ring at pos (ground level) with radius r; no pos or r removes it.
+-- placeRing(key, pos, r, tier): keeps key's ring on the ground at pos (the feet, not a fixed height: Map1's grass and
+-- plaza tiles stand above y = 0 and used to swallow the disc and circle) with radius r; no pos or r removes it.
 local function placeRing(key, pos: Vector3?, r: number?, tier: number?)
 	local fx = rings[key]
 	if fx and not (pos and r and fx.tier == tier) then
@@ -956,12 +962,19 @@ local function placeRing(key, pos: Vector3?, r: number?, tier: number?)
 	if fx.r ~= r then
 		sizeRing(fx, r)
 	end
-	fx.disc.CFrame = CFrame.new(pos.X, 0.1, pos.Z) * CFrame.Angles(0, 0, math.rad(90))
-	fx.host.CFrame = CFrame.new(pos.X, 0.2, pos.Z)
+	fx.disc.CFrame = CFrame.new(pos.X, pos.Y + 0.1, pos.Z) * CFrame.Angles(0, 0, math.rad(90))
+	fx.host.CFrame = CFrame.new(pos.X, pos.Y + 0.3, pos.Z)
 	if fx.inner then
 		fx.inner.CFrame = fx.host.CFrame
 	end
 	local now = os.clock()
+	if fx.circle and now >= fx.nextCircle then
+		-- A fresh copy every few seconds, started at the angle the old one has reached, so the hand-over doesn't jump.
+		-- (A single forever-particle could get dropped by the engine and never come back.)
+		fx.nextCircle = now + CIRCLE_LIFE * 0.92
+		fx.circle.Rotation = NumberRange.new((now * fx.spin) % 360)
+		fx.circle:Emit(1)
+	end
 	if fx.pulse and now >= fx.nextPulse then
 		fx.nextPulse = now + fx.interval
 		fx.pulse:Emit(math.round(r * 2))
@@ -1028,14 +1041,20 @@ RunService.RenderStepped:Connect(function(dt)
 	for _, player in Players:GetPlayers() do
 		local root = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
 		local lv, r = ringLevel(player)
-		placeRing(player, root and root.Position, r, lv)
+		local ground
+		if root and r then -- the ground under the player, so the ring stays down while they jump
+			ringRay.FilterDescendantsInstances = { folder, player.Character, Workspace:FindFirstChild("Horde") }
+			local hit = Workspace:Raycast(root.Position, Vector3.new(0, -12, 0), ringRay)
+			ground = if hit then hit.Position else root.Position - Vector3.new(0, 3, 0)
+		end
+		placeRing(player, ground, r, lv)
 	end
 	local myRoot = Players.LocalPlayer.Character and Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
 	local showZone = Workspace:FindFirstChild("SwordFXZone")
 	for n, r in RING_SHOW do
 		local s = showZone and showZone:FindFirstChild("Ring" .. n)
 		local near = s and myRoot and (myRoot.Position - s.Position).Magnitude < 150
-		placeRing("show" .. n, if near then s.Position else nil, r, n)
+		placeRing("show" .. n, if near then s.Position - Vector3.new(0, s.Size.Y / 2 - 0.05, 0) else nil, r, n) -- floor top under the station
 	end
 
 	local a = 1 - math.exp(-dt * SMOOTH)
