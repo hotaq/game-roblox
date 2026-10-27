@@ -9,8 +9,8 @@
 -- No physics, no pathfinding: the arena (workspace.StressZone for now) is open and flat at y = 0. Humanoid goblins
 -- (GoblinAI) stay for elites.
 -- Runs: entering the arena starts one (PlayPad by the spawn teleports there). Weapons (Config.Weapons) fire on
--- their own and hit the same goblin arrays; each kill drops an XP gem; level-ups pause only the choosing player
--- (protected, rooted, weapons and clock stopped) while everyone else keeps playing. They pick 1 of 3 cards (GoblinRunUI); dying ends the run with a results screen. Player attributes carry the HUD state.
+-- their own and hit the same goblin arrays; each kill drops an XP gem; level-ups pause the horde while the player
+-- picks 1 of 3 cards (GoblinRunUI); dying ends the run with a results screen. Player attributes carry the HUD state.
 -- Studio test: GoblinStressHUD's H buttons override the horde size (Goblin.Horde remote).
 local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
@@ -54,7 +54,6 @@ local restart, toLobby = remote("RunRestart"), remote("RunLobby")
 -- Goblins live in stable slots (parallel arrays): a slot keeps its number for life, so snapshots needn't carry ids.
 -- Freed slots are reused first, which keeps `top` (the highest live slot, i.e. the snapshot length) near the count.
 local alive, px, pz, hp = {}, {}, {}, {}
-local swingTarget = {} -- Humanoid locked when the wind-up starts; never redirect a telegraphed hit
 local swingAt, nextSwing = {}, {} -- wind-up start (nil = not swinging) and earliest next swing, per slot
 local kvx, kvz, stunUntil, slowUntil = {}, {}, {}, {} -- knockback velocity (fades), stun and slow end times, per slot
 local swings = {} -- slots that started a swing this step (sent at once, not with the 10 Hz snapshot)
@@ -67,7 +66,7 @@ local runs = {} -- Player -> run state
 
 -- `run` = the run whose weapon killed it (counts the kill, drops a gem); nil = despawned quietly.
 local function kill(i: number, run)
-	alive[i], swingAt[i], swingTarget[i], nextSwing[i] = false, nil, nil, nil
+	alive[i], swingAt[i] = false, nil
 	count -= 1
 	table.insert(free, i)
 	if run then
@@ -126,7 +125,6 @@ local function publish(run)
 		table.insert(p, id .. "=" .. run.passives[id])
 	end
 	pl:SetAttribute("RunStart", run.start)
-	pl:SetAttribute("RunPausedAt", run.pausedAt)
 	pl:SetAttribute("RunLevel", run.level)
 	pl:SetAttribute("RunXP", run.xp)
 	pl:SetAttribute("RunXPNext", run.next)
@@ -182,47 +180,8 @@ local function makeCards(run)
 	return cards
 end
 
--- Pausing is authoritative: freeze movement, block damage (including other Humanoid enemies), and stop only this run.
-local function pauseRun(run)
-	if run.pausedAt then
-		return
-	end
-	run.pausedAt = Workspace:GetServerTimeNow()
-	local root = run.hum.Parent and run.hum.Parent:FindFirstChild("HumanoidRootPart")
-	if root then
-		run.pauseRoot, run.wasAnchored = root, root.Anchored
-		root.Anchored = true
-	end
-	local shield = Instance.new("ForceField")
-	shield.Name, shield.Visible = "RunUpgradeShield", false
-	shield.Parent = run.hum.Parent
-	run.pauseShield = shield
-end
-
-local function resumeRun(run)
-	if not run.pausedAt then
-		return
-	end
-	local now = Workspace:GetServerTimeNow()
-	run.start += now - run.pausedAt
-	run.pausedAt = nil
-	run.resumeUntil = now + H.ResumeGrace
-	if run.pauseRoot and run.pauseRoot.Parent then
-		run.pauseRoot.Anchored = run.wasAnchored
-	end
-	run.pauseRoot = nil
-	if run.pauseShield then
-		run.pauseShield:Destroy()
-		run.pauseShield = nil
-	end
-end
-
-local function elapsed(run, now: number): number
-	return math.max(0, (run.pausedAt or now) - run.start)
-end
-
 local function offer(run)
-	pauseRun(run)
+	run.pausedAt = run.pausedAt or Workspace:GetServerTimeNow() -- the run clock stops while picking
 	run.cards = makeCards(run)
 	levelUp:FireClient(run.player, run.cards, run.rerolls, run.level)
 end
@@ -232,7 +191,7 @@ local function gainXP(run, n: number)
 	while run.xp >= run.next do
 		run.xp -= run.next
 		run.level += 1
-		run.next = math.round(run.next * R.XPGrowth + R.XPIncrement)
+		run.next = math.round(run.next * R.XPGrowth + 1)
 		run.pending += 1
 	end
 	if run.pending > 0 and not run.cards then
@@ -246,23 +205,18 @@ local function endRun(player: Player)
 	if not run then
 		return
 	end
-	local duration = elapsed(run, Workspace:GetServerTimeNow())
-	resumeRun(run)
 	runs[player] = nil
-	if run.deathConnection then
-		run.deathConnection:Disconnect()
-	end
 	local damage = {}
 	for _, id in run.wOrder do
 		table.insert(damage, { id = id, level = run.weapons[id], amount = math.round(run.damage[id] or 0) })
 	end
 	runOver:FireClient(player, {
-		time = duration,
+		time = Workspace:GetServerTimeNow() - run.start,
 		kills = run.kills,
 		level = run.level,
 		damage = damage,
 	})
-	for _, a in { "RunStart", "RunPausedAt", "RunLevel", "RunXP", "RunXPNext", "RunKills", "RunGems", "RunLoadout", "RunArea" } do
+	for _, a in { "RunStart", "RunLevel", "RunXP", "RunXPNext", "RunKills", "RunGems", "RunLoadout", "RunArea" } do
 		player:SetAttribute(a, nil)
 	end
 end
@@ -290,10 +244,8 @@ local function startRun(player: Player, hum: Humanoid)
 	}
 	runs[player] = run
 	publish(run)
-	run.deathConnection = hum.Died:Once(function()
-		if runs[player] == run then
-			endRun(player)
-		end
+	hum.Died:Once(function()
+		endRun(player)
 	end)
 end
 
@@ -322,7 +274,8 @@ pickCard.OnServerEvent:Connect(function(player, index)
 	if run.pending > 0 then
 		offer(run)
 	else
-		resumeRun(run)
+		run.start += Workspace:GetServerTimeNow() - run.pausedAt
+		run.pausedAt = nil
 	end
 	publish(run)
 end)
@@ -353,14 +306,7 @@ toLobby.OnServerEvent:Connect(function(player)
 end)
 
 Players.PlayerRemoving:Connect(function(player)
-	local run = runs[player]
-	if run then
-		resumeRun(run)
-		if run.deathConnection then
-			run.deathConnection:Disconnect()
-		end
-		runs[player] = nil
-	end
+	runs[player] = nil
 end)
 
 -- A glowing pad beside the spawn that sends you into the arena.
@@ -411,7 +357,7 @@ local function hit(i: number, dmg: number, run, weapon: string, fromX: number, f
 	local now = Workspace:GetServerTimeNow()
 	slowUntil[i] = now + H.SlowTime
 	if stuns then
-		stunUntil[i], swingAt[i], swingTarget[i] = now + H.Stun, nil, nil
+		stunUntil[i], swingAt[i] = now + H.Stun, nil
 	end
 	local before = hp[i]
 	hp[i] -= dmg
@@ -501,7 +447,7 @@ local function fireWeapons(run, root: BasePart, dt: number)
 				local a = math.atan2(pz[i] - pos.Z, px[i] - pos.X) + (k - 1 >= #aims and (k % 2 * 2 - 1) * 0.25 or 0)
 				local dx, dz = math.cos(a), math.sin(a)
 				table.insert(shots, { x = pos.X, z = pos.Z, dx = dx, dz = dz, speed = s.Speed, t = range / s.Speed, pierce = s.Pierce, dmg = s.Damage * might, knock = s.Knock, stuns = s.Stun ~= false, run = run, hit = {} })
-				fx:FireAllClients("fire", pos.X, pos.Z, dx, dz, s.Speed, range, run.player)
+				fx:FireAllClients("fire", pos.X, pos.Z, dx, dz, s.Speed, range)
 			end
 		end
 	end
@@ -510,13 +456,6 @@ end
 local function moveShots(dt: number)
 	for k = #shots, 1, -1 do
 		local s = shots[k]
-		if runs[s.run.player] ~= s.run then
-			table.remove(shots, k)
-			continue
-		end
-		if s.run.cards then
-			continue
-		end
 		s.x += s.dx * s.speed * dt
 		s.z += s.dz * s.speed * dt
 		s.t -= dt
@@ -558,10 +497,14 @@ local function step(dt: number)
 			if inside and not runs[pl] then
 				startRun(pl, h)
 			end
-			local run = runs[pl]
-			if not (run and run.cards) and (inside or override) then
-				table.insert(targets, { root = r, hum = h, run = run, inside = inside })
-			end
+			table.insert(targets, { root = r, hum = h, run = runs[pl], inside = inside })
+		end
+	end
+
+	-- Survivors-style pause: nothing moves or hurts while someone is picking a card.
+	for _, run in runs do
+		if run.cards then
+			return
 		end
 	end
 
@@ -597,20 +540,15 @@ local function step(dt: number)
 		end
 		-- Swing: start one when close, land it after the wind-up if the player didn't step away. Swinging = standing.
 		local swinging = swingAt[i] ~= nil
-		if swinging and (not bt or swingTarget[i] ~= bt.hum) then
-			-- The target paused, left, or another player became nearer: cancel; a new target gets a full wind-up.
-			swingAt[i], swingTarget[i], swinging = nil, nil, false
-		end
-		local protected = bt and bt.run and now < (bt.run.resumeUntil or 0)
 		local stunned = now < stunUntil[i]
 		if swinging and now - swingAt[i] >= H.AttackWindup then
-			swingAt[i], swingTarget[i], nextSwing[i], swinging = nil, nil, now + H.AttackCooldown, false
-			if bt and not protected and best < reach2 and now - (lastHit[bt.hum] or 0) > H.IFrames then
+			swingAt[i], nextSwing[i], swinging = nil, now + H.AttackCooldown, false
+			if bt and best < reach2 and now - (lastHit[bt.hum] or 0) > H.IFrames then
 				lastHit[bt.hum] = now
 				bt.hum:TakeDamage(H.ContactDamage)
 			end
-		elseif not swinging and not stunned and bt and not protected and best < contact2 and now >= (nextSwing[i] or 0) then
-			swingAt[i], swingTarget[i], swinging = now, bt.hum, true
+		elseif not swinging and not stunned and bt and best < contact2 and now >= (nextSwing[i] or 0) then
+			swingAt[i], swinging = now, true
 			table.insert(swings, i)
 		end
 		local vx, vz = 0, 0
@@ -658,14 +596,14 @@ local function step(dt: number)
 
 	-- Weapons, fireballs, gem pickup.
 	for _, t in targets do
-		if t.run and not t.run.cards then
+		if t.run then
 			fireWeapons(t.run, t.root, dt)
 		end
 	end
 	moveShots(dt)
 	for g, gem in gems do
 		for _, t in targets do
-			if t.run and not t.run.cards then
+			if t.run then
 				local p = t.root.Position
 				local reach = R.PickupRange * (1 + t.run.bonus.magnet)
 				if (gem.x - p.X) ^ 2 + (gem.z - p.Z) ^ 2 < reach * reach then
@@ -684,12 +622,12 @@ local function step(dt: number)
 	-- Horde size and toughness grow with the longest run; spawn on a ring around a player in the arena.
 	local longest = nil
 	for _, run in runs do
-		longest = math.max(longest or 0, elapsed(run, now))
+		longest = math.max(longest or 0, now - run.start)
 	end
 	local target = override or (longest and math.min(R.MaxAlive, math.floor(R.StartAlive + R.AlivePerMinute * longest / 60))) or 0
 	local spawnAt = {}
 	for _, t in targets do
-		if t.inside and not (t.run and t.run.cards) then
+		if t.inside then
 			table.insert(spawnAt, t.root.Position)
 		end
 	end
@@ -701,7 +639,6 @@ local function step(dt: number)
 			local i = table.remove(free) or top + 1
 			top, count = math.max(top, i), count + 1
 			alive[i], hp[i] = true, health
-			swingAt[i], swingTarget[i], nextSwing[i] = nil, nil, nil
 			kvx[i], kvz[i], stunUntil[i], slowUntil[i] = 0, 0, 0, 0
 			px[i] = math.clamp(t.X + math.cos(a) * r, center.X - half, center.X + half)
 			pz[i] = math.clamp(t.Z + math.sin(a) * r, center.Z - half, center.Z + half)

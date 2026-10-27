@@ -1,10 +1,10 @@
--- BuildFlatGround.lua: run in the Command Bar (Edit mode). Safe to re-run: it rebuilds workspace.FlatGround.
+-- BuildFlatGround.luau: run in the Command Bar (Edit mode). Safe to re-run: it rebuilds workspace.FlatGround.
 -- Goblin war camp in the chunky voxel "soft" style of goblin/scripts/11_lookdev_camp.py (STYLE=soft; same layout
 -- and tints; check changes there first): 4-stud grass tiles, a trampled-mud clearing ringed by a banded-stake
 -- palisade with rails and bone tips, a skull gate with tattered banners, mossy stepped boulders, a campfire, and
 -- soft bright daylight. The ground stays flat (every tile top at y = 0, where the goblin stands).
 -- Pixel textures (goblin/textures/voxel_soft, made by PALETTE=soft 10_voxel_textures.py) go on MaterialService.Camp_* variants.
--- If an image is unavailable the builder falls back to built-in materials
+-- Until Roblox has approved the images they fail to load; then the builder falls back to built-in materials
 -- tinted to each texture's average color. Re-run once they load to switch to the pixel look.
 -- Undo: delete workspace.FlatGround (the Baseplate is only lowered under the tiles).
 local Lighting = game:GetService("Lighting")
@@ -20,23 +20,17 @@ local TEX = { -- image, base material (physics + fallback look), fallback color 
 	bone = { "rbxassetid://96301841810258", Enum.Material.Limestone, Color3.fromRGB(227, 216, 191) },
 	cloth = { "rbxassetid://121513515493422", Enum.Material.Fabric, Color3.fromRGB(195, 67, 56) },
 }
-local probes, loaded = {}, 0
+local ids, loaded = {}, 0
 for name, t in TEX do
 	local v = MaterialService:FindFirstChild("Camp_" .. name) or Instance.new("MaterialVariant")
 	v.Name, v.BaseMaterial, v.ColorMap, v.StudsPerTile = "Camp_" .. name, t[2], t[1], 4
 	v.Parent = MaterialService
-	-- An ImageLabel requests texture content; a bare asset-id can falsely report Failure.
-	local probe = Instance.new("ImageLabel")
-	probe.Image = t[1]
-	table.insert(probes, probe)
+	table.insert(ids, t[1])
 end
-game:GetService("ContentProvider"):PreloadAsync(probes, function(_, st)
+game:GetService("ContentProvider"):PreloadAsync(ids, function(_, st)
 	loaded += if st == Enum.AssetFetchStatus.Success then 1 else 0
 end)
-local TEXTURED = loaded == #probes
-for _, probe in probes do
-	probe:Destroy()
-end
+local TEXTURED = loaded == #ids
 
 local BLACK, IRON = Color3.fromRGB(30, 24, 22), Color3.fromRGB(54, 52, 52)
 local TUFT = { Color3.fromRGB(70, 128, 54), Color3.fromRGB(70, 128, 54), Color3.fromRGB(110, 164, 70) }
@@ -307,4 +301,4 @@ for _, d in root:GetDescendants() do
 		n += 1
 	end
 end
-return ("FlatGround: %d parts, %s (%d/%d textures loaded)"):format(n, if TEXTURED then "pixel textures" else "fallback materials", loaded, #probes)
+return ("FlatGround: %d parts, %s (%d/%d textures loaded)"):format(n, if TEXTURED then "pixel textures" else "fallback materials", loaded, #ids)

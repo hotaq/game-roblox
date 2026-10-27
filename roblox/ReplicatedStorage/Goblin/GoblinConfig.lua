@@ -102,17 +102,13 @@ Config.Horde = {
 	AttackWindup = 0.55, -- ... and the hit lands this much later (Attack1's HitStart + the client's position lag) ...
 	AttackReach = 4.2, -- ... only if the player is still this close: stepping away dodges it
 	AttackCooldown = 1.2, -- per goblin, between swings
-	ContactDamage = 5,
-	ResumeGrace = 0.75, -- time to move after choosing the last upgrade
-	IFrames = 0.65, -- per player, after a hit
+	ContactDamage = 6,
+	IFrames = 0.5, -- per player, after a hit
 	Slow = 0.5, -- a hit goblin walks at this fraction of its speed ...
 	SlowTime = 0.7, -- ... for this long
 	Stun = 0.2, -- and can't walk or swing this long first (a wind-up in progress is cancelled)
 	Knockback = 14, -- only with the Force passive: push speed (studs/s) x the weapon's Knock x Force ...
 	KnockbackDecay = 8, -- ... fading this fast (1/s): at Force 1.0, 14 / 8 = ~1.75 studs of slide
-	DeathHold = 0.2, -- cheap frozen-pose cleanup; no Death animation track per horde model
-	MaxDying = 32, -- extra corpse models are recycled immediately during kill bursts
-	MaxPooledModels = 64, -- bound idle models after a peak wave
 	MaxHealth = 30, -- at the start of a run; see Run.HealthPerMinute
 	SpawnRing = { 45, 70 }, -- spawn this far from a player (off screen)
 	SimRate = 30, -- movement steps per second
@@ -121,15 +117,14 @@ Config.Horde = {
 
 -- A run (GoblinHorde): starts when a player enters the arena, ends when they die.
 Config.Run = {
-	StartAlive = 20, -- horde size at 0:00 ...
-	AlivePerMinute = 30, -- ... growing this much per minute of the longest running run
+	StartAlive = 25, -- horde size at 0:00 ...
+	AlivePerMinute = 45, -- ... growing this much per minute of the longest running run
 	MaxAlive = 700,
-	HealthPerMinute = 0.25, -- goblin HP +25% per minute
+	HealthPerMinute = 0.4, -- goblin HP +40% per minute
 	GemXP = 1,
 	PickupRange = 5, -- studs; the Magnet passive multiplies it
-	XPFirst = 12, -- XP for level 2; later costs = previous * XPGrowth + XPIncrement
+	XPFirst = 5, -- XP for level 2; each next level needs XPGrowth times more (+1)
 	XPGrowth = 1.22,
-	XPIncrement = 12, -- slows early upgrade chains without steepening late-game exponential growth
 	Rerolls = 2, -- per run
 	WeaponSlots = 4,
 	PassiveSlots = 4,

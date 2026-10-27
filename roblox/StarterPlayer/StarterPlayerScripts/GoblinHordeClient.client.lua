@@ -1,8 +1,8 @@
 -- GoblinHordeClient (LocalScript, StarterPlayer.StarterPlayerScripts)
 -- Draws the GoblinHorde goblins: each snapshot gives {x, z} per slot; every frame the pooled client-only models ease
 -- toward their latest position and face the nearest player (also while knocked back); all roots move in one
--- BulkMoveTo. Each model runs its own Run loop and plays Attack1 when the server says it swings. A death stops its
--- tracks, briefly holds the pose off-slot, then recycles it; corpse count and idle pool size are bounded.
+-- BulkMoveTo. Each model runs its own Run loop and plays Attack1 when the server says it swings; a death plays the
+-- Death clip in place (off the slot, which the server may refill at once), then the model goes back to the pool.
 -- The model is Goblin.HordeModel, the single-mesh goblin (BuildHordeModel.luau); without it, the 17-part
 -- Goblin.HordeSource is used as-is.
 -- Also draws the run's effects: XP gems where goblins die (fly to whoever picks them up), floating damage numbers for
@@ -16,6 +16,7 @@ local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Goblin")
 local Config = require(Shared:WaitForChild("GoblinConfig"))
+local AnimData = require(Shared:WaitForChild("GoblinAnimData"))
 local template = Shared:FindFirstChild("HordeModel") or Shared:WaitForChild("HordeSource")
 local HIP_Y = template:GetPivot().Position.Y
 local HIDDEN = CFrame.new(0, -1000, 0)
@@ -31,10 +32,9 @@ local function animation(name: string): Animation
 	a.AnimationId = Config.Animations[name]
 	return a
 end
-local RUN, SWING, FLINCH = animation("Run"), animation("Attack1"), animation("HitFront")
+local RUN, DEATH, SWING, FLINCH = animation("Run"), animation("Death"), animation("Attack1"), animation("HitFront")
 
 local pool, live = {}, {} -- live: slot -> entry
-local dying = {} -- at most Config.Horde.MaxDying entries; one render-loop sweep, no delayed task per kill
 
 local function acquire()
 	local e = table.remove(pool)
@@ -42,10 +42,10 @@ local function acquire()
 		local m = template:Clone()
 		m.Parent = folder
 		local animator = m:FindFirstChildOfClass("AnimationController"):FindFirstChildOfClass("Animator")
-		e = { root = m:FindFirstChild("HumanoidRootPart"), run = animator:LoadAnimation(RUN), swing = animator:LoadAnimation(SWING), flinch = animator:LoadAnimation(FLINCH) }
+		e = { root = m:FindFirstChild("HumanoidRootPart"), run = animator:LoadAnimation(RUN), death = animator:LoadAnimation(DEATH), swing = animator:LoadAnimation(SWING), flinch = animator:LoadAnimation(FLINCH) }
 		e.run.Looped = true
 		e.run.Priority = Enum.AnimationPriority.Movement
-		e.swing.Priority, e.flinch.Priority = Enum.AnimationPriority.Action, Enum.AnimationPriority.Action2
+		e.death.Priority, e.swing.Priority, e.flinch.Priority = Enum.AnimationPriority.Action, Enum.AnimationPriority.Action, Enum.AnimationPriority.Action2
 	end
 	e.run:Play(0)
 	e.run:AdjustSpeed(Config.Horde.Speed / Config.AI.RunSpeed) -- the Run clip is paced for RunSpeed
@@ -54,14 +54,11 @@ end
 
 local function recycle(e)
 	e.run:Stop(0)
+	e.death:Stop(0)
 	e.swing:Stop(0)
 	e.flinch:Stop(0)
 	e.root.CFrame = HIDDEN
-	if #pool < Config.Horde.MaxPooledModels then
-		table.insert(pool, e)
-	else
-		e.root.Parent:Destroy()
-	end
+	table.insert(pool, e)
 end
 
 local function free(slot: number)
@@ -78,7 +75,7 @@ Shared:WaitForChild("HordeSnap").OnClientEvent:Connect(function(b: buffer)
 	table.clear(roots)
 	for _, pl in Players:GetPlayers() do
 		local r = pl.Character and pl.Character:FindFirstChild("HumanoidRootPart")
-		if r and not pl:GetAttribute("RunPausedAt") then
+		if r then
 			table.insert(roots, r.Position)
 		end
 	end
@@ -137,6 +134,7 @@ local function dropGem(g: number, x: number, z: number)
 	gems[g] = p
 end
 
+local deathLength = AnimData.Death.length
 Shared:WaitForChild("HordeDied").OnClientEvent:Connect(function(b: buffer)
 	local firstGem = buffer.readu16(b, 0)
 	for o = 2, buffer.len(b) - 2, 2 do
@@ -145,15 +143,10 @@ Shared:WaitForChild("HordeDied").OnClientEvent:Connect(function(b: buffer)
 		if e then
 			dropGem((firstGem + o / 2 - 1) % 65536, e.x, e.z)
 			live[slot] = nil -- stays where it fell: only live models get moved
-			e.run:Stop(0)
-			e.swing:Stop(0)
-			e.flinch:Stop(0)
-			if #dying < Config.Horde.MaxDying then
-				e.recycleAt = os.clock() + Config.Horde.DeathHold
-				table.insert(dying, e)
-			else
-				recycle(e)
-			end
+			e.run:Stop(0.1)
+			e.swing:Stop(0.1)
+			e.death:Play(0.1)
+			task.delay(deathLength, recycle, e)
 		end
 	end
 end)
@@ -385,11 +378,11 @@ Shared:WaitForChild("HordeFx").OnClientEvent:Connect(function(kind: string, ...)
 			slash(root, range, aim + math.pi + half * side, aim + math.pi - half * side, tier)
 		end
 	elseif kind == "fire" then
-		local x, z, dx, dz, speed, range, owner = ...
+		local x, z, dx, dz, speed, range = ...
 		local p = pooled(ballPool, function()
 			return fxPart(Vector3.one * 1.3, Color3.fromRGB(255, 140, 50), Enum.PartType.Ball)
 		end)
-		table.insert(balls, { part = p, x = x, z = z, dx = dx, dz = dz, speed = speed, left = range, owner = owner })
+		table.insert(balls, { part = p, x = x, z = z, dx = dx, dz = dz, speed = speed, left = range })
 	end
 end)
 
@@ -403,25 +396,8 @@ end
 
 local parts, cframes = {}, {}
 RunService.RenderStepped:Connect(function(dt)
-	local now = os.clock()
-	for k = #dying, 1, -1 do
-		local e = dying[k]
-		if now >= e.recycleAt then
-			table.remove(dying, k)
-			recycle(e)
-		end
-	end
 	for k = #balls, 1, -1 do
 		local b = balls[k]
-		if b.owner and (not b.owner.Parent or not b.owner:GetAttribute("RunLevel")) then
-			b.part.CFrame = HIDDEN
-			table.insert(ballPool, b.part)
-			table.remove(balls, k)
-			continue
-		end
-		if b.owner and b.owner:GetAttribute("RunPausedAt") then
-			continue
-		end
 		local step = b.speed * dt
 		b.x += b.dx * step
 		b.z += b.dz * step

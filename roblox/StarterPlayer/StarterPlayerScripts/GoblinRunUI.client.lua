@@ -8,7 +8,7 @@
 --            stray tap can't pick); Reroll.
 --   Results  from Goblin.RunOver: time, kills, level, damage share per weapon; Play Again (back to the arena) or Lobby.
 -- Card text comes from GoblinConfig, so the server only sends {kind, id, level, rarity}.
--- Icons are pixel art from one sprite sheet (Config.Icons). While the sheet is loading, every
+-- Icons are pixel art from one sprite sheet (Config.Icons). Until Roblox approves that upload it won't load, so every
 -- icon keeps a glyph-on-colour fallback underneath and swaps to the art as soon as the sheet loads.
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -108,24 +108,15 @@ local function art(parent: GuiObject, fallback, tile: Frame?)
 	table.insert(arts, a)
 	return a
 end
-task.spawn(function()
-	-- Preload an ImageLabel so Roblox requests the image texture content type.
-	-- A bare asset-id string can report Failure even when this same image is available.
-	local probe = Instance.new("ImageLabel")
-	probe.Image = ICONS.Image
+task.spawn(function() -- poll until the sheet is approved and loads, then swap every icon to its art
 	while not iconsReady do
-		local ok = pcall(function()
-			game:GetService("ContentProvider"):PreloadAsync({ probe }, function(_, status)
-				if status == Enum.AssetFetchStatus.Success then
-					iconsReady = true
-				end
-			end)
+		game:GetService("ContentProvider"):PreloadAsync({ ICONS.Image }, function(_, status)
+			iconsReady = status == Enum.AssetFetchStatus.Success
 		end)
-		if not ok or not iconsReady then
+		if not iconsReady then
 			task.wait(20)
 		end
 	end
-	probe:Destroy()
 	for _, a in arts do
 		if a.image.Parent then
 			setArt(a, a.key)
@@ -253,8 +244,8 @@ player.AttributeChanged:Connect(refreshHUD)
 local levelUp: Frame -- the level-up overlay, built below
 RunService.Heartbeat:Connect(function()
 	local start = player:GetAttribute("RunStart")
-	if start then -- authoritative per-player pause timestamp keeps the displayed clock steady
-		timeLabel.Text = clock(math.max(0, (player:GetAttribute("RunPausedAt") or Workspace:GetServerTimeNow()) - start))
+	if start and not levelUp.Visible then -- the server stops the run clock while a card is being picked
+		timeLabel.Text = clock(Workspace:GetServerTimeNow() - start)
 	end
 	local char = player.Character
 	local hum = char and char:FindFirstChildOfClass("Humanoid")
