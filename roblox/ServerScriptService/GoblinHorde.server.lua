@@ -1702,6 +1702,7 @@ if networkTestArgs then
 			networkManual=true;networkMode="nearby";clearWorld();table.clear(views)
 			Shared:SetAttribute("GAME24Progress","lifecycle")
 			place(a,-120);place(b,120);target(1,-120,0);target(2,120,0);deliver()
+			waitFor(function() return snapshot(a).count==1 and snapshot(b).count==1 end,"initial client snapshots")
 			report.initial={a=snapshot(a),b=snapshot(b),aPosition=tostring(a.Character.HumanoidRootPart.Position),bPosition=tostring(b.Character.HumanoidRootPart.Position),top=top,count=count,center=tostring(center)}
 			check(snapshot(a).count==1 and snapshot(b).count==1,"two separated clients receive their own nearby enemy")
 			-- Radius edges and teleport, including repeated visibility changes without pool growth.
@@ -1763,7 +1764,12 @@ if networkTestArgs then
 				waitFor(function() return #Players:GetPlayers()==2 end,"replacement connection")
 				local joined
 				for _,p in Players:GetPlayers() do if p~=a then joined=p end end
-				prepare(joined,0);deliver();local state=snapshot(joined)
+				prepare(joined,0);deliver()
+				local state
+				waitFor(function()
+					state=snapshot(joined)
+					return state.slots["1"] and state.gems[tostring(persistentGem)]
+				end,"fresh connection snapshot "..joinIndex)
 				check(state.slots["1"] and state.gems[tostring(persistentGem)],"fresh connection "..joinIndex.." gets existing enemy and gem")
 				check(#state.errors==0,"fresh connection error free")
 				if joinIndex==1 then
