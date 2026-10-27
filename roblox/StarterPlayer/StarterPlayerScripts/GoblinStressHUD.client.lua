@@ -35,6 +35,12 @@ if ReplicatedStorage.Goblin:GetAttribute("GAME12AxeActive") then
 		RunService.RenderStepped:Connect(countAxes)
 		bridge.OnClientInvoke=function(action)
 			if action=="pick" then ReplicatedStorage.Goblin.RunPick:FireServer(1);return true end
+			if action=="leave" then
+				local service=game:GetService("StudioTestService")
+				assert(service:CanLeaveTest(),"client cannot leave this test")
+				task.delay(.1,function() service:LeaveTest() end)
+				return true
+			end
 			local icons=0
 			local ui=player.PlayerGui:FindFirstChild("GoblinRunUI")
 			if ui then for _,d in ui:GetDescendants() do if d.Name=="AxeIcon" and d.Visible then

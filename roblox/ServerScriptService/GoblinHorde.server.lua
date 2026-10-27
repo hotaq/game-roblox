@@ -868,6 +868,13 @@ if axeTestArgs then
 	local bridge = Instance.new("RemoteFunction")
 	bridge.Name, bridge.Parent = "GAME12AxeTest", Shared
 	local ready, errors, checks = {}, {}, {}
+	local finished = false
+	local function finish(report)
+		if finished then return end
+		finished = true
+		STS:EndTest(report)
+	end
+	task.delay(180, function() finish({ok=false,error="axe acceptance deadline",checks=checks,errors=errors}) end)
 	bridge.OnServerInvoke = function(player) ready[player] = true; return true end
 	game:GetService("ScriptContext").Error:Connect(function(message, _, source)
 		if source and string.find(source.Name, "Goblin", 1, true) then table.insert(errors, message) end
@@ -881,9 +888,9 @@ if axeTestArgs then
 		error("fixture timeout")
 	end
 	task.spawn(function()
-		local report = { checks = checks, errors = errors, mode = "real solo client / deterministic server fixture" }
+		local report = { checks = checks, errors = errors, mode = "real clients / deterministic server fixture", clients = axeTestArgs.clients or 1 }
 		local ok, err = xpcall(function()
-			untilTrue(function() return #Players:GetPlayers() > 0 end, 30)
+			untilTrue(function() return #Players:GetPlayers() >= (axeTestArgs.clients or 1) end, 45)
 			local player = Players:GetPlayers()[1]
 			untilTrue(function() return ready[player] and player.Character and player.Character:FindFirstChild("HumanoidRootPart") end, 45)
 			Workspace:SetAttribute("Arena", "StressZone")
@@ -975,9 +982,69 @@ if axeTestArgs then
 			check(last.axes==0,"client visual cleaned up after run end")
 			check(#last.errors==0 and #errors==0,"no captured Goblin server/client errors")
 			report.client=last;report.firstClient=first
+			if (axeTestArgs.reviewSeconds or 0) > 0 then
+				Workspace:SetAttribute("Arena", if Workspace:FindFirstChild("Map1") then "Map1" else "StressZone")
+				center = assert(arena())
+				root.CFrame=CFrame.new(center+Vector3.new(0,4,20))
+				startRun(player,hum);run=runs[player]
+				run.weapons={axe=1};run.wOrder={"axe"};publish(run)
+				Shared:SetAttribute("GAME12ReviewPlayer",player.UserId)
+				Shared:SetAttribute("GAME12ReviewStage","motion")
+				local deadline=os.clock()+math.min(axeTestArgs.reviewSeconds,60)
+				while os.clock()<deadline do
+					target(8,20)
+					fireWeapons(run,root,1/30);pruneAxes();moveAxes(1/30)
+					task.wait(1/30)
+				end
+				Shared:SetAttribute("GAME12ReviewStage",nil)
+				endRun(player)
+				Workspace:SetAttribute("Arena","StressZone");center=assert(arena())
+			end
+			if (axeTestArgs.clients or 1) == 2 then
+				local other
+				for _,p in Players:GetPlayers() do if p~=player then other=p;break end end
+				untilTrue(function() return other and ready[other] and other.Character and other.Character:FindFirstChild("HumanoidRootPart") end,30)
+				local root2,hum2=other.Character.HumanoidRootPart,other.Character:FindFirstChildOfClass("Humanoid")
+				root2.Anchored=true
+				root.CFrame=CFrame.new(center+Vector3.new(-50,4,0))
+				root2.CFrame=CFrame.new(center+Vector3.new(50,4,0))
+				Instance.new("ForceField",other.Character).Visible=false
+				startRun(player,hum);startRun(other,hum2)
+				local run2=runs[other];run=runs[player]
+				for _,r in {run,run2} do
+					r.weapons={axe=1};r.wOrder={"axe"};r.cd.axe=0;publish(r)
+				end
+				target(-42,0)
+				alive[2],px[2],pz[2],hp[2]=true,center.X+58,center.Z,1000
+				generation[2]=(generation[2] or 0)+1
+				kvx[2],kvz[2],stunUntil[2],slowUntil[2]=0,0,0,0
+				top,count=2,2;grid[key(px[2]//CELL,pz[2]//CELL)]={2}
+				fireWeapons(run,root,0);fireWeapons(run2,root2,0)
+				moveAxes(.15);task.wait(.4)
+				local seen1,seen2=bridge:InvokeClient(player,"report"),bridge:InvokeClient(other,"report")
+				check(seen1.axes==2 and seen2.axes==2,"both real clients render both players' axes")
+				travel()
+				check(run.damage.axe==32 and run2.damage.axe==32 and hp[1]==968 and hp[2]==968,"two real players keep hit credit separate")
+				run.cd.axe=0;run2.cd.axe=0;fireWeapons(run,root,0);fireWeapons(run2,root2,0)
+				endRun(player);task.wait(.4)
+				check(#axes==1 and axes[1].run==run2 and bridge:InvokeClient(other,"report").axes==1,"ending one real run preserves the other axe on server and client")
+				clearRunAxes(other);startRun(player,hum);run=runs[player]
+				run.weapons={axe=1};run.wOrder={"axe"};publish(run)
+				run.cd.axe=0;run2.cd.axe=0;fireWeapons(run,root,0);fireWeapons(run2,root2,0)
+				bridge:InvokeClient(other,"leave")
+				untilTrue(function() return other.Parent~=Players end,10)
+				task.wait(.4)
+				check(#axes==1 and axes[1].run==run and runs[other]==nil and bridge:InvokeClient(player,"report").axes==1,"disconnect removes only departing player's axe on remaining client")
+				hum.Health=0
+				untilTrue(function() return runs[player]==nil end,5);task.wait(.4)
+				local final=bridge:InvokeClient(player,"report")
+				check(#axes==0 and final.axes==0,"death clears final player's server and client axes")
+				check(#seen1.errors==0 and #seen2.errors==0 and #final.errors==0 and #errors==0,"no captured two-client Goblin errors")
+				report.multiplayer={observers={seen1,seen2},remainingClient=final}
+			end
 		end,debug.traceback)
 		report.ok,report.error=ok,if ok then nil else tostring(err)
-		STS:EndTest(report)
+		finish(report)
 	end)
 end
 
