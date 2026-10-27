@@ -413,6 +413,7 @@ local function objectiveEligible(player,run)
 end
 local function objectiveReset()
 	if objectiveState and objectiveState.marker then objectiveState.marker:Destroy() end
+	if objectiveState and objectiveState.hud then for _,hud in objectiveState.hud do hud.gui:Destroy()end;table.clear(objectiveState.hud)end
 	objectiveState=nil
 	Shared:SetAttribute("ObjectiveTrialState",nil)
 end
@@ -432,7 +433,8 @@ local function objectiveFinish(state,phase)
 		end
 	end
 	state.awarded=#recipients;table.clear(state.roster)
-	if state.marker then state.marker:Destroy();state.marker=nil;state.label=nil end
+	if state.marker then state.marker:Destroy();state.marker=nil end
+	if state.hud then for _,hud in state.hud do hud.gui:Destroy()end;table.clear(state.hud)end
 	Shared:SetAttribute("ObjectiveTrialState",phase)
 	for _,run in recipients do if not run.cards then offer(run) end end
 end
@@ -443,11 +445,20 @@ local function objectiveMarker(state)
 	p.CFrame=CFrame.new(state.position)*CFrame.Angles(0,0,math.pi/2)
 	p.Anchored=true;p.CanCollide=false;p.CanTouch=false;p.CanQuery=false;p.CastShadow=false
 	p.Material=Enum.Material.Plastic;p.Color=Color3.fromRGB(210,168,70);p.Transparency=.5
-	local gui=Instance.new("BillboardGui");gui.Size=UDim2.fromOffset(280,70);gui.StudsOffset=Vector3.new(0,4,0);gui.AlwaysOnTop=true;gui.Adornee=p;gui.Parent=p
-	local label=Instance.new("TextLabel");label.Size=UDim2.fromScale(1,1);label.BackgroundTransparency=1
-	label.TextColor3=Color3.new(1,1,1);label.TextStrokeTransparency=0;label.Font=Enum.Font.GothamBold;label.TextSize=17;label.Parent=gui
-	label.Text=("OPTIONAL: HOLD 0.0 / %ds\nTEAM UPGRADE  |  %ds left"):format(c.Hold,c.Window)
-	p.Parent=Workspace;state.marker,state.label=p,label
+	p.Parent=Workspace;state.marker=p;state.hud={}
+	for player in state.roster do
+		-- Exact state tests use mock owners; live recipients receive an ordinary screen HUD.
+		local playerGui=typeof(player)=="Instance" and player:FindFirstChildOfClass("PlayerGui")
+		if playerGui then
+			local gui=Instance.new("ScreenGui");gui.Name="OptionalHoldTrialUI";gui.ResetOnSpawn=false;gui.IgnoreGuiInset=true;gui.DisplayOrder=2
+			local label=Instance.new("TextLabel");label.AnchorPoint=Vector2.new(.5,0);label.Position=UDim2.new(.5,0,0,120)
+			label.Size=UDim2.new(.8,0,0,54);label.BackgroundColor3=Color3.fromRGB(35,29,25);label.BackgroundTransparency=.15;label.BorderSizePixel=0
+			local limit=Instance.new("UISizeConstraint");limit.MaxSize=Vector2.new(380,54);limit.Parent=label
+			label.TextColor3=Color3.fromRGB(255,226,145);label.TextStrokeTransparency=0;label.Font=Enum.Font.Arcade;label.TextSize=14
+			label.Text=("OPTIONAL: HOLD 0.0 / %ds\nTEAM UPGRADE  |  %ds LEFT"):format(c.Hold,c.Window)
+			label.Parent=gui;gui.Parent=playerGui;state.hud[player]={gui=gui,label=label}
+		end
+	end
 end
 local function objectiveTick(dt,paused)
 	if not objectiveEnabled then if objectiveState then objectiveReset() end;return end
@@ -463,7 +474,10 @@ local function objectiveTick(dt,paused)
 	if state.arena~=Workspace:GetAttribute("Arena") then objectiveFinish(state,"cancelled");return end
 	if state.phase=="active" then
 		for player,run in state.roster do
-			if runs[player]~=run or player.Parent~=Players or run.hum.Health<=0 or player.Character~=run.hum.Parent then state.roster[player]=nil end
+			if runs[player]~=run or player.Parent~=Players or run.hum.Health<=0 or player.Character~=run.hum.Parent then
+				state.roster[player]=nil
+				local hud=state.hud and state.hud[player];if hud then hud.gui:Destroy();state.hud[player]=nil end
+			end
 		end
 		if next(state.roster)==nil then objectiveFinish(state,"cancelled");return end
 	end
@@ -495,8 +509,8 @@ local function objectiveTick(dt,paused)
 	state.progress=math.clamp(state.progress+(if holding then elapsed else -elapsed*c.Decay),0,c.Hold)
 	if state.progress>=c.Hold-1e-6 then objectiveFinish(state,"success")
 	elseif state.elapsed>=c.Window-1e-6 then objectiveFinish(state,"expired")
-	elseif state.label then
-		state.label.Text=("OPTIONAL: HOLD %.1f / %ds\nTEAM UPGRADE  |  %ds left"):format(state.progress,c.Hold,math.ceil(c.Window-state.elapsed))
+	else
+		for _,hud in state.hud do hud.label.Text=("OPTIONAL: HOLD %.1f / %ds\nTEAM UPGRADE  |  %ds LEFT"):format(state.progress,c.Hold,math.ceil(c.Window-state.elapsed))end
 		state.marker.Color=if holding then Color3.fromRGB(100,182,112) else Color3.fromRGB(210,168,70)
 	end
 end
@@ -1854,6 +1868,8 @@ if objectiveTestArgs then
 			objectiveEnabled=true;objectiveTick(30,false);objectiveTick(0,false)
 			waitFor(function()return bridge:InvokeClient(a,"report").markers==1 end,"marker replication")
 			check(bridge:InvokeClient(a,"report").markers==1,"real client receives optional marker")
+			waitFor(function()return bridge:InvokeClient(a,"report").objectiveUI==1 end,"objective HUD replication")
+			check(bridge:InvokeClient(a,"report").objectiveUI==1,"original participant receives one objective HUD")
 			if objectiveTestArgs.review then Shared:SetAttribute("GAME29Progress","visual-review");task.wait(60)end
 			rootA.Position=zone+Vector3.new(20,0,0);objectiveTick(35,false)
 			check(objectiveState.phase=="expired" and ra.pending==0 and runs[a]==ra,"ignore expires without ending run or taking reward")
@@ -1864,6 +1880,8 @@ if objectiveTestArgs then
 			rootA.Position=zone;objectiveTick(7,false)
 			waitFor(function()return bridge:InvokeClient(a,"report").offers>=1 end,"reward UI")
 			check(ra.objectiveRewards==1 and ra.pending==1 and ra.cards~=nil,"one server reward arrives through ordinary card UI")
+			waitFor(function()return bridge:InvokeClient(a,"report").objectiveUI==0 end,"terminal objective HUD cleanup")
+			check(bridge:InvokeClient(a,"report").objectiveUI==0,"completion removes objective HUD before card selection")
 			if b then
 				waitFor(function()return bridge:InvokeClient(b,"report").offers>=1 end,"team UI")
 				check(rb.objectiveRewards==1 and rb.pending==1,"distant eligible teammate gets one offer")

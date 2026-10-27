@@ -113,7 +113,8 @@ if ReplicatedStorage.Goblin:GetAttribute("GAME29Active") then
 				return true
 			end
 			local count=0;for _,v in workspace:GetChildren()do if v.Name=="OptionalHoldTrial"then count+=1 end end
-			return {offers=offers,markers=count,errors=table.clone(errors)}
+			local ui=0;for _,v in player.PlayerGui:GetChildren()do if v.Name=="OptionalHoldTrialUI"then ui+=1 end end
+			return {offers=offers,markers=count,objectiveUI=ui,errors=table.clone(errors)}
 		end
 		assert(player:WaitForChild("PlayerGui"):WaitForChild("GoblinRunUI",45),"objective UI ready")
 		bridge:InvokeServer("ready")
