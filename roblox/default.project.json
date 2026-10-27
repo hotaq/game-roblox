@@ -1,0 +1,36 @@
+{
+  "name": "GoblinHorde",
+  "tree": {
+    "$className": "DataModel",
+    "$ignoreUnknownInstances": true,
+    "ReplicatedStorage": {
+      "$className": "ReplicatedStorage",
+      "$ignoreUnknownInstances": true,
+      "Goblin": {
+        "$className": "Folder",
+        "$ignoreUnknownInstances": true,
+        "GoblinConfig": { "$path": "ReplicatedStorage/Goblin/GoblinConfig.lua" },
+        "GoblinAnimData": { "$path": "ReplicatedStorage/Goblin/GoblinAnimData.lua" },
+        "GoblinVFX": { "$path": "ReplicatedStorage/Goblin/GoblinVFX.lua" }
+      }
+    },
+    "ServerScriptService": {
+      "$className": "ServerScriptService",
+      "$ignoreUnknownInstances": true,
+      "GoblinHorde": { "$path": "ServerScriptService/GoblinHorde.server.lua" },
+      "GoblinAI": { "$path": "ServerScriptService/GoblinAI.server.lua" }
+    },
+    "StarterPlayer": {
+      "$className": "StarterPlayer",
+      "$ignoreUnknownInstances": true,
+      "StarterPlayerScripts": {
+        "$className": "StarterPlayerScripts",
+        "$ignoreUnknownInstances": true,
+        "GoblinHordeClient": { "$path": "StarterPlayer/StarterPlayerScripts/GoblinHordeClient.client.lua" },
+        "GoblinRunUI": { "$path": "StarterPlayer/StarterPlayerScripts/GoblinRunUI.client.lua" },
+        "GoblinVFXClient": { "$path": "StarterPlayer/StarterPlayerScripts/GoblinVFXClient.client.lua" },
+        "GoblinStressHUD": { "$path": "StarterPlayer/StarterPlayerScripts/GoblinStressHUD.client.lua" }
+      }
+    }
+  }
+}

@@ -1,0 +1,261 @@
+{
+  "fps": 30,
+  "animations": {
+    "Idle": {
+      "frames": 120,
+      "duration": 4.0,
+      "loop": true,
+      "priority": "Idle",
+      "events": {},
+      "displacement": null,
+      "notes": "Relaxed carry (reference pose), breathing, glances left/right, ear flicks."
+    },
+    "CombatIdle": {
+      "frames": 40,
+      "duration": 1.3333,
+      "loop": true,
+      "priority": "Idle",
+      "events": {},
+      "displacement": null,
+      "notes": "Bouncy guard between attacks; sword tip stays on the target."
+    },
+    "Alert": {
+      "frames": 30,
+      "duration": 1.0,
+      "loop": false,
+      "priority": "Action",
+      "events": {
+        "Alert": 0.1,
+        "Recover": 0.7333
+      },
+      "displacement": null,
+      "notes": "Ears snap up, snarl-crouch into guard."
+    },
+    "Attack1": {
+      "frames": 30,
+      "duration": 1.0,
+      "loop": false,
+      "priority": "Action",
+      "events": {
+        "Swing": 0.2667,
+        "HitStart": 0.3333,
+        "HitEnd": 0.4667,
+        "Recover": 0.6667
+      },
+      "displacement": null,
+      "notes": ""
+    },
+    "Attack2": {
+      "frames": 34,
+      "duration": 1.1333,
+      "loop": false,
+      "priority": "Action",
+      "events": {
+        "Swing": 0.3667,
+        "HitStart": 0.4333,
+        "HitEnd": 0.5667,
+        "Recover": 0.8
+      },
+      "displacement": null,
+      "notes": ""
+    },
+    "Attack3": {
+      "frames": 28,
+      "duration": 0.9333,
+      "loop": false,
+      "priority": "Action",
+      "events": {
+        "Swing": 0.2667,
+        "HitStart": 0.3,
+        "Footstep": 0.3333,
+        "HitEnd": 0.4333,
+        "Recover": 0.6
+      },
+      "displacement": null,
+      "notes": ""
+    },
+    "HeavyAttack": {
+      "frames": 60,
+      "duration": 2.0,
+      "loop": false,
+      "priority": "Action",
+      "events": {
+        "Telegraph": 0.1333,
+        "Swing": 1.0333,
+        "HitStart": 1.1,
+        "Impact": 1.1333,
+        "HitEnd": 1.2333,
+        "Recover": 1.5333
+      },
+      "displacement": null,
+      "notes": "Frames 12-29 tremble = 0.6 s telegraph window before the slam."
+    },
+    "LungeAttack": {
+      "frames": 40,
+      "duration": 1.3333,
+      "loop": false,
+      "priority": "Action",
+      "events": {
+        "LungeStart": 0.3333,
+        "Swing": 0.4,
+        "HitStart": 0.4333,
+        "Footstep": 0.6,
+        "HitEnd": 0.6667,
+        "Recover": 0.9333
+      },
+      "displacement": "Move HumanoidRootPart forward ~10 studs between LungeStart (0.33 s) and 0.6 s.",
+      "notes": ""
+    },
+    "HitFront": {
+      "frames": 20,
+      "duration": 0.6667,
+      "loop": false,
+      "priority": "Action",
+      "events": {
+        "Recover": 0.4333
+      },
+      "displacement": null,
+      "notes": ""
+    },
+    "HitLeft": {
+      "frames": 20,
+      "duration": 0.6667,
+      "loop": false,
+      "priority": "Action",
+      "events": {
+        "Recover": 0.4333
+      },
+      "displacement": null,
+      "notes": ""
+    },
+    "HitRight": {
+      "frames": 20,
+      "duration": 0.6667,
+      "loop": false,
+      "priority": "Action",
+      "events": {
+        "Recover": 0.4333
+      },
+      "displacement": null,
+      "notes": ""
+    },
+    "Stun": {
+      "frames": 48,
+      "duration": 1.6,
+      "loop": true,
+      "priority": "Action",
+      "events": {
+        "StunStars": 0.0
+      },
+      "displacement": null,
+      "notes": "Loop while stunned; stop with fade 0.15. Blade tip drags on the floor."
+    },
+    "Knockback": {
+      "frames": 45,
+      "duration": 1.5,
+      "loop": false,
+      "priority": "Action",
+      "events": {
+        "Footstep": 0.3,
+        "Footstep2": 0.5,
+        "Recover": 1.0
+      },
+      "displacement": "Push HumanoidRootPart back ~8 studs over 0-0.35 s (server-side LinearVelocity).",
+      "notes": ""
+    },
+    "Death": {
+      "frames": 60,
+      "duration": 2.0,
+      "loop": false,
+      "priority": "Action",
+      "events": {
+        "Death": 0.0,
+        "BodyFall": 1.1,
+        "Dissolve": 1.5
+      },
+      "displacement": null,
+      "notes": "Freeze on last frame (track:AdjustSpeed(0) near end)."
+    },
+    "TurnLeft": {
+      "frames": 24,
+      "duration": 0.8,
+      "loop": false,
+      "priority": "Movement",
+      "events": {
+        "Footstep": 0.2667,
+        "Footstep2": 0.5333
+      },
+      "displacement": "Rotate HumanoidRootPart 90 deg (left) over the clip.",
+      "notes": ""
+    },
+    "TurnRight": {
+      "frames": 24,
+      "duration": 0.8,
+      "loop": false,
+      "priority": "Movement",
+      "events": {
+        "Footstep": 0.2667,
+        "Footstep2": 0.5333
+      },
+      "displacement": "Rotate HumanoidRootPart 90 deg (right) over the clip.",
+      "notes": ""
+    },
+    "Jump": {
+      "frames": 10,
+      "duration": 0.3333,
+      "loop": false,
+      "priority": "Movement",
+      "events": {
+        "Jump": 0.0667
+      },
+      "displacement": null,
+      "notes": ""
+    },
+    "Fall": {
+      "frames": 20,
+      "duration": 0.6667,
+      "loop": true,
+      "priority": "Movement",
+      "events": {},
+      "displacement": null,
+      "notes": ""
+    },
+    "Land": {
+      "frames": 14,
+      "duration": 0.4667,
+      "loop": false,
+      "priority": "Movement",
+      "events": {
+        "Footstep": 0.0333
+      },
+      "displacement": null,
+      "notes": ""
+    },
+    "Walk": {
+      "frames": 26,
+      "duration": 0.8667,
+      "loop": true,
+      "priority": "Movement",
+      "events": {
+        "Footstep": 0.0,
+        "Footstep2": 0.4333
+      },
+      "displacement": null,
+      "notes": "In place. Native ground speed 0.92 m/s.",
+      "nativeSpeedMps": 0.9231
+    },
+    "Run": {
+      "frames": 16,
+      "duration": 0.5333,
+      "loop": true,
+      "priority": "Movement",
+      "events": {
+        "Footstep": 0.0,
+        "Footstep2": 0.2667
+      },
+      "displacement": null,
+      "notes": "In place. Native ground speed 2.72 m/s.",
+      "nativeSpeedMps": 2.7188
+    }
+  }
+}
