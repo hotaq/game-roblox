@@ -1702,6 +1702,7 @@ if networkTestArgs then
 			networkManual=true;networkMode="nearby";clearWorld();table.clear(views)
 			Shared:SetAttribute("GAME24Progress","lifecycle")
 			place(a,-120);place(b,120);target(1,-120,0);target(2,120,0);deliver()
+			report.initial={a=snapshot(a),b=snapshot(b),aPosition=tostring(a.Character.HumanoidRootPart.Position),bPosition=tostring(b.Character.HumanoidRootPart.Position),top=top,count=count,center=tostring(center)}
 			check(snapshot(a).count==1 and snapshot(b).count==1,"two separated clients receive their own nearby enemy")
 			-- Radius edges and teleport, including repeated visibility changes without pool growth.
 			clearWorld();target(1,0,0);place(a,-250);deliver()
