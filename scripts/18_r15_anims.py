@@ -3,7 +3,8 @@
 #              height, left hand on the hip, chin up; breathes, shifts weight and glances aside, the sword stays put.
 #   SwordRun   (loop, 0.67 s at walk speed 16): leans into a run, left arm pumps, right hand drags the sword behind,
 #              its tip scraping the ground on its edge (solved per frame like the idle grip).
-#   SwordPlant (once, 0.7 s): run -> idle, lifts the sword high point down and slams it into the ground.
+#   SwordHold  (loop, 2 s): stopped after a run, sword still trailing behind; the client plants it after a few seconds.
+#   SwordPlant (once, 0.7 s): hold -> idle, lifts the sword high point down and slams it into the ground.
 #   SwordPull  (once, 0.5 s): idle -> run, yanks the sword out and swings it down behind into the drag.
 # Run headless (opens blender/r15_rig.blend, adds the actions, saves it back and renders previews):
 #   /Applications/Blender.app/Contents/MacOS/Blender -b goblin/blender/r15_rig.blend --python goblin/scripts/18_r15_anims.py
@@ -198,6 +199,15 @@ def idle(rig):
     return first
 
 
+def drag(grip):
+    """Goal: the sword's tip scrapes the ground behind, on its edge; the hand stays near grip, loosely."""
+    def goal(m):
+        tip = m @ Vector((0, 0, 5.05))
+        return [0.0, 0.0, tip.z + 0.05] + [0.3 * x for x in m.translation - grip] + \
+            [0.3 * m.to_3x3().col[0].x, 0.2 * (tip.y - 5.4), 0.2 * (tip.x + 2.3)]
+    return goal
+
+
 def run(rig):
     n = 20  # one full cycle (two strides) in 0.67 s
     rest = sword_rest(rig)
@@ -225,19 +235,43 @@ def run(rig):
             "RightFoot": (-0.35 * knee_r - 15 * s, 0, 0),
         }
         lift = -0.3 + 0.15 * math.cos(2 * ph)
-        grip = Vector((-1.7, 1.0 + 0.15 * s, 2.0 + 0.5 * lift))
-
-        def drag(m):  # tip scrapes the ground behind on its edge; the hand follows the body loosely
-            tip = m @ Vector((0, 0, 5.05))
-            return [0.0, 0.0, tip.z + 0.05] + [0.3 * x for x in m.translation - grip] + \
-                [0.3 * m.to_3x3().col[0].x, 0.2 * (tip.y - 5.4), 0.2 * (tip.x + 2.3)]
-
-        arms, err = solve_grip(rig, rot, lift, rest, drag, arms)
+        arms, err = solve_grip(rig, rot, lift, rest, drag(Vector((-1.7, 1.0 + 0.15 * s, 2.0 + 0.5 * lift))), arms)
         worst = max(worst, err)
         rot.update(arms)
         key(rig, f, rot, lift)
         first = first or (rot, lift, world_deltas(rig, rot, lift)["RightHand"] @ rest)
     print("SwordRun: sword tip off the ground by at most %.3f studs" % worst)
+    return first
+
+
+def guard(rig):
+    """SwordHold (loop, 2 s): stopped but still on guard, the sword trailing behind as in the run; breathes."""
+    n = 2 * FPS
+    rest = sword_rest(rig)
+    new_action(rig, "EXP_SwordHold", n)
+    arms, worst, first = None, 0.0, None
+    for f in range(0, n + 1, 2):
+        b = math.sin(2 * math.pi * f / n)
+        rot = {
+            "LowerTorso": (4, 0, 0),
+            "UpperTorso": (6 + 2 * b, 0, 6),  # leans in a little, chest rises with the breath
+            "Head": (-8 - 1.5 * b, 0, -4),
+            "LeftUpperArm": (8, -10 - 2 * b, 0),  # free arm loose at the side
+            "LeftLowerArm": (-25, 0, 0),
+            "RightUpperLeg": (-6, 10, 0),  # feet apart, knees soft
+            "LeftUpperLeg": (-6, -10, 0),
+            "RightLowerLeg": (12, 0, 0),
+            "LeftLowerLeg": (12, 0, 0),
+            "RightFoot": (-6, -10, 0),
+            "LeftFoot": (-6, 10, 0),
+        }
+        lift = -0.15 + 0.02 * b
+        arms, err = solve_grip(rig, rot, lift, rest, drag(Vector((-1.7, 0.9, 2.0 + 0.5 * lift))), arms)
+        worst = max(worst, err)
+        rot.update(arms)
+        key(rig, f, rot, lift)
+        first = first or (rot, lift, world_deltas(rig, rot, lift)["RightHand"] @ rest)
+    print("SwordHold: sword tip off the ground by at most %.3f studs" % worst)
     return first
 
 
@@ -320,14 +354,14 @@ def transition(rig, name, start, end, segments, extra):
     print("%s: grip off its path by at most %.3f studs" % (name, worst))
 
 
-def plant(rig, run0, idle0):
-    """Run -> idle (0.7 s): lifts the sword high, point down, and slams it into the ground; the body dips on impact."""
+def plant(rig, hold0, idle0):
+    """Hold -> idle (0.7 s): lifts the sword high, point down, and slams it into the ground; the body dips on impact."""
     def extra(f):  # leans back as it lifts, crunches forward on impact
         up, hit = bump(f, 8, 3), bump(f, 13, 2.5)
         return {"UpperTorso": (-12 * up + 12 * hit, 0, 10 * up), "Head": (6 * up - 6 * hit, 0, 0),
                 "LowerTorso": (6 * hit, 0, 0)}, -0.25 * hit
 
-    transition(rig, "EXP_SwordPlant", run0, idle0, [
+    transition(rig, "EXP_SwordPlant", hold0, idle0, [
         (9, RAISED, ease, 0.8),
         (3, PLANTED, lambda t: t * t, 0),  # accelerates into the ground
         (9, PLANTED, ease, 0),
@@ -389,7 +423,7 @@ FRONT, SIDE, BACK34, FRONT34 = (0, -12, 3.6), (-12, 0, 3.6), (-7, 8, 5.5), (6.5,
 rig = bpy.data.objects["R15_Rig"]
 idle0 = idle(rig)
 run0 = run(rig)
-plant(rig, run0, idle0)
+plant(rig, guard(rig), idle0)
 pull(rig, idle0, run0)
 bpy.context.scene.render.fps = FPS
 bpy.ops.wm.save_mainfile()

@@ -1,18 +1,20 @@
 -- PlayerSword (LocalScript, StarterPlayer.StarterPlayerScripts), GAME-35
 -- Every player whose run has the sword (RunLoadout "sword=N") holds ReplicatedStorage.Swords.Sword_PhaseN (N capped at
 -- 5) in the right hand; each client draws it for every character. The local character also plays the sword set:
--- SwordIdle standing (the sword planted beside the right foot), SwordRun moving (dragged behind), SwordPull / SwordPlant
--- in between; each transition ends on its loop's first frame, so the loop waits there until it finishes.
+-- SwordRun moving (dragged behind); on stopping, SwordHold (still trailing) for HOLD_TIME, then SwordPlant into SwordIdle
+-- (planted beside the right foot); moving off from there plays SwordPull. Each transition ends on its loop's first
+-- frame, so the loop waits there until it finishes; run <-> hold just cross-fade.
 -- Animation ids go in ANIMS once published; until then Studio plays the KeyframeSequences in
 -- ReplicatedStorage.SwordAnims (RegisterAnimationClip only works in Studio).
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 
-local ANIMS = { SwordIdle = "", SwordRun = "", SwordPlant = "", SwordPull = "" } -- "rbxassetid://..." once published
+local ANIMS = { SwordIdle = "", SwordRun = "", SwordHold = "", SwordPlant = "", SwordPull = "" } -- "rbxassetid://..." once published
 -- The grip centre on RightHand, blade forward, flat sideways: the rest pose of scripts/18_r15_anims.py
 local HAND_GRIP = CFrame.fromMatrix(Vector3.new(0, -0.158, 0), Vector3.new(-1, 0, 0), Vector3.new(0, 0, -1))
 local RUN_SPEED = 16 -- SwordRun is paced for this WalkSpeed
+local HOLD_TIME = 5 -- seconds standing still with the sword trailing (SwordHold) before planting it
 
 local swords = ReplicatedStorage:WaitForChild("Swords")
 local me = Players.LocalPlayer
@@ -73,9 +75,30 @@ local function animate(char: Model)
 		t[name] = animator:LoadAnimation(a)
 	end
 	-- above the place's own Idle / Movement clips, which would otherwise blend in at equal priority
-	t.SwordIdle.Priority, t.SwordRun.Priority = Enum.AnimationPriority.Action, Enum.AnimationPriority.Action
+	for _, name in { "SwordIdle", "SwordRun", "SwordHold" } do
+		t[name].Priority = Enum.AnimationPriority.Action
+	end
 	t.SwordPull.Priority, t.SwordPlant.Priority = Enum.AnimationPriority.Action2, Enum.AnimationPriority.Action2
-	local moving, busy = nil, nil -- busy: the transition playing, if any
+	local LOOPS = { idle = t.SwordIdle, run = t.SwordRun, hold = t.SwordHold }
+	local state, busy, stoppedAt = nil, nil, 0 -- busy: the transition playing, if any
+
+	local function enter(new, transition)
+		for name, track in LOOPS do
+			if name ~= new then
+				track:Stop(0.2)
+			end
+		end
+		t.SwordPull:Stop(0.1)
+		t.SwordPlant:Stop(0.1)
+		LOOPS[new]:Play(0.2)
+		LOOPS[new].TimePosition = 0
+		busy = transition
+		if busy then
+			busy:Play(0.1)
+		end
+		state = new
+	end
+
 	local conn
 	conn = RunService.Heartbeat:Connect(function()
 		if not char.Parent then
@@ -88,32 +111,24 @@ local function animate(char: Model)
 					track:Stop(0.2)
 				end
 			end
-			moving, busy = nil, nil
+			state, busy = nil, nil
 			return
 		end
-		local now = hum.MoveDirection.Magnitude > 0.1
-		if now ~= moving then
-			local loop, other = t.SwordIdle, t.SwordRun
-			if now then
-				loop, other = other, loop
-			end
-			other:Stop(0.15)
-			t.SwordPull:Stop(0.1)
-			t.SwordPlant:Stop(0.1)
-			loop:Play(0.15)
-			loop.TimePosition = 0
-			busy = nil
-			if moving ~= nil then -- not the first pose after spawning or arming
-				busy = now and t.SwordPull or t.SwordPlant
-				busy:Play(0.1)
-			end
-			moving = now
+		local moving = hum.MoveDirection.Magnitude > 0.1
+		if not state then -- just spawned or armed: no transition
+			enter(moving and "run" or "idle")
+		elseif moving and state ~= "run" then
+			enter("run", state == "idle" and t.SwordPull or nil) -- from hold the sword is already trailing
+		elseif not moving and state == "run" then
+			enter("hold")
+			stoppedAt = os.clock()
+		elseif state == "hold" and os.clock() - stoppedAt >= HOLD_TIME then
+			enter("idle", t.SwordPlant)
 		end
 		if busy and not busy.IsPlaying then
 			busy = nil
 		end
-		local loop = moving and t.SwordRun or t.SwordIdle
-		loop:AdjustSpeed(if busy then 0 elseif moving then math.max(hum.WalkSpeed, 1) / RUN_SPEED else 1)
+		LOOPS[state]:AdjustSpeed(if busy then 0 elseif state == "run" then math.max(hum.WalkSpeed, 1) / RUN_SPEED else 1)
 	end)
 end
 

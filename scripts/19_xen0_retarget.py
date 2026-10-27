@@ -1,12 +1,12 @@
 # 19_xen0_retarget.py: moves the player sword animations onto MrXen0's R15 rig (FK/IK, devforum.roblox.com/t/3606878),
 # so the owner can keep editing them with IK. GAME-35.
 #   blender/MrXen0_R15RIG_v1.2.blend  the rig as downloaded (third-party, kept out of git)
-#   blender/r15_rig.blend             our rig + EXP_SwordIdle / Run / Plant / Pull from 18_r15_anims.py
+#   blender/r15_rig.blend             our rig + EXP_SwordIdle / Run / Hold / Plant / Pull from 18_r15_anims.py
 # Run headless (scripts in the rig file stay off; they only draw its RigUI panel):
 #   /Applications/Blender.app/Contents/MacOS/Blender -b --factory-startup --disable-autoexec \
 #     goblin/blender/MrXen0_R15RIG_v1.2.blend --python goblin/scripts/19_xen0_retarget.py
 # Writes blender/r15_xen0.blend: the rig in FK mode, the phase-5 sword on the RightHand bone, actions SwordIdle and
-# SwordRun, SwordPlant, SwordPull keyed on the FK / torso / head controls, plus renders/sword_carry_xen0.png.
+# SwordRun, SwordHold, SwordPlant, SwordPull keyed on the FK / torso / head controls, plus renders/sword_carry_xen0.png.
 #
 # How: for every part P, our rig gives the world delta D = Pose @ Rest^-1 per frame. MrXen0's rig faces +Y where ours
 # faces -Y, so its target is R @ D @ R^-1 @ Rest_xen0(P) with R = 180 degrees about Z. Each deform bone copies the
@@ -32,7 +32,7 @@ CONTROLS = [  # (control, part it drives), parents before children
 xen = bpy.data.objects["Roblox_R15"]
 with bpy.data.libraries.load(os.path.join(ROOT, "blender", "r15_rig.blend")) as (src, dst):
     dst.objects = ["R15_Rig", "Sword"] + [n for n in src.objects if n.startswith("Sword_Phase5_")]
-    dst.actions = ["EXP_SwordIdle", "EXP_SwordRun", "EXP_SwordPlant", "EXP_SwordPull"]
+    dst.actions = ["EXP_SwordIdle", "EXP_SwordRun", "EXP_SwordHold", "EXP_SwordPlant", "EXP_SwordPull"]
 ours = next(o for o in dst.objects if o.name.startswith("R15_Rig"))
 for o in dst.objects:
     bpy.context.scene.collection.objects.link(o)
@@ -92,6 +92,7 @@ def bake(action_name, new_name):
 
 bake("EXP_SwordIdle", "SwordIdle")
 bake("EXP_SwordRun", "SwordRun")
+bake("EXP_SwordHold", "SwordHold")
 bake("EXP_SwordPlant", "SwordPlant")
 bake("EXP_SwordPull", "SwordPull")
 
