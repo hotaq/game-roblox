@@ -8,6 +8,7 @@
 --   * a 100-stud temple plaza with the pyramid on its north side, stairs facing the open south half;
 --   * clearings: broken shrine (N), colonnade (W), pond with fallen columns (E), spawn (S);
 --   * dense forest everywhere else, thinner where it meets open ground so the edges read clearly;
+--   * a fake shadow disc under every tree (real shadows are off at low graphics quality);
 --   * invisible walls around the edge, and a Map1Spawn SpawnLocation (disabled) in the spawn clearing.
 -- Deterministic (fixed seeds): re-running gives the same map. Usage from the command bar / MCP:
 --   require(game.ServerScriptService.Map1Builder).build()            -- everything, at (1000, 0, 0)
@@ -233,6 +234,26 @@ function STAGES.forest(map: Model, o: CFrame)
 	return counts
 end
 
+-- Fake contact shadows: a dark see-through disc under every tree and bush. Low graphics quality (phones, slow PCs, and
+-- Studio Play at low FPS) turns real shadows off, and without them the forest looks flat and floats on the ground.
+function STAGES.shadows(map: Model, o: CFrame)
+	local f = Instance.new("Folder")
+	f.Name = "Shadows"
+	for _, tree in (map:FindFirstChild("Forest") :: Folder):GetChildren() do
+		local size = (tree :: Model):GetExtentsSize()
+		local d = math.min(size.X, size.Z) * 0.85
+		local disc = Instance.new("Part")
+		disc.Shape, disc.Anchored, disc.CastShadow = Enum.PartType.Cylinder, true, false
+		disc.CanCollide, disc.CanQuery, disc.CanTouch = false, false, false
+		disc.Size, disc.Material, disc.Color, disc.Transparency = Vector3.new(0.1, d, d), Enum.Material.SmoothPlastic, rgb(28, 52, 30), 0.45
+		local p = (tree :: Model):GetPivot().Position
+		disc.CFrame = CFrame.new(p.X, o.Position.Y + 0.06, p.Z) * CFrame.Angles(0, 0, math.rad(90)) -- cylinder axis is X: stand it up
+		disc.Name = "Shadow"
+		disc.Parent = f
+	end
+	f.Parent = map
+end
+
 -- Invisible walls on the four sides so nobody walks (or gets knocked) off the 300 x 300 map.
 function STAGES.edge(map: Model, o: CFrame)
 	local f = Instance.new("Folder")
@@ -247,7 +268,7 @@ function STAGES.edge(map: Model, o: CFrame)
 	end
 end
 
-local ORDER = { "ground", "plaza", "clearings", "forest", "edge" }
+local ORDER = { "ground", "plaza", "clearings", "forest", "shadows", "edge" }
 
 -- Builds (or rebuilds) Workspace.Map1 at `origin` (default (1000, 0, 0)). `stages` picks a subset of ORDER; existing
 -- folders of the stages being rebuilt are replaced, others are kept.
