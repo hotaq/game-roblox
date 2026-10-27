@@ -61,6 +61,7 @@ local swings = {} -- slots that started a swing this step (sent at once, not wit
 local free, top, count, override = {}, 0, 0, nil :: number?
 local dead, deadFirstGem = {}, 0 -- slots killed since the last send; each dropped gem number deadFirstGem + k - 1
 local gems, nextGem = {}, 0 -- gem number -> {x, z}
+local clearedGems = {} -- final-run drops to retire on clients after any queued death packet
 local rng = Random.new()
 local NONE = -32768 -- x of a free slot in a snapshot
 local runs = {} -- Player -> run state
@@ -597,6 +598,17 @@ local taken = {} -- Player -> gem numbers picked up since the last send
 
 local function step(dt: number)
 	pruneAxes() -- also runs while the existing global card pause is active
+	-- Lifetime cleanup must run even when another player is choosing a card.
+	for k = #shots, 1, -1 do
+		local run = shots[k].run
+		if runs[run.player] ~= run or run.player.Parent ~= Players or run.hum.Health <= 0
+			or run.player.Character ~= run.hum.Parent then
+			table.remove(shots, k)
+		end
+	end
+	for hum in lastHit do
+		if hum.Health <= 0 or not hum:IsDescendantOf(Workspace) then lastHit[hum] = nil end
+	end
 	local center, half = arena()
 	local now = Workspace:GetServerTimeNow()
 	table.clear(targets)
@@ -763,6 +775,7 @@ local function step(dt: number)
 		kill(top)
 	end
 	if not longest then -- nobody playing: sweep leftover gems
+		for id in gems do table.insert(clearedGems, id) end
 		table.clear(gems)
 	end
 end
@@ -784,6 +797,11 @@ local function send(): number
 		end
 		died:FireAllClients(b)
 		table.clear(dead)
+	end
+	if #clearedGems > 0 then
+		-- Retire these IDs after their death notifications; a newly started run keeps its own drops.
+		fx:FireAllClients("clearGems", clearedGems)
+		table.clear(clearedGems)
 	end
 	for player, list in taken do
 		local b = buffer.create(#list * 2)

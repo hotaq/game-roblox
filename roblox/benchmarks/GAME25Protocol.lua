@@ -1,0 +1,29 @@
+-- Repeatable lifecycle audit. Execute RunGAME25.lua in Edit/MCP after normal Rojo synchronization.
+-- No production Source writes, no scene/Lighting modifications in Edit, no foreground windows.
+-- Run {pilot=true} before repairs; default launches full post-repair acceptance.
+--
+-- Two real Studio clients start. Peer leaves with active FX while the survivor has a card offer.
+-- Capture invalid server projectile owners and client orphan ring/slash-owner references.
+-- Then use production RunRestart/RunLobby/RunPick remotes, actual Humanoid.Died, and real
+-- replication/rendering/tweens. Do not recreate the client scripts or manually clear their pools.
+-- Three warmup cycles precede twenty measured restart cycles. Each cycle uses 100 enemies,
+-- the four current weapons at level 1, one actual contact hit, ten uncollected gem drops,
+-- a card offer/selection, death and lobby reload. Sample after the same five-second cleanup.
+-- The named server fixture controls spawn positions and advances the actual step() at wall-clock
+-- cadence. It suspends simulation during cleanup sampling; client animations/tweens continue.
+--
+-- Check one fire packet -> one fireball, one hit pair -> one label and one SFX play after restarts.
+-- A continuous >=900-second soak follows: 100 live enemies, four level-1 weapons, fixed player
+-- position, health reset to prevent uncontrolled deaths, one controlled kill and pickup per second.
+-- Samples each minute record live objects separately from intentional reusable pool capacity.
+-- End with a death/lobby transition and the same five-second cleanup interval.
+--
+-- GAME25Active gates all observations. Normal play has no bridge, probe, sampling or fixture.
+-- SFX templates are persistent by design (10); PlayLocalSound's asset cache is not a per-run leak.
+-- InstanceCount and total memory are engine/process diagnostics, not pure script allocations.
+-- Use per-system counts and, when available, SceneAnalysisService script/unparented queries.
+-- Keep Map1, sky, sword showcase, asset versions and host constant within a comparison.
+-- Background render cadence does not establish real-device FPS or mobile performance.
+-- A bounded run cannot prove the absence of every possible leak; list coverage and limitations.
+return {schema=1,task="GAME-25",warmupCycles=3,measuredCycles=20,soakSeconds=900,
+	settleSeconds=5,population=100,weapons={sword=1,fire=1,ring=1,axe=1}}

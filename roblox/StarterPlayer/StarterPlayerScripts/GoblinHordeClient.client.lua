@@ -527,6 +527,16 @@ Shared:WaitForChild("HordeFx").OnClientEvent:Connect(function(kind: string, ...)
 		if root then
 			swing(player, root, swordTier(player), range, arc, back, lx, lz)
 		end
+	elseif kind == "clearGems" then
+		local ids = ...
+		for _, id in ids do
+			local gem = gems[id]
+			if gem then
+				gems[id] = nil
+				gem.CFrame = HIDDEN
+				table.insert(gemPool, gem)
+			end
+		end
 	elseif kind == "axes" then
 		receiveAxes(...)
 	elseif kind == "fire" then
@@ -541,6 +551,11 @@ end)
 -- Fire Ring: a flat glowing disc under every player whose loadout has it.
 local RING = Config.Weapons.ring
 local rings = {} -- Player -> part
+Players.PlayerRemoving:Connect(function(player)
+	local ring = rings[player]
+	if ring then ring:Destroy(); rings[player] = nil end
+	swingSide[player] = nil
+end)
 local function ringRadius(player: Player): number?
 	local lv = tonumber(string.match(player:GetAttribute("RunLoadout") or "", "ring=(%d)"))
 	return lv and Config.weaponStats("ring", lv).Radius * (1 + (player:GetAttribute("RunArea") or 0))
@@ -614,7 +629,7 @@ if RunService:IsStudio() and Shared:GetAttribute("GAME25Active") then
 		local function size(t) local n=0; for _ in t do n+=1 end; return n end
 		local orphanRings, orphanSides, visibleNumbers = 0, 0, 0
 		for p in rings do if p.Parent ~= Players then orphanRings+=1 end end
-		for p in swingSide do if p.Parent ~= Players then orphanSides+=1 end end
+		for p in swingSide do if p:IsA("Player") and p.Parent ~= Players then orphanSides+=1 end end
 		for _, d in folder:GetDescendants() do
 			if d:IsA("TextLabel") and d.TextTransparency < 1 then visibleNumbers+=1 end
 		end
