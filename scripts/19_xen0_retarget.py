@@ -28,7 +28,6 @@ CONTROLS = [  # (control, part it drives), parents before children
     ("FK_LowerLeg.R", "RightLowerLeg"), ("FK_LowerLeg.L", "LeftLowerLeg"),
     ("FK_Hand.R", "RightHand"), ("FK_Hand.L", "LeftHand"), ("FK_Foot.R", "RightFoot"), ("FK_Foot.L", "LeftFoot"),
 ]
-LEVELS = [CONTROLS[:3], CONTROLS[3:7], CONTROLS[7:11], CONTROLS[11:]]
 
 xen = bpy.data.objects["Roblox_R15"]
 with bpy.data.libraries.load(os.path.join(ROOT, "blender", "r15_rig.blend")) as (src, dst):
@@ -54,9 +53,9 @@ def targets(frame):
 
 
 def apply(tg):
-    for level in LEVELS:
-        for ctrl, part in level:
-            xen.pose.bones[ctrl].matrix = tg[part]
+    for ctrl, part in CONTROLS:  # the control moves by its part's delta (LowTorso pivots at the waist, not the hips)
+        xen.pose.bones[ctrl].matrix = tg[part] @ xen.data.bones[part].matrix_local.inverted() @ \
+            xen.data.bones[ctrl].matrix_local
         bpy.context.view_layer.update()
 
 
@@ -109,6 +108,7 @@ bpy.context.view_layer.update()
 sword.matrix_world = rest_world
 bpy.data.objects.remove(ours, do_unlink=True)
 xen.animation_data.action = bpy.data.actions["SwordIdle"]
+bpy.context.scene.render.fps = 30  # the actions are keyed at 30 fps (18_r15_anims.py); the rig file defaults to 24
 bpy.ops.wm.save_as_mainfile(filepath=os.path.join(ROOT, "blender", "r15_xen0.blend"))
 
 # Preview: idle from the front and the back, run mid-stride.

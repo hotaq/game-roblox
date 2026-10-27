@@ -21,6 +21,9 @@
         "GoblinSounds": {
           "$path": "ReplicatedStorage/Goblin/GoblinSounds.lua"
         }
+      },
+      "SwordAnims": {
+        "$path": "SwordAnims.rbxmx"
       }
     },
     "ServerScriptService": {
@@ -56,6 +59,9 @@
         },
         "GoblinSFX": {
           "$path": "StarterPlayer/StarterPlayerScripts/GoblinSFX.client.lua"
+        },
+        "PlayerSword": {
+          "$path": "StarterPlayer/StarterPlayerScripts/PlayerSword.client.lua"
         }
       }
     }
