@@ -534,10 +534,12 @@ local function makeRockVisual(parent,level,radius)
 	model.PrimaryPart=core
 	piece("WedgePart","Facet",Vector3.new(.65,1.3,1.45),CFrame.new(.85,0,0)*CFrame.Angles(0,0,math.pi/2),Color3.fromRGB(96,107,99))
 	piece("WedgePart","LightFacet",Vector3.new(.6,1.25,1.35),CFrame.new(-.8,0,0)*CFrame.Angles(0,0,-math.pi/2),Color3.fromRGB(164,171,151))
-	piece("Part","Moss",Vector3.new(.85,.12,.8),CFrame.new(-.25,.72,.12),Color3.fromRGB(88,119,62))
+	piece("Part","Moss",Vector3.new(.65,.12,.8),CFrame.new(-.45,.72,.12),Color3.fromRGB(88,119,62))
 	local gold=if level>=5 then Color3.fromRGB(227,185,85) else Color3.fromRGB(172,148,91)
 	piece("Part","Rune",Vector3.new(.16,.68,.06),CFrame.new(.1,.02,-.75),gold)
 	piece("Part","RuneTop",Vector3.new(.5,.14,.06),CFrame.new(.1,.3,-.75),gold)
+	piece("Part","TopRune",Vector3.new(.14,.06,.72),CFrame.new(.25,.7,0),gold)
+	piece("Part","TopRuneBar",Vector3.new(.48,.06,.14),CFrame.new(.25,.7,-.28),gold)
 	if level>=3 then piece("Part","RuneBase",Vector3.new(.5,.14,.06),CFrame.new(.1,-.25,-.75),gold) end
 	model.WorldPivot=CFrame.identity;model.Parent=parent
 	return model

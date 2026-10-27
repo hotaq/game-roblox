@@ -1739,6 +1739,7 @@ if rocksTestArgs then
 			local ra,rootA=prepare(a,-10);local rb,rootB=prepare(b,10)
 			local function acquire(p,run)
 				run.cards={{kind="weapon",id="rocks",level=1,rarity=1}};run.pending=1
+				run.pausedAt=Workspace:GetServerTimeNow()
 				levelUp:FireClient(p,run.cards,run.rerolls,run.level)
 				waitFor(function() return snapshot(p).icons>=1 end,"rocks card art")
 				check(snapshot(p).icons>=1,"real rocks card icon visible for "..p.Name)

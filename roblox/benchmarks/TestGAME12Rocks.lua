@@ -86,7 +86,7 @@ local ok,err=xpcall(function()
   for _,p in model:GetDescendants() do if p:IsA("BasePart") then
    assert(not p.CanCollide and not p.CanTouch and not p.CanQuery and p.Anchored and p.Material==Enum.Material.Plastic);parts+=1
   end end
-  check(parts<=7 and parts>=6,"level "..level.." bounded matte cosmetic geometry")
+  check(parts<=9 and parts>=8,"level "..level.." bounded matte cosmetic geometry")
   model:Destroy()
  end
  local owner={Character=Instance.new("Model")}
