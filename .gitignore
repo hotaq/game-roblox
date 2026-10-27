@@ -2,3 +2,6 @@
 __pycache__/
 *.blend1
 *.blend2
+# third-party rig (MrXen0, Gumroad): keep local
+blender/MrXen0_*.blend
+blender/r15_xen0.blend
