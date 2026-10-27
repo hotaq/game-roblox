@@ -44,7 +44,7 @@ if ReplicatedStorage.Goblin:GetAttribute("GAME12CompleteActive") then
 				if m.Name=="LightningTotem"then report.totems+=1
 					for _,p in m:GetDescendants()do if p:IsA("BasePart")then report.parts+=1;if p.CanCollide or p.CanTouch or p.CanQuery or not p.Anchored then report.nonCosmetic+=1 end end end
 				elseif m.Name=="OrbitRock"then report.rocks+=1
-				elseif m.Name=="TotemLightning"then report.bolts+=1 end
+				elseif m.Name=="TotemBolt"then report.bolts+=1 end
 			end end
 			if ui then for _,d in ui:GetDescendants()do if visible(d,ui)then
 				if d.Name=="totemIcon"then report.icons+=1 end

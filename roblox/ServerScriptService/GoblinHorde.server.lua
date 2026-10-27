@@ -2240,6 +2240,9 @@ if completeTestArgs then
 				check(damaged==s.Targets and stunUntil[1]==0,"totem Lv"..level.." nearest target count and no stun")
 				waitFor(function()return snap(a).totems==1 and snap(a).icons>=1 end,"totem visual/icon")
 			end
+			for i=1,6 do px[i]=center.X+100+i end
+			local damageBefore=ra.damage.totem;moveTotems(1)
+			check(ra.damage.totem==damageBefore,"stationary totem cannot hit targets outside its range")
 			local t=totems[1];local age,health=t.age,hp[1];ra.cards={{kind="heal"}}
 			for _=1,10 do step(1/H.SimRate)end
 			check(t.age==age and hp[1]==health,"card pause freezes lifetime and damage")
@@ -2262,6 +2265,7 @@ if completeTestArgs then
 			check(hp[1]==10000-34 and hp[4]==10000-34 and hp[5]==10000,"evolved shrine hits four nearest targets")
 			fireWeapons(ra,rootA,0)
 			if rb then rb.weapons={totem=1};rb.wOrder={"totem"};publish(rb);fireWeapons(rb,rootB,0)end
+			if rb then local before=ra.damage.totem;moveTotems(.01);check(rb.damage.totem==18 and ra.damage.totem==before,"second owner gets independent pulse damage credit")end
 			send()
 			local expected=if b then 2 else 1
 			waitFor(function()return snap(a).totems==expected and snap(a).rocks==6 and (not b or snap(b).totems==expected)end,"shared visuals")
