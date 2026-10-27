@@ -1,6 +1,6 @@
 # 18_r15_anims.py: player sword animations on the R15 rig from 17_r15_rig.py (GAME-35).
-#   SwordIdle  (loop, 2.4 s): sword resting on the right shoulder, slow breathing and a small weight shift.
-#   SwordWalk  (loop, 1.0 s at walk speed 16): swaggering walk, sword stays on the shoulder, left arm swings,
+#   SwordIdle  (loop, 2.4 s): sword across the shoulders, left hand on the hip, wide stance, slow breathing.
+#   SwordWalk  (loop, 1.0 s at walk speed 16): swaggering walk, sword stays across the shoulders, left arm swings,
 #              hips and shoulders counter-twist, slight lean back, body bobs on each step.
 # Run headless (opens blender/r15_rig.blend, adds the actions, saves it back and renders previews):
 #   /Applications/Blender.app/Contents/MacOS/Blender -b goblin/blender/r15_rig.blend --python goblin/scripts/18_r15_anims.py
@@ -20,9 +20,11 @@ CHAIN = ["HumanoidRootPart", "LowerTorso", "UpperTorso", "Head", "RightUpperArm"
          "LeftUpperArm", "LeftLowerArm", "LeftHand", "RightUpperLeg", "RightLowerLeg", "RightFoot",
          "LeftUpperLeg", "LeftLowerLeg", "LeftFoot"]
 
-# The sword-on-shoulder carry: arm forward and a little out, elbow folded up, so the blade (forward at rest) ends up
-# pointing back and up over the right shoulder.
-CARRY = {"RightUpperArm": (-38, 32, 0), "RightLowerArm": (-118, 0, 0), "RightHand": (-16, 0, -6)}
+# The owner's pick (pose 3 of the reference sheet): sword laid across the shoulders behind the neck, hilt in the right
+# hand at the right shoulder, blade out past the left shoulder. Angles found by a numeric search for grip at
+# (-1.35, 0.05, 4.2) with the blade along (1, 0.5, 0.12); HIP_HAND puts the left hand on the hip (idle only).
+CARRY = {"RightUpperArm": (19.9, 239.6, 115.8), "RightLowerArm": (-129.0, 0, 110.9), "RightHand": (-23.6, 87.0, -90.6)}
+HIP_HAND = {"LeftUpperArm": (29.5, 0.3, -27.0), "LeftLowerArm": (-53.8, 0, -29.8)}
 
 
 def pose_matrices(rig, rot, lift=0.0):
@@ -78,19 +80,18 @@ def idle(rig):
         ph = 2 * math.pi * f / n
         b = math.sin(ph)
         rot = dict(CARRY)
-        rot["RightUpperArm"] = (-38 + 2 * b, 32, 0)
+        rot.update(HIP_HAND)
+        rot["RightUpperArm"] = (19.9 + 2 * b, 239.6, 115.8)
         rot.update({
             "LowerTorso": (0, 1.5 * b, 0),  # weight shift side to side
             "UpperTorso": (2 + 1.5 * b, -1.5 * b, 0),  # breathing, a slight lean back
             "Head": (-1 * b, 1 * b, 0),
-            "LeftUpperArm": (-4, -9 - 2 * b, 0),
-            "LeftLowerArm": (-14, 0, 0),
-            "LeftUpperLeg": (0, -5 - 1.5 * b, 0),
-            "RightUpperLeg": (0, 5 - 1.5 * b, 0),
-            "LeftFoot": (0, 5 + 1.5 * b, 0),
-            "RightFoot": (0, -5 + 1.5 * b, 0),
+            "LeftUpperLeg": (0, -10 - 1.5 * b, 0),  # wide stance
+            "RightUpperLeg": (0, 10 - 1.5 * b, 0),
+            "LeftFoot": (0, 10 + 1.5 * b, 0),
+            "RightFoot": (0, -10 + 1.5 * b, 0),
         })
-        key(rig, f, rot, lift=-0.03 * (1 - math.cos(ph)) / 2)
+        key(rig, f, rot, lift=-0.06 - 0.03 * (1 - math.cos(ph)) / 2)  # wide stance sits a little lower
 
 
 def walk(rig):
@@ -100,7 +101,7 @@ def walk(rig):
         ph = 2 * math.pi * f / n
         s, c = math.sin(ph), math.cos(ph)
         rot = dict(CARRY)
-        rot["RightUpperArm"] = (-38 + 3 * math.sin(2 * ph), 32, 0)
+        rot["RightUpperArm"] = (19.9 + 3 * math.sin(2 * ph), 239.6, 115.8)
         rot.update({
             # hips twist with the legs, shoulders counter-twist and lean back: the swagger
             "LowerTorso": (0, 3 * s, 7 * s),
@@ -130,12 +131,12 @@ def render(rig, path, shots):
     if cam.name not in sc.collection.objects:
         sc.collection.objects.link(cam)
     sc.camera = cam
-    cam.data.lens = 50
+    cam.data.lens = 42
     sc.render.resolution_x, sc.render.resolution_y = 600, 760
     tiles = []
     for i, (act, frame, at) in enumerate(shots):
         cam.location = at
-        cam.rotation_euler = (Vector((0, 0, 2.7)) - cam.location).to_track_quat("-Z", "Y").to_euler()
+        cam.rotation_euler = (Vector((0.6, 0, 2.9)) - cam.location).to_track_quat("-Z", "Y").to_euler()
         rig.animation_data.action = bpy.data.actions[act]
         sc.frame_set(frame)
         p = os.path.join(ROOT, "renders", "_tile%d.png" % i)
