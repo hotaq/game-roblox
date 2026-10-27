@@ -2257,7 +2257,7 @@ if completeTestArgs then
 			ra.cd.totem=0;fireWeapons(ra,rootA,0);ra.cd.totem=0;fireWeapons(ra,rootA,0);check(#totems==2,"at most two active totems per owner")
 			moveTotems(11);send();check(#totems==0,"active lifetime expires and clears both totems")
 			-- Projectile effects use real firing state, with bounded volley and duration.
-			ra.weapons={fire=5,axe=5};ra.evolved={fire=true,axe=true};ra.bonus.projectile=5;ra.cd={};targets(6);table.clear(shots);table.clear(axes)
+			ra.weapons={fire=5,axe=5};ra.wOrder={"fire","axe"};ra.evolved={fire=true,axe=true};ra.bonus.projectile=5;ra.cd={};targets(6);table.clear(shots);table.clear(axes)
 			fireWeapons(ra,rootA,0)
 			check(#shots==10 and #axes==7,"Projectile adds to evolved fireball and axe volleys within caps")
 			check(math.abs(shots[1].t-Config.weaponStats("fire",6).Range*1.75/Config.weaponStats("fire",6).Speed)<.001,"Duration extends actual fireball lifetime")
