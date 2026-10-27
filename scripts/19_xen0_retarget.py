@@ -1,12 +1,12 @@
 # 19_xen0_retarget.py: moves the player sword animations onto MrXen0's R15 rig (FK/IK, devforum.roblox.com/t/3606878),
 # so the owner can keep editing them with IK. GAME-35.
 #   blender/MrXen0_R15RIG_v1.2.blend  the rig as downloaded (third-party, kept out of git)
-#   blender/r15_rig.blend             our rig + EXP_SwordIdle / EXP_SwordWalk from 18_r15_anims.py
+#   blender/r15_rig.blend             our rig + EXP_SwordIdle / Run / Plant / Pull from 18_r15_anims.py
 # Run headless (scripts in the rig file stay off; they only draw its RigUI panel):
 #   /Applications/Blender.app/Contents/MacOS/Blender -b --factory-startup --disable-autoexec \
 #     goblin/blender/MrXen0_R15RIG_v1.2.blend --python goblin/scripts/19_xen0_retarget.py
 # Writes blender/r15_xen0.blend: the rig in FK mode, the phase-5 sword on the RightHand bone, actions SwordIdle and
-# SwordWalk keyed on the FK / torso / head controls, plus renders/sword_carry_xen0.png.
+# SwordRun, SwordPlant, SwordPull keyed on the FK / torso / head controls, plus renders/sword_carry_xen0.png.
 #
 # How: for every part P, our rig gives the world delta D = Pose @ Rest^-1 per frame. MrXen0's rig faces +Y where ours
 # faces -Y, so its target is R @ D @ R^-1 @ Rest_xen0(P) with R = 180 degrees about Z. Each deform bone copies the
@@ -33,7 +33,7 @@ LEVELS = [CONTROLS[:3], CONTROLS[3:7], CONTROLS[7:11], CONTROLS[11:]]
 xen = bpy.data.objects["Roblox_R15"]
 with bpy.data.libraries.load(os.path.join(ROOT, "blender", "r15_rig.blend")) as (src, dst):
     dst.objects = ["R15_Rig", "Sword"] + [n for n in src.objects if n.startswith("Sword_Phase5_")]
-    dst.actions = ["EXP_SwordIdle", "EXP_SwordWalk"]
+    dst.actions = ["EXP_SwordIdle", "EXP_SwordRun", "EXP_SwordPlant", "EXP_SwordPull"]
 ours = next(o for o in dst.objects if o.name.startswith("R15_Rig"))
 for o in dst.objects:
     bpy.context.scene.collection.objects.link(o)
@@ -92,7 +92,9 @@ def bake(action_name, new_name):
 
 
 bake("EXP_SwordIdle", "SwordIdle")
-bake("EXP_SwordWalk", "SwordWalk")
+bake("EXP_SwordRun", "SwordRun")
+bake("EXP_SwordPlant", "SwordPlant")
+bake("EXP_SwordPull", "SwordPull")
 
 # The sword: same place as on our rig, turned to face +Y, riding on the RightHand deform bone.
 ours.animation_data.action = None
@@ -109,7 +111,7 @@ bpy.data.objects.remove(ours, do_unlink=True)
 xen.animation_data.action = bpy.data.actions["SwordIdle"]
 bpy.ops.wm.save_as_mainfile(filepath=os.path.join(ROOT, "blender", "r15_xen0.blend"))
 
-# Preview: idle from the front and the back, walk mid-stride.
+# Preview: idle from the front and the back, run mid-stride.
 sc = bpy.context.scene
 sc.render.engine = "BLENDER_WORKBENCH"
 sh = sc.display.shading
@@ -123,7 +125,7 @@ cam.data.lens = 42
 sc.render.resolution_x, sc.render.resolution_y = 600, 760
 tiles = []
 for i, (act, frame, at) in enumerate([("SwordIdle", 0, (0, 12, 3.6)), ("SwordIdle", 0, (7, -8, 5.5)),
-                                      ("SwordWalk", 7, (-6.5, 9.5, 4.2)), ("SwordWalk", 15, (-6.5, 9.5, 4.2))]):
+                                      ("SwordRun", 5, (-6.5, 9.5, 4.2)), ("SwordRun", 10, (-6.5, 9.5, 4.2))]):
     xen.animation_data.action = bpy.data.actions[act]
     sc.frame_set(frame)
     cam.location = at

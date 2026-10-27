@@ -1,23 +1,26 @@
 # 18_r15_anims.py: player sword animations on the R15 rig from 17_r15_rig.py (GAME-35).
 #   SwordIdle  (loop, 3 s): giant sword planted beside the right foot, right hand resting on the grip at shoulder
-#              height, left hand on the hip, chin down; breathes, shifts weight and glances aside, the sword stays put.
-#   SwordWalk  (loop, 1.0 s at walk speed 16): swaggering walk, sword stays across the shoulders, left arm swings,
-#              hips and shoulders counter-twist, slight lean back, body bobs on each step.
+#              height, left hand on the hip, chin up; breathes, shifts weight and glances aside, the sword stays put.
+#   SwordRun   (loop, 0.67 s at walk speed 16): leans into a run, left arm pumps, right hand drags the sword behind,
+#              its tip scraping the ground on its edge (solved per frame like the idle grip).
+#   SwordPlant (once, 0.7 s): run -> idle, lifts the sword high point down and slams it into the ground.
+#   SwordPull  (once, 0.5 s): idle -> run, yanks the sword out and swings it down behind into the drag.
 # Run headless (opens blender/r15_rig.blend, adds the actions, saves it back and renders previews):
 #   /Applications/Blender.app/Contents/MacOS/Blender -b goblin/blender/r15_rig.blend --python goblin/scripts/18_r15_anims.py
 #
 # Poses are written as rotations about the rest-pose WORLD axes at each joint (Blender: +X = the character's left,
 # -Y = forward, +Z = up), chained parent -> child, then converted to bone channels. So "Rx(-60) on RightUpperArm" means
-# "swing the right arm 60 degrees forward", whatever the bone's roll.
+# "swing the right arm 60 degrees forward", whatever the bone's roll; on the upright torso and head, +Rx tips forward.
 import itertools
 import math
 import os
 
 import bpy
-from mathutils import Euler, Matrix, Vector
+from mathutils import Euler, Matrix, Quaternion, Vector
 
 ROOT = "/Users/chinnaphat/Desktop/cedt/roblox/goblin"
 FPS = 30
+RIGHT_ARM = ["RightUpperArm", "RightLowerArm", "RightHand"]
 CHAIN = ["HumanoidRootPart", "LowerTorso", "UpperTorso", "Head", "RightUpperArm", "RightLowerArm", "RightHand",
          "LeftUpperArm", "LeftLowerArm", "LeftHand", "RightUpperLeg", "RightLowerLeg", "RightFoot",
          "LeftUpperLeg", "LeftLowerLeg", "LeftFoot"]
@@ -29,6 +32,7 @@ CARRY = {"RightUpperArm": (19.9, 239.6, 115.8), "RightLowerArm": (-129.0, 0, 110
 # Idle: the giant sword stands point down beside the right foot, grip at shoulder height under the right hand (the
 # blade is longer than the character is tall), left hand on the hip. The top leans in, the flat faces forward.
 PLANTED = Matrix.Translation((-2.1, -0.5, 3.0)) @ Matrix.Rotation(0.2, 4, "Y") @ Matrix.Rotation(math.pi, 4, "X")
+RAISED = Matrix.Translation((-1.6, -0.4, 5.2)) @ PLANTED.to_3x3().to_4x4()  # lifted high before the slam
 HIP_HAND = {"LeftUpperArm": (29.5, 0.3, -27.0), "LeftLowerArm": (-53.8, 0, -29.8)}
 
 def world_deltas(rig, rot, lift=0.0):
@@ -89,26 +93,64 @@ def ease(x):
     return x * x * (3 - 2 * x)
 
 
-def solve_grip(rig, rot, lift, sword_rest, guess):
-    """Right arm angles (degrees) that put the sword (rest matrix sword_rest, riding on RightHand) at PLANTED: grip on
-    the spot, blade along PLANTED's, flat facing forward if the arm allows. Levenberg-Marquardt, weakly pulled toward
-    guess. Returns (angles, grip position error)."""
+def sword_rest(rig):
+    """The sword's matrix (armature space) with the rig in rest pose; it rides on RightHand."""
+    rig.animation_data_create()
+    rig.animation_data.action = None
+    for pb in rig.pose.bones:
+        pb.matrix_basis = Matrix.Identity(4)
+    bpy.context.view_layer.update()
+    return rig.matrix_world.inverted() @ bpy.data.objects["Sword"].matrix_world
+
+
+def solve_grip(rig, rot, lift, rest, goal, guess=None, ref=None, pull=1e-5):
+    """Right arm angles (degrees) for which goal(sword matrix) -> residual list is ~0. The elbow is a hinge (RightLowerArm
+    turns about X only, and only forward), so the arm can't wring itself between frames. Levenberg-Marquardt from guess, pulled toward ref
+    (default: guess) with weight pull per degree; with no guess, tries several starts and keeps the least twisted arm
+    that reaches. Returns (angles, largest of the first 3 residuals)."""
     import numpy as np
-    names = ["RightUpperArm", "RightLowerArm", "RightHand"]
-    p0 = np.array([a for n in names for a in guess[n]], float)
+    up, low, hand = RIGHT_ARM
+    if guess is None:
+        tries = []
+        for ux, uz, lx in itertools.product((-90, -45, 0, 45), (-60, 0, 40), (-90, -30)):
+            a, err = solve_grip(rig, rot, lift, rest, goal, {up: (ux, 0, uz), low: (lx, 0, 0), hand: (0, 0, 0)})
+            bend = sum(Euler([math.radians(x) for x in v]).to_quaternion().angle for v in a.values())
+            tries.append((err > 0.01, bend, a))
+        return solve_grip(rig, rot, lift, rest, goal, min(tries, key=lambda t: t[:2])[2])
+
+    def quat(v):
+        return Euler([math.radians(x) for x in v]).to_quaternion()
+
+    base, ref = {k: quat(guess[k]) for k in (up, hand)}, ref or guess
+    ref_q = {k: quat(ref[k]) for k in (up, hand)}
+
+    def turn(v):  # rotation vector (degrees) -> quaternion
+        v = Vector(v)
+        return Quaternion(v.normalized(), math.radians(v.length)) if v.length > 1e-9 else Quaternion()
+
+    def unpack(p):  # p = upper arm and hand turns (world axes, on top of guess) and the elbow angle
+        q = {up: turn(p[0:3]) @ base[up], hand: turn(p[4:7]) @ base[hand]}
+        out = {k: tuple(math.degrees(x) for x in q[k].to_euler("XYZ", Euler([math.radians(a) for a in guess[k]])))
+               for k in q}
+        out[low] = (p[3], 0.0, 0.0)
+        return out, q
 
     def resid(p):
-        r = dict(rot)
-        r.update({n: tuple(p[3 * i:3 * i + 3]) for i, n in enumerate(names)})
-        s = world_deltas(rig, r, lift)["RightHand"] @ sword_rest
-        m = s.to_3x3()
-        out = list(s.translation - PLANTED.translation) + list(m.col[2] - PLANTED.to_3x3().col[2]) + [0.3 * m.col[0].y]
-        return np.concatenate([out, 1e-5 * (p - p0)])
+        arms, q = unpack(p)
+        off = []
+        for k in (up, hand):  # how far each joint is from ref, as a rotation vector in degrees
+            d = q[k] @ ref_q[k].inverted()
+            if d.w < 0:
+                d.negate()
+            off += list(d.axis * math.degrees(d.angle))
+        off.append(p[3] - ref[low][0])
+        return np.concatenate([goal(world_deltas(rig, dict(rot, **arms), lift)["RightHand"] @ rest),
+                               pull * np.array(off), [0.05 * max(0.0, p[3])]])  # the elbow only bends forward
 
-    p, lam = p0.copy(), 1e-3
+    p, lam = np.array([0, 0, 0, guess[low][0], 0, 0, 0], float), 1e-3
     r0 = resid(p)
     for _ in range(80):  # shrink the damping on a good step, grow it on a bad one
-        jac = np.array([(resid(p + d) - r0) / 0.1 for d in np.eye(9) * 0.1]).T
+        jac = np.array([(resid(p + d) - r0) / 0.1 for d in np.eye(7) * 0.1]).T
         jtj = jac.T @ jac
         q = p - np.linalg.solve(jtj + lam * np.diag(np.diag(jtj) + 1e-9), jac.T @ r0)
         rq = resid(q)
@@ -116,20 +158,19 @@ def solve_grip(rig, rot, lift, sword_rest, guess):
             p, r0, lam = q, rq, lam * 0.3
         else:
             lam *= 10
-    return {n: tuple(p[3 * i:3 * i + 3]) for i, n in enumerate(names)}, float(np.abs(r0[:3]).max())
+    return unpack(p)[0], float(np.abs(r0[:3]).max())
+
+
+def planted(s):  # grip on the spot, blade along PLANTED's, flat facing forward if the arm allows
+    m = s.to_3x3()
+    return list(s.translation - PLANTED.translation) + list(m.col[2] - PLANTED.to_3x3().col[2]) + [0.3 * m.col[0].y]
 
 
 def idle(rig):
     n = 3 * FPS
-    sword = bpy.data.objects["Sword"]
-    rig.animation_data_create()
-    rig.animation_data.action = None
-    for pb in rig.pose.bones:
-        pb.matrix_basis = Matrix.Identity(4)
-    bpy.context.view_layer.update()
-    sword_rest = rig.matrix_world.inverted() @ sword.matrix_world
+    rest = sword_rest(rig)
     new_action(rig, "EXP_SwordIdle", n)
-    arms, worst = None, 0.0
+    arms, worst, first = None, 0.0, None
     for f in range(0, n + 1, 2):
         ph = 2 * math.pi * f / n
         w = math.sin(ph)  # weight shift, once per loop
@@ -140,52 +181,168 @@ def idle(rig):
         rot["LeftUpperArm"] = (29.5, 0.3 + 3 * b, -27.0)  # hip elbow flares with the breath
         rot.update({
             "LowerTorso": (0, hip, 0),
-            "UpperTorso": (3 + 2.5 * b, -1.6 * hip, -6 * look),  # leans on the sword, chest rises with the breath
-            "Head": (-8 - 1.5 * b, 3, -20 * look),  # chin down, staring ahead, glances aside
+            "UpperTorso": (3 + 2.5 * b, -1.6 * hip, -6 * look),  # leans in a little, chest rises with the breath
+            "Head": (-8 - 1.5 * b, 3, -20 * look),  # chin up, staring ahead, glances aside
             "RightUpperLeg": (0, 12 - hip, 0),  # wide stance
             "LeftUpperLeg": (0, -12 - hip, 0),
             "RightFoot": (0, -12 + hip, 0),
             "LeftFoot": (0, 12 + hip, 0),
         })
         lift = -0.12 + 0.02 * b
-        if arms is None:  # first frame: try several starts, keep the least twisted arm that reaches
-            tries = []
-            for ux, uz, lx in itertools.product((-90, -45, 0), (-60, 0, 40), (-90, -30)):
-                guess = {"RightUpperArm": (ux, 0, uz), "RightLowerArm": (lx, 0, 0), "RightHand": (0, 0, 0)}
-                a, err = solve_grip(rig, rot, lift, sword_rest, guess)
-                bend = sum(Euler([math.radians(x) for x in v]).to_quaternion().angle for v in a.values())
-                tries.append((err > 0.01, bend, a))
-            arms = min(tries, key=lambda t: t[:2])[2]
-        arms, err = solve_grip(rig, rot, lift, sword_rest, arms)
+        arms, err = solve_grip(rig, rot, lift, rest, planted, arms)
         worst = max(worst, err)
         rot.update(arms)
         key(rig, f, rot, lift)
+        first = first or (rot, lift, PLANTED)
     print("SwordIdle: sword drifts at most %.3f studs from the planted spot" % worst)
+    return first
 
 
-def walk(rig):
-    n = FPS  # one full cycle (two steps) per second
-    new_action(rig, "EXP_SwordWalk", n)
+def run(rig):
+    n = 20  # one full cycle (two strides) in 0.67 s
+    rest = sword_rest(rig)
+    old = bpy.data.actions.get("EXP_SwordWalk")
+    if old:
+        bpy.data.actions.remove(old)
+    new_action(rig, "EXP_SwordRun", n)
+    arms, worst, first = None, 0.0, None
     for f in range(0, n + 1):
         ph = 2 * math.pi * f / n
         s, c = math.sin(ph), math.cos(ph)
-        rot = dict(CARRY)
-        rot["RightUpperArm"] = (19.9 + 3 * math.sin(2 * ph), 239.6, 115.8)
-        rot.update({
-            # hips twist with the legs, shoulders counter-twist and lean back: the swagger
-            "LowerTorso": (0, 3 * s, 7 * s),
-            "UpperTorso": (5, -2 * s, -12 * s),
-            "Head": (2 * math.cos(2 * ph), 0, 5 * s),
-            "LeftUpperArm": (26 * s, -9, 0),
-            "LeftLowerArm": (-16 - 12 * max(0.0, -s), 0, 0),
-            "LeftUpperLeg": (-30 * s, 0, 0),
-            "RightUpperLeg": (30 * s, 0, 0),
-            "LeftLowerLeg": (8 + 42 * max(0.0, c), 0, 0),
-            "RightLowerLeg": (8 + 42 * max(0.0, -c), 0, 0),
-            "LeftFoot": (-0.35 * (8 + 42 * max(0.0, c)) + 12 * s, 0, 0),
-            "RightFoot": (-0.35 * (8 + 42 * max(0.0, -c)) - 12 * s, 0, 0),
-        })
-        key(rig, f, rot, lift=0.09 * math.cos(2 * ph) - 0.03)
+        knee_l, knee_r = 15 + 85 * max(0.0, c), 15 + 85 * max(0.0, -c)  # the swinging leg folds up
+        rot = {
+            # leans into the run, hips twist with the legs, shoulders counter-twist
+            "LowerTorso": (10, 0, 10 * s),
+            "UpperTorso": (14, 3, -14 * s),
+            "Head": (-16, 0, 6 * s),  # eyes stay on the road
+            "LeftUpperArm": (55 * s, -12, 0),  # free arm pumps against the left leg
+            "LeftLowerArm": (-70 - 25 * max(0.0, -s), 0, 0),
+            "LeftUpperLeg": (-10 - 45 * s, 0, 0),
+            "RightUpperLeg": (-10 + 45 * s, 0, 0),
+            "LeftLowerLeg": (knee_l, 0, 0),
+            "RightLowerLeg": (knee_r, 0, 0),
+            "LeftFoot": (-0.35 * knee_l + 15 * s, 0, 0),
+            "RightFoot": (-0.35 * knee_r - 15 * s, 0, 0),
+        }
+        lift = -0.3 + 0.15 * math.cos(2 * ph)
+        grip = Vector((-1.7, 1.0 + 0.15 * s, 2.0 + 0.5 * lift))
+
+        def drag(m):  # tip scrapes the ground behind on its edge; the hand follows the body loosely
+            tip = m @ Vector((0, 0, 5.05))
+            return [0.0, 0.0, tip.z + 0.05] + [0.3 * x for x in m.translation - grip] + \
+                [0.3 * m.to_3x3().col[0].x, 0.2 * (tip.y - 5.4), 0.2 * (tip.x + 2.3)]
+
+        arms, err = solve_grip(rig, rot, lift, rest, drag, arms)
+        worst = max(worst, err)
+        rot.update(arms)
+        key(rig, f, rot, lift)
+        first = first or (rot, lift, world_deltas(rig, rot, lift)["RightHand"] @ rest)
+    print("SwordRun: sword tip off the ground by at most %.3f studs" % worst)
+    return first
+
+
+def blend(a, b, t):
+    """Pose dicts a -> b at t (missing bones are (0, 0, 0))."""
+    return {k: tuple(x + (y - x) * t for x, y in zip(a.get(k, (0, 0, 0)), b.get(k, (0, 0, 0)))) for k in set(a) | set(b)}
+
+
+def mlerp(a, b, t, arc=0.0):
+    """Sword matrix a -> b at t. The blade swings straight from one direction to the other (a quaternion slerp could
+    swing the tip round the body while it rolls the flat); the grip rises by arc mid-way."""
+    z = a.col[2].xyz.slerp(b.col[2].xyz, t)
+    bx = b.col[0].xyz if a.col[0].xyz.dot(b.col[0].xyz) >= 0 else -b.col[0].xyz  # either face of the flat will do
+    x = a.col[0].xyz.lerp(bx, t)
+    x = (x - x.dot(z) * z).normalized()
+    m = Matrix((x, z.cross(x), z)).transposed().to_4x4()
+    m.translation = a.translation.lerp(b.translation, t) + Vector((0, 0, arc * math.sin(math.pi * t)))
+    return m
+
+
+def bump(f, at, width):
+    return math.exp(-((f - at) / width) ** 2)
+
+
+def hold(target):  # grip on target, blade along it, flat (either face) as close as the arm allows
+    def goal(m):
+        r, tr = m.to_3x3(), target.to_3x3()
+        return list(m.translation - target.translation) + list(r.col[2] - tr.col[2]) + \
+            [0.3 * x for x in r.col[0].cross(tr.col[0])]
+    return goal
+
+
+def slerp_arm(a, b, t, near):
+    """Right arm angles a -> b at t, as Eulers close to near (so the solver's pull toward them never wraps)."""
+    out = {}
+    for k in RIGHT_ARM:
+        qa, qb = (Euler([math.radians(x) for x in v]).to_quaternion() for v in (a[k], b[k]))
+        if qa.dot(qb) < 0:  # the short way round
+            qb.negate()
+        out[k] = tuple(math.degrees(x) for x in qa.slerp(qb, t).to_euler("XYZ", Euler([math.radians(x) for x in near[k]])))
+    return out
+
+
+def transition(rig, name, start, end, segments, extra):
+    """One-shot from start to end (each (pose, lift, sword matrix) from idle() / run()). The sword moves through
+    segments [(frames, sword matrix at the segment's end, shape(t), grip arc)]. The right arm is solved at each segment
+    end, eased between those, and pulled onto the sword's path, so it lands on the next loop's elbow and wrist without
+    flipping on the way. The body blends with an ease, plus extra(f) -> (pose offsets, lift offset)."""
+    rest = sword_rest(rig)
+    n = sum(seg[0] for seg in segments)
+    new_action(rig, name, n)
+
+    def body(f):
+        dr, dl = extra(f)
+        t = ease(f / n)
+        rot = blend(start[0], end[0], t)
+        rot = {k: tuple(x + y for x, y in zip(rot.get(k, (0, 0, 0)), dr.get(k, (0, 0, 0)))) for k in set(rot) | set(dr)}
+        return rot, start[1] + (end[1] - start[1]) * t + dl
+
+    ends = [(start[2], {k: start[0][k] for k in RIGHT_ARM}), (end[2], {k: end[0][k] for k in RIGHT_ARM})]
+    keys, f = [ends[0]], 0
+    for frames, target, _, _ in segments:
+        f += frames
+        same = [arms for m, arms in ends if m is target]
+        # solve from the end whose blade points most alike, so the hand keeps the same grip on the way
+        near = min(ends, key=lambda e: (e[0].col[2].xyz - target.col[2].xyz).length)[1]
+        keys.append((target, same[0] if same else solve_grip(rig, *body(f), rest, hold(target), near)[0]))
+    arms, worst, f = keys[0][1], 0.0, 0
+    rot, lift = body(0)
+    key(rig, 0, dict(rot, **arms), lift)
+    for i, (frames, target, shape, arc) in enumerate(segments):
+        for j in range(1, frames + 1):
+            f += 1
+            t = shape(j / frames)
+            rot, lift = body(f)
+            ref = slerp_arm(keys[i][1], keys[i + 1][1], t, arms)
+            arms, err = solve_grip(rig, rot, lift, rest, hold(mlerp(keys[i][0], target, t, arc)), ref, ref, 1e-2)
+            worst = max(worst, err)
+            key(rig, f, dict(rot, **arms), lift)
+    print("%s: grip off its path by at most %.3f studs" % (name, worst))
+
+
+def plant(rig, run0, idle0):
+    """Run -> idle (0.7 s): lifts the sword high, point down, and slams it into the ground; the body dips on impact."""
+    def extra(f):  # leans back as it lifts, crunches forward on impact
+        up, hit = bump(f, 8, 3), bump(f, 13, 2.5)
+        return {"UpperTorso": (-12 * up + 12 * hit, 0, 10 * up), "Head": (6 * up - 6 * hit, 0, 0),
+                "LowerTorso": (6 * hit, 0, 0)}, -0.25 * hit
+
+    transition(rig, "EXP_SwordPlant", run0, idle0, [
+        (9, RAISED, ease, 0.8),
+        (3, PLANTED, lambda t: t * t, 0),  # accelerates into the ground
+        (9, PLANTED, ease, 0),
+    ], extra)
+
+
+def pull(rig, idle0, run0):
+    """Idle -> run (0.5 s): yanks the sword up out of the ground, then swings it down behind into the drag."""
+    def extra(f):  # crouches to pull, leans back as the blade comes free
+        return {"UpperTorso": (-10 * bump(f, 5, 2.5), 0, 0)}, -0.15 * bump(f, 1.5, 1.5)
+
+    transition(rig, "EXP_SwordPull", idle0, run0, [
+        (5, RAISED, lambda t: 1 - (1 - t) ** 2, 0),  # fast out of the ground
+        (10, run0[2], ease, 0.8),
+    ], extra)
 
 
 def render(rig, path, shots):
@@ -230,11 +387,13 @@ def render(rig, path, shots):
 
 FRONT, SIDE, BACK34, FRONT34 = (0, -12, 3.6), (-12, 0, 3.6), (-7, 8, 5.5), (6.5, -9.5, 4.2)
 rig = bpy.data.objects["R15_Rig"]
-idle(rig)
-walk(rig)
+idle0 = idle(rig)
+run0 = run(rig)
+plant(rig, run0, idle0)
+pull(rig, idle0, run0)
 bpy.context.scene.render.fps = FPS
 bpy.ops.wm.save_mainfile()
 render(rig, os.path.join(ROOT, "renders", "sword_carry_anims.png"),
        [("EXP_SwordIdle", 0, FRONT), ("EXP_SwordIdle", 0, SIDE), ("EXP_SwordIdle", 0, BACK34),
-        ("EXP_SwordWalk", 0, FRONT34), ("EXP_SwordWalk", 7, FRONT34), ("EXP_SwordWalk", 15, FRONT34)])
+        ("EXP_SwordRun", 0, FRONT34), ("EXP_SwordRun", 5, FRONT34), ("EXP_SwordRun", 10, FRONT34)])
 print("actions:", [a.name for a in bpy.data.actions])
