@@ -20,6 +20,11 @@ Config.Textures = {
 	Smoke = "rbxassetid://78889473112923", -- vfx_smoke.png  (death smoke)
 	Ring = "rbxassetid://89996613812409", -- vfx_ring.png   (heavy-attack telegraph, slam shockwave)
 	Pixel = "rbxassetid://119273301334400", -- vfx_pixel.png  (death dissolve cubes)
+	-- Fire Ring (GAME-41), from the VFX Studio plugin library
+	RingFlame = "rbxassetid://13504062786", -- "FlareFlipbook", white flame, 2x2 flipbook (tinted in code)
+	RingSmoke = "rbxassetid://291880914", -- "Fire1", smoke puff
+	RingCircle = "rbxassetid://691179887", -- magic circle, the Lv3+ ground glyph
+	RingBurst = "rbxassetid://15811794808", -- "Fire Magic", burn sparks on the Lv4+ pulse
 }
 
 -- Published from ServerStorage.GoblinAnims (09_gen_anims.py) via Save to Roblox, titled Goblin_<Name>.

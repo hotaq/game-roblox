@@ -824,33 +824,149 @@ Shared:WaitForChild("HordeFx").OnClientEvent:Connect(function(kind: string, ...)
 	end
 end)
 
--- Fire Ring: a flat glowing disc under every player whose loadout has it.
+-- Fire Ring (GAME-41): a faint disc plus fire that builds up by level, like the sword's SLASH_TIERS:
+--   Lv1 flames along the edge, Lv2 + embers rising, Lv3 + a slowly turning fire circle on the ground,
+--   Lv4 + a burn pulse each damage tick (flare at the edge, smoke and sparks inside), Lv5 taller and denser,
+--   Lv6 = the evolved Inferno Halo: red fire and a second ring of flames inside.
+-- The pulse runs on the local clock at the level's Interval; it shows the rhythm, it isn't synced to server ticks.
 local RING = Config.Weapons.ring
-local rings = {} -- Player -> part
+local TEX = Config.Textures
+local rings = {} -- Player or showcase key -> ring fx
+local function seq(a: number, b: number?): NumberSequence
+	return NumberSequence.new(a, b or a)
+end
+local function emitter(parent: Instance, props): ParticleEmitter
+	local e = Instance.new("ParticleEmitter")
+	e.LightEmission, e.Rate = 1, 0
+	for k, v in props do
+		e[k] = v
+	end
+	e.Parent = parent
+	return e
+end
+-- Flames rising off a flat disc host (Shape Disc; ShapePartial ~0.08 keeps them on the rim, 1 fills it).
+local function flames(host: BasePart, rim: number, size: number, speed: NumberRange, life: NumberRange, color: ColorSequence)
+	return emitter(host, {
+		Texture = TEX.RingFlame, FlipbookLayout = Enum.ParticleFlipbookLayout.Grid2x2, FlipbookMode = Enum.ParticleFlipbookMode.OneShot,
+		Shape = Enum.ParticleEmitterShape.Disc, ShapePartial = rim, EmissionDirection = Enum.NormalId.Top,
+		Speed = speed, Lifetime = life, Size = seq(size, size * 0.3), Color = color,
+		Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.15), NumberSequenceKeypoint.new(0.7, 0.4), NumberSequenceKeypoint.new(1, 1) }),
+	})
+end
+local function ringFx(tier: number)
+	local evo = tier >= 6
+	local hot = if evo then Color3.fromRGB(255, 45, 35) else Color3.fromRGB(255, 140, 40)
+	local core = if evo then Color3.fromRGB(255, 190, 110) else Color3.fromRGB(255, 235, 130)
+	local fire = ColorSequence.new(core, hot)
+	local fx = { tier = tier, r = 0, nextPulse = 0, interval = Config.weaponStats("ring", tier).Interval }
+	fx.disc = fxPart(Vector3.one, if evo then Color3.fromRGB(170, 25, 20) else RING.Color, Enum.PartType.Cylinder)
+	fx.disc.Transparency = 0.88
+	fx.host = fxPart(Vector3.one, hot)
+	fx.host.Transparency = 1
+	fx.flames = flames(fx.host, 0.08, if tier >= 5 then 2.6 else 1.7, NumberRange.new(1.5, 3), NumberRange.new(0.45, 0.7), fire)
+	if tier >= 2 then
+		fx.embers = emitter(fx.host, {
+			Texture = TEX.Spark, Shape = Enum.ParticleEmitterShape.Disc, ShapePartial = 1, EmissionDirection = Enum.NormalId.Top,
+			Speed = NumberRange.new(3, 6), Acceleration = Vector3.new(0, 2, 0), SpreadAngle = Vector2.new(15, 15),
+			Lifetime = NumberRange.new(0.8, 1.5), Size = seq(0.35, 0), Color = fire,
+		})
+	end
+	if tier >= 3 then -- one flat particle that lives for ages and turns; LockedToPart keeps it under the player
+		local center = Instance.new("Attachment")
+		center.Parent = fx.host
+		fx.circle = emitter(center, {
+			Texture = TEX.RingCircle, Orientation = Enum.ParticleOrientation.VelocityPerpendicular,
+			EmissionDirection = Enum.NormalId.Top, Speed = NumberRange.new(0.01), Lifetime = NumberRange.new(10000),
+			LockedToPart = true, RotSpeed = NumberRange.new(if evo then -35 else 20), Color = ColorSequence.new(hot),
+			Transparency = seq(0.3),
+		})
+		fx.circle:Emit(1)
+	end
+	if tier >= 4 then
+		fx.pulse = flames(fx.host, 0.08, 3.2, NumberRange.new(5, 8), NumberRange.new(0.3, 0.45), fire)
+		fx.smoke = emitter(fx.host, {
+			Texture = TEX.RingSmoke, Shape = Enum.ParticleEmitterShape.Disc, ShapePartial = 1, EmissionDirection = Enum.NormalId.Top,
+			Speed = NumberRange.new(2, 3), Lifetime = NumberRange.new(0.8, 1.2), Size = seq(1.5, 3.5), LightEmission = 0,
+			Color = ColorSequence.new(Color3.fromRGB(70, 45, 40)), Transparency = seq(0.45, 1), Rotation = NumberRange.new(0, 360),
+		})
+		fx.sparks = emitter(fx.host, {
+			Texture = TEX.RingBurst, Shape = Enum.ParticleEmitterShape.Disc, ShapePartial = 1, EmissionDirection = Enum.NormalId.Top,
+			Speed = NumberRange.new(0.5), Lifetime = NumberRange.new(0.25, 0.35), Size = seq(2.5, 0.5), Color = fire,
+			Rotation = NumberRange.new(0, 360),
+		})
+	end
+	if evo then
+		fx.inner = fxPart(Vector3.one, hot)
+		fx.inner.Transparency = 1
+		fx.innerFlames = flames(fx.inner, 0.15, 2, NumberRange.new(2, 4), NumberRange.new(0.4, 0.6), fire)
+	end
+	return fx
+end
+local function sizeRing(fx, r: number)
+	fx.r = r
+	fx.disc.Size = Vector3.new(0.15, r * 2, r * 2)
+	fx.host.Size = Vector3.new(r * 2, 0.2, r * 2)
+	local edge = 2 * math.pi * r
+	fx.flames.Rate = edge * (if fx.tier >= 5 then 2 else 1.3)
+	if fx.embers then
+		fx.embers.Rate = r * (if fx.tier >= 5 then 3 else 1.5)
+	end
+	if fx.circle then
+		fx.circle.Size = seq(r * 1.05) -- a particle's Size reads as about its radius; this sits just past the rim flames
+	end
+	if fx.inner then
+		fx.inner.Size = Vector3.new(r, 0.2, r)
+		fx.innerFlames.Rate = edge * 0.7
+	end
+end
+local function dropRing(key)
+	local fx = rings[key]
+	if fx then
+		fx.disc:Destroy()
+		fx.host:Destroy()
+		if fx.inner then
+			fx.inner:Destroy()
+		end
+		rings[key] = nil
+	end
+end
 Players.PlayerRemoving:Connect(function(player)
 	clearRockView(player)
-	local ring = rings[player]
-	if ring then ring:Destroy(); rings[player] = nil end
+	dropRing(player)
 	swingSide[player] = nil
 end)
-local function ringRadius(player: Player): number?
+local function ringLevel(player: Player): (number?, number?)
 	local lv = tonumber(string.match(player:GetAttribute("RunLoadout") or "", "ring=(%d)"))
-	return lv and Config.weaponStats("ring", lv).Radius * (1 + (player:GetAttribute("RunArea") or 0))
+	return lv, lv and Config.weaponStats("ring", lv).Radius * (1 + (player:GetAttribute("RunArea") or 0))
 end
--- placeRing(key, pos, r): keeps key's ring disc at pos (ground level) with radius r; no r or pos removes it.
-local function placeRing(key, pos: Vector3?, r: number?)
-	local ring = rings[key]
-	if r and pos then
-		if not ring then
-			ring = fxPart(Vector3.one, RING.Color, Enum.PartType.Cylinder)
-			ring.Transparency = 0.75
-			rings[key] = ring
-		end
-		ring.Size = Vector3.new(0.15, r * 2, r * 2)
-		ring.CFrame = CFrame.new(pos.X, 0.1, pos.Z) * CFrame.Angles(0, 0, math.rad(90))
-	elseif ring then
-		ring:Destroy()
-		rings[key] = nil
+-- placeRing(key, pos, r, tier): keeps key's ring at pos (ground level) with radius r; no pos or r removes it.
+local function placeRing(key, pos: Vector3?, r: number?, tier: number?)
+	local fx = rings[key]
+	if fx and not (pos and r and fx.tier == tier) then
+		dropRing(key)
+		fx = nil
+	end
+	if not (pos and r and tier) then
+		return
+	end
+	if not fx then
+		fx = ringFx(tier)
+		rings[key] = fx
+	end
+	if fx.r ~= r then
+		sizeRing(fx, r)
+	end
+	fx.disc.CFrame = CFrame.new(pos.X, 0.1, pos.Z) * CFrame.Angles(0, 0, math.rad(90))
+	fx.host.CFrame = CFrame.new(pos.X, 0.2, pos.Z)
+	if fx.inner then
+		fx.inner.CFrame = fx.host.CFrame
+	end
+	local now = os.clock()
+	if fx.pulse and now >= fx.nextPulse then
+		fx.nextPulse = now + fx.interval
+		fx.pulse:Emit(math.round(r * 2))
+		fx.smoke:Emit(3)
+		fx.sparks:Emit(4)
 	end
 end
 -- Fire Ring showcase (SwordFXZone Ring1..Ring6, Ring6 = evolved): drawn like a player's ring while you're near.
@@ -911,14 +1027,15 @@ RunService.RenderStepped:Connect(function(dt)
 	end
 	for _, player in Players:GetPlayers() do
 		local root = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
-		placeRing(player, root and root.Position, ringRadius(player))
+		local lv, r = ringLevel(player)
+		placeRing(player, root and root.Position, r, lv)
 	end
 	local myRoot = Players.LocalPlayer.Character and Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
 	local showZone = Workspace:FindFirstChild("SwordFXZone")
 	for n, r in RING_SHOW do
 		local s = showZone and showZone:FindFirstChild("Ring" .. n)
 		local near = s and myRoot and (myRoot.Position - s.Position).Magnitude < 150
-		placeRing("show" .. n, if near then s.Position else nil, r)
+		placeRing("show" .. n, if near then s.Position else nil, r, n)
 	end
 
 	local a = 1 - math.exp(-dt * SMOOTH)
@@ -941,7 +1058,7 @@ if RunService:IsStudio() and Shared:GetAttribute("GAME25Active") then
 	probe.OnInvoke = function()
 		local function size(t) local n=0; for _ in t do n+=1 end; return n end
 		local orphanRings, orphanSides, visibleNumbers = 0, 0, 0
-		for p in rings do if p.Parent ~= Players then orphanRings+=1 end end
+		for p in rings do if typeof(p) == "Instance" and p.Parent ~= Players then orphanRings+=1 end end
 		for p in swingSide do if p:IsA("Player") and p.Parent ~= Players then orphanSides+=1 end end
 		for _, d in folder:GetDescendants() do
 			if d:IsA("TextLabel") and d.TextTransparency < 1 then visibleNumbers+=1 end
