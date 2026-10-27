@@ -3,6 +3,9 @@
 -- "rbxassetid://0" = REPLACE after uploading: Asset Manager > right-click the asset > Copy Asset ID.
 local Config = {}
 
+-- GAME-29 lab only: never enabled in published servers. Leave false until evaluated.
+Config.ObjectiveTrial = { Enabled=false, Trigger=30, Window=35, Hold=8, Radius=8, Decay=1 }
+
 Config.Tag = "Goblin" -- CollectionService tag on every goblin model
 
 -- Uploaded 2026-10-25 from goblin/textures/vfx/*.png. Re-upload + replace if you edit the PNGs.

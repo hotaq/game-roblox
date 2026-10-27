@@ -401,6 +401,106 @@ end
 
 ---------------------------------------------------------------- weapons
 
+-- GAME-29 optional objective prototype. No marker, attributes or rewards when disabled.
+local objectiveEnabled=RunService:IsStudio() and Config.ObjectiveTrial.Enabled
+local objectiveState,objectiveSerial=nil,0
+local function objectiveEligible(player,run)
+	local center,half=arena()
+	local root=player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+	return root and runs[player]==run and player.Parent==Players and run.hum.Health>0
+		and run.hum.Parent==player.Character and center
+		and math.abs(root.Position.X-center.X)<=half+2 and math.abs(root.Position.Z-center.Z)<=half+2
+end
+local function objectiveReset()
+	if objectiveState and objectiveState.marker then objectiveState.marker:Destroy() end
+	objectiveState=nil
+	Shared:SetAttribute("ObjectiveTrialState",nil)
+end
+local function objectiveFinish(state,phase)
+	if state~=objectiveState or (state.phase~="active" and state.phase~="waiting") then return end
+	if phase=="success" and state.phase~="active" then return end
+	state.phase=phase -- consume event before any recipient/UI notification
+	local recipients={}
+	if phase=="success" then
+		for player,run in state.roster do
+			if objectiveEligible(player,run) and run.objectiveRewardId~=state.id then
+				run.objectiveRewardId=state.id
+				run.objectiveRewards=(run.objectiveRewards or 0)+1
+				run.pending+=1
+				table.insert(recipients,run)
+			end
+		end
+	end
+	state.awarded=#recipients;table.clear(state.roster)
+	if state.marker then state.marker:Destroy();state.marker=nil;state.label=nil end
+	Shared:SetAttribute("ObjectiveTrialState",phase)
+	for _,run in recipients do if not run.cards then offer(run) end end
+end
+local function objectiveMarker(state)
+	local c=Config.ObjectiveTrial
+	local p=Instance.new("Part");p.Name="OptionalHoldTrial"
+	p.Shape=Enum.PartType.Cylinder;p.Size=Vector3.new(.15,c.Radius*2,c.Radius*2)
+	p.CFrame=CFrame.new(state.position)*CFrame.Angles(0,0,math.pi/2)
+	p.Anchored=true;p.CanCollide=false;p.CanTouch=false;p.CanQuery=false;p.CastShadow=false
+	p.Material=Enum.Material.Plastic;p.Color=Color3.fromRGB(210,168,70);p.Transparency=.5
+	local gui=Instance.new("BillboardGui");gui.Size=UDim2.fromOffset(280,70);gui.StudsOffset=Vector3.new(0,4,0);gui.AlwaysOnTop=true;gui.Parent=p
+	local label=Instance.new("TextLabel");label.Size=UDim2.fromScale(1,1);label.BackgroundTransparency=1
+	label.TextColor3=Color3.new(1,1,1);label.TextStrokeTransparency=0;label.Font=Enum.Font.GothamBold;label.TextSize=17;label.Parent=gui
+	p.Parent=Workspace;state.marker,state.label=p,label
+end
+local function objectiveTick(dt,paused)
+	if not objectiveEnabled then if objectiveState then objectiveReset() end;return end
+	if next(runs)==nil then if objectiveState then objectiveReset() end;return end
+	local c=Config.ObjectiveTrial
+	local state=objectiveState
+	if not state then
+		objectiveSerial+=1
+		state={id=objectiveSerial,phase="waiting",age=0,elapsed=0,progress=0,roster={},awarded=0,arena=Workspace:GetAttribute("Arena")}
+		objectiveState=state
+	end
+	if state.phase~="waiting" and state.phase~="active" then return end
+	if state.arena~=Workspace:GetAttribute("Arena") then objectiveFinish(state,"cancelled");return end
+	if state.phase=="active" then
+		for player,run in state.roster do
+			if runs[player]~=run or player.Parent~=Players or run.hum.Health<=0 or player.Character~=run.hum.Parent then state.roster[player]=nil end
+		end
+		if next(state.roster)==nil then objectiveFinish(state,"cancelled");return end
+	end
+	if paused then return end
+	if state.phase=="waiting" then
+		local present=false
+		for player,run in runs do if objectiveEligible(player,run) then present=true;break end end
+		if not present then return end
+		state.age+=dt
+		if state.age<c.Trigger then return end
+		for player,run in runs do if objectiveEligible(player,run) then state.roster[player]=run end end
+		local center,half,spawn=arena();local direction=center-spawn
+		if direction.Magnitude<.01 then direction=Vector3.new(0,0,-1) else direction=direction.Unit end
+		local point=spawn+direction*24
+		state.position=Vector3.new(math.clamp(point.X,center.X-half+c.Radius,center.X+half-c.Radius),center.Y+.15,math.clamp(point.Z,center.Z-half+c.Radius,center.Z+half-c.Radius))
+		state.phase="active";objectiveMarker(state);Shared:SetAttribute("ObjectiveTrialState","active")
+		return
+	end
+	local holding=false
+	for player,run in state.roster do
+		if objectiveEligible(player,run) then
+			local p=player.Character.HumanoidRootPart.Position
+			if (p.X-state.position.X)^2+(p.Z-state.position.Z)^2<=c.Radius^2 and math.abs(p.Y-state.position.Y)<=8 then holding=true;break end
+		end
+	end
+	-- Deadline and hold share active simulation time. A final valid tick may complete at the deadline.
+	local elapsed=math.min(dt,math.max(0,c.Window-state.elapsed))
+	state.elapsed+=elapsed
+	state.progress=math.clamp(state.progress+(if holding then elapsed else -elapsed*c.Decay),0,c.Hold)
+	if state.progress>=c.Hold-1e-6 then objectiveFinish(state,"success")
+	elseif state.elapsed>=c.Window-1e-6 then objectiveFinish(state,"expired")
+	elseif state.label then
+		state.label.Text=("OPTIONAL: HOLD %.1f / %ds\nTEAM UPGRADE  |  %ds left"):format(state.progress,c.Hold,math.ceil(c.Window-state.elapsed))
+		state.marker.Color=if holding then Color3.fromRGB(100,182,112) else Color3.fromRGB(210,168,70)
+	end
+end
+-- END GAME-29 objective prototype
+
 local hitLog = {} -- Player -> {slot, damage, ...} for floating numbers, sent with the snapshot; +32768 = it stunned
 local hitVersions = {} -- Player -> incarnation per hit pair
 local shots = {} -- live fireballs
@@ -748,6 +848,7 @@ local function step(dt: number)
 	-- Survivors-style pause: nothing moves or hurts while someone is picking a card.
 	for _, run in runs do
 		if run.cards then
+			objectiveTick(0,true)
 			return
 		end
 	end
@@ -918,6 +1019,7 @@ local function step(dt: number)
 		for id in gems do table.insert(clearedGems, id) end
 		table.clear(gems)
 	end
+	objectiveTick(dt,false) -- death/leave eligibility is evaluated after this tick's damage
 end
 
 local function sendBroadcast(): number
@@ -1138,6 +1240,7 @@ end
 local benchmarkArgs, benchmarkSample
 local axeTestArgs
 local rocksTestArgs
+local objectiveTestArgs
 local cleanupTestArgs
 local networkTestArgs, networkManual
 if RunService:IsStudio() then
@@ -1151,6 +1254,9 @@ if RunService:IsStudio() then
 	end
 	if ok and typeof(args)=="table" and args.name=="GAME12Rocks" then
 		rocksTestArgs=args;Shared:SetAttribute("GAME12RocksActive",true)
+	end
+	if ok and typeof(args)=="table" and args.name=="GAME29Objective" then
+		objectiveTestArgs=args;objectiveEnabled=true;Shared:SetAttribute("GAME29Active",true)
 	end
 	if ok and typeof(args) == "table" and args.name == "GAME25Cleanup" then
 		cleanupTestArgs = args
@@ -1171,7 +1277,7 @@ RunService.Heartbeat:Connect(function(dt)
 	while simAcc >= 1 / H.SimRate do
 		simAcc -= 1 / H.SimRate
 		local t0 = os.clock()
-		if not axeTestArgs and not rocksTestArgs and not cleanupTestArgs and not networkManual then step(1 / H.SimRate) end -- named fixtures drive exact steps
+		if not axeTestArgs and not rocksTestArgs and not objectiveTestArgs and not cleanupTestArgs and not networkManual then step(1 / H.SimRate) end -- named fixtures drive exact steps
 		local elapsed = os.clock() - t0
 		if networkSample then table.insert(networkSample.step,elapsed*1000) end
 		simTime += elapsed
@@ -1696,6 +1802,125 @@ if cleanupTestArgs then
 		end,debug.traceback)
 		report.ok,report.error=ok,if ok then nil else tostring(err)
 		finish()
+	end)
+end
+
+-- GAME-29 opt-in functional acceptance and scripted movement trials.
+if objectiveTestArgs then
+	local sts=game:GetService("StudioTestService")
+	local bridge=Instance.new("RemoteFunction");bridge.Name,bridge.Parent="GAME29Test",Shared
+	local ready,checks,errors={},{},{}
+	bridge.OnServerInvoke=function(p)ready[p]=true;return true end
+	game:GetService("ScriptContext").Error:Connect(function(message,_,source)
+		if source and source.Name:find("Goblin",1,true) then table.insert(errors,message) end
+	end)
+	local finished=false
+	local function finish(r)if not finished then finished=true;sts:EndTest(r)end end
+	task.delay(300,function()finish({ok=false,error="GAME29 deadline",checks=checks,errors=errors})end)
+	local function check(v,label)assert(v,label);table.insert(checks,label)end
+	local function waitFor(fn,label)
+		local stop=os.clock()+45
+		repeat if fn()then return end;task.wait(.05)until os.clock()>stop
+		error("GAME29 timeout: "..label)
+	end
+	task.spawn(function()
+		local report={checks=checks,errors=errors,trials={},clients=objectiveTestArgs.clients,kind="scripted behavioral trials; not a human fun survey"}
+		local ok,err=xpcall(function()
+			waitFor(function()
+				if #Players:GetPlayers()~=objectiveTestArgs.clients then return false end
+				for _,p in Players:GetPlayers()do if not ready[p]then return false end end;return true
+			end,"participants")
+			Workspace:SetAttribute("Arena","Map1");override=0
+			local center=assert(arena());local zone=center+Vector3.new(0,4,94)
+			local players=Players:GetPlayers();local a,b=players[1],players[2]
+			local function prepare(p,position)
+				if runs[p]then endRun(p)end
+				local old=p.Character;p:LoadCharacter()
+				waitFor(function()return p.Character~=old and p.Character and p.Character:FindFirstChild("HumanoidRootPart")end,"character")
+				local root,hum=p.Character.HumanoidRootPart,p.Character:FindFirstChildOfClass("Humanoid")
+				root.Anchored=true;root.CFrame=CFrame.new(position)
+				for _,v in p.Character:GetChildren()do if v:IsA("ForceField")then v:Destroy()end end
+				startRun(p,hum);runs[p].next=1e9
+				bridge:InvokeClient(p,"review")
+				return runs[p],root
+			end
+			local ra,rootA=prepare(a,zone)
+			local rb,rootB;if b then rb,rootB=prepare(b,zone+Vector3.new(30,0,0))end
+			check(Config.ObjectiveTrial.Enabled==false,"prototype remains disabled in repository config")
+			objectiveEnabled=false;objectiveTick(100,false)
+			check(objectiveState==nil and not Workspace:FindFirstChild("OptionalHoldTrial"),"disabled prototype creates no marker/reward")
+			objectiveEnabled=true;objectiveTick(30,false);objectiveTick(0,false)
+			waitFor(function()return bridge:InvokeClient(a,"report").markers==1 end,"marker replication")
+			check(bridge:InvokeClient(a,"report").markers==1,"real client receives optional marker")
+			rootA.Position=zone+Vector3.new(20,0,0);objectiveTick(35,false)
+			check(objectiveState.phase=="expired" and ra.pending==0 and runs[a]==ra,"ignore expires without ending run or taking reward")
+			objectiveReset();rootA.Position=zone;objectiveTick(30,false)
+			local state=objectiveState;objectiveTick(3,false);rootA.Position=zone+Vector3.new(20,0,0);objectiveTick(2,false)
+			check(state.progress==1,"leaving to dodge decays real objective progress")
+			local time=state.elapsed;objectiveTick(9,true);check(state.elapsed==time and state.progress==1,"global pause freezes trial clocks")
+			rootA.Position=zone;objectiveTick(7,false)
+			waitFor(function()return bridge:InvokeClient(a,"report").offers>=1 end,"reward UI")
+			check(ra.objectiveRewards==1 and ra.pending==1 and ra.cards~=nil,"one server reward arrives through ordinary card UI")
+			if b then
+				waitFor(function()return bridge:InvokeClient(b,"report").offers>=1 end,"team UI")
+				check(rb.objectiveRewards==1 and rb.pending==1,"distant eligible teammate gets one offer")
+			end
+			objectiveFinish(state,"success");objectiveTick(100,false)
+			check(ra.objectiveRewards==1 and ra.pending==1,"duplicate completion cannot repeat reward")
+			for _,p in players do bridge:InvokeClient(p,"pick")end
+			waitFor(function()for _,r in runs do if r.cards then return false end end;return true end,"card selection")
+			check(ra.pending==0,"real card selection consumes one pending reward")
+			local original=ra;ra,rootA=prepare(a,zone);objectiveTick(100,false)
+			check(not ra.objectiveRewards and objectiveState==state,"restart cannot farm terminal attempt while batch remains")
+			-- Same seeded low-level workload; only controlled movement strategy changes.
+			for _,strategy in {"hold","inside-circle","wide-kite"}do
+				objectiveReset();ra,rootA=prepare(a,zone)
+				if b then rb,rootB=prepare(b,zone+Vector3.new(30,0,0))end
+				while count>0 do kill(top)end;table.clear(free);table.clear(gems);table.clear(grid)
+				rng=Random.new(29);override=40
+				for slot=1,40 do
+					local angle=slot*2.3999632297
+					alive[slot],px[slot],pz[slot],hp[slot]=true,zone.X+math.cos(angle)*20,zone.Z+math.sin(angle)*20,30
+					generation[slot]=(generation[slot] or 0)+1
+					kvx[slot],kvz[slot],stunUntil[slot],slowUntil[slot],nextSwing[slot],swingAt[slot]=0,0,0,0,0,nil
+				end
+				top,count=40,40;objectiveTick(30,false)
+				local challenge=objectiveState
+				local started=os.clock();local elapsed,distance=0,0;local previous=rootA.Position
+				Shared:SetAttribute("GAME29Progress",strategy)
+				while elapsed<12 and ra.hum.Health>0 and challenge.phase=="active" do
+					local radius=if strategy=="hold" then 0 elseif strategy=="inside-circle" then 6 else 16
+					local angle=elapsed*(if radius>0 then 14/radius else 0)
+					rootA.Position=zone+Vector3.new(math.cos(angle)*radius,0,math.sin(angle)*radius)
+					distance+=(rootA.Position-previous).Magnitude;previous=rootA.Position
+					if rootB then rootB.Position=zone+Vector3.new(math.cos(elapsed*.6)*28,0,math.sin(elapsed*.6)*28)end
+					step(1/H.SimRate);elapsed+=1/H.SimRate;task.wait(1/H.SimRate)
+				end
+				table.insert(report.trials,{strategy=strategy,activeSeconds=elapsed,wallSeconds=os.clock()-started,
+					distanceStuds=distance,health=ra.hum.Health,damageTaken=100-ra.hum.Health,dead=ra.hum.Health<=0,
+					progress=challenge.progress,status=challenge.phase,rewards=ra.objectiveRewards or 0,
+					peerHealth=rb and rb.hum.Health,peerRewards=rb and (rb.objectiveRewards or 0),seed=29,hordeTarget=40})
+				for _,p in players do if runs[p] and runs[p].cards then bridge:InvokeClient(p,"pick")end end
+				waitFor(function()for _,r in runs do if r.cards then return false end end;return true end,"trial cards")
+			end
+			-- Actual departure before reward commit, and death at the final boundary.
+			objectiveReset();override=0;ra,rootA=prepare(a,zone)
+			if b then rb,rootB=prepare(b,zone+Vector3.new(30,0,0))end
+			objectiveTick(30,false)
+			if b then
+				bridge:InvokeClient(b,"leave");waitFor(function()return b.Parent~=Players end,"peer departure")
+				objectiveTick(0,true);check(objectiveState.roster[b]==nil,"actual disconnect removes eligibility during pause")
+			end
+			objectiveTick(8,false)
+			check(ra.objectiveRewards==1 and (not rb or not rb.objectiveRewards),"reward commit excludes departed run")
+			bridge:InvokeClient(a,"pick");waitFor(function()return not ra.cards end,"last card")
+			objectiveReset();objectiveTick(30,false);objectiveTick(7.9,false);ra.hum.Health=0;objectiveTick(.1,false)
+			check(ra.objectiveRewards==1,"death on completion tick cannot add another reward")
+			waitFor(function()return runs[a]==nil end,"death cleanup");objectiveTick(0,true)
+			check(objectiveState==nil and not Workspace:FindFirstChild("OptionalHoldTrial"),"all runs ended releases marker and attempt state")
+			check(#errors==0 and #bridge:InvokeClient(a,"report").errors==0,"no captured Goblin script errors")
+		end,debug.traceback)
+		report.ok,report.error=ok,if ok then nil else tostring(err);finish(report)
 	end)
 end
 

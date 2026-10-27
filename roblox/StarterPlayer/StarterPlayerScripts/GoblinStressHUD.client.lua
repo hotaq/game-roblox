@@ -94,6 +94,32 @@ if ReplicatedStorage.Goblin:GetAttribute("GAME12RocksActive") then
 	end)
 end
 
+if ReplicatedStorage.Goblin:GetAttribute("GAME29Active") then
+	task.spawn(function()
+		local shared=ReplicatedStorage.Goblin;local bridge=shared:WaitForChild("GAME29Test",45)
+		local offers,errors=0,{}
+		shared.RunLevelUp.OnClientEvent:Connect(function()offers+=1 end)
+		game:GetService("ScriptContext").Error:Connect(function(message,_,source)
+			if source and source.Name:find("Goblin",1,true)then table.insert(errors,message)end
+		end)
+		bridge.OnClientInvoke=function(action)
+			if action=="pick"then shared.RunPick:FireServer(1);return true end
+			if action=="leave"then task.delay(.2,function()game:GetService("StudioTestService"):LeaveTest()end);return true end
+			if action=="review"then
+				local camera=workspace.CurrentCamera;camera.CameraType=Enum.CameraType.Scriptable
+				camera.CFrame=CFrame.lookAt(Vector3.new(1000,34,128),Vector3.new(1000,0,94))
+				local ui=player.PlayerGui:FindFirstChild("GoblinRunUI")
+				if ui then for _,v in ui:GetChildren()do if v:IsA("Frame")and v.ZIndex>=5 then v.Visible=false end end end
+				return true
+			end
+			local count=0;for _,v in workspace:GetChildren()do if v.Name=="OptionalHoldTrial"then count+=1 end end
+			return {offers=offers,markers=count,errors=table.clone(errors)}
+		end
+		assert(player:WaitForChild("PlayerGui"):WaitForChild("GoblinRunUI",45),"objective UI ready")
+		bridge:InvokeServer("ready")
+	end)
+end
+
 -- GAME-23 measurement participant. The server creates this flag only for the named test.
 if ReplicatedStorage.Goblin:GetAttribute("GAME23Active") then
 	task.spawn(function()
