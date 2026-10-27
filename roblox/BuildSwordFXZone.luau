@@ -21,21 +21,33 @@ local function part(name: string, size: Vector3, pos: Vector3, color: Color3)
 	return p
 end
 
-part("Floor", Vector3.new(GAP * 5 + 20, 1, 70), Vector3.new(0, -0.45, 0), Color3.fromRGB(124, 92, 62)) -- Map 1 dirt, just above the Baseplate
-for n = 1, 5 do
-	local x = (n - 3) * GAP
-	part("Pedestal" .. n, Vector3.new(4, 1, 4), Vector3.new(x, 0.5, 0), Color3.fromRGB(158, 150, 132))
-	-- The swing centre: the client draws each slash around this part, as it would around a player's root.
-	local root = part("Lv" .. n, Vector3.new(1, 2, 1), Vector3.new(x, 3, 0), Color3.new(1, 1, 1))
+-- An invisible centre the client draws around, as it would around a player's root, with a floating name.
+local function station(name: string, pos: Vector3, text: string)
+	local root = part(name, Vector3.new(1, 2, 1), pos, Color3.new(1, 1, 1))
 	root.Transparency, root.CanCollide, root.CanQuery = 1, false, false
 	local gui = Instance.new("BillboardGui")
 	gui.Size, gui.StudsOffset, gui.AlwaysOnTop = UDim2.fromOffset(160, 40), Vector3.new(0, 4, 0), true
 	local label = Instance.new("TextLabel")
 	label.Size, label.BackgroundTransparency = UDim2.fromScale(1, 1), 1
-	label.Text, label.Font, label.TextSize = "Lv " .. n, Enum.Font.GothamBold, 20
+	label.Text, label.Font, label.TextSize = text, Enum.Font.GothamBold, 20
 	label.TextColor3, label.TextStrokeTransparency = Color3.new(1, 1, 1), 0.3
 	label.Parent = gui
 	gui.Parent = root
+end
+
+part("Floor", Vector3.new(GAP * 5 + 20, 1, 70), Vector3.new(0, -0.45, 0), Color3.fromRGB(124, 92, 62)) -- Map 1 dirt, just above the Baseplate
+for n = 1, 5 do
+	local x = (n - 3) * GAP
+	part("Pedestal" .. n, Vector3.new(4, 1, 4), Vector3.new(x, 0.5, 0), Color3.fromRGB(158, 150, 132))
+	station("Lv" .. n, Vector3.new(x, 3, 0), "Lv " .. n)
+end
+
+-- Fire Ring row behind it (GAME-41): Ring1..Ring5 at that level, Ring6 the evolved Inferno Halo; GoblinHordeClient
+-- draws each with the in-run ring code. 32 studs apart so the Halo's 14-stud radius clears its neighbours.
+local RGAP, RZ = 32, -50
+part("RingFloor", Vector3.new(RGAP * 6 + 10, 1, 30), Vector3.new(0, -0.45, RZ), Color3.fromRGB(124, 92, 62))
+for n = 1, 6 do
+	station("Ring" .. n, Vector3.new((n - 3.5) * RGAP, 1, RZ), if n == 6 then "Inferno Halo" else "Ring Lv " .. n)
 end
 part("ViewPad", Vector3.new(8, 1, 8), Vector3.new(0, 0.5, 26), Color3.fromRGB(90, 140, 200))
 

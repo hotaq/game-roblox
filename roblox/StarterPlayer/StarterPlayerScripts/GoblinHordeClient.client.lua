@@ -837,6 +837,28 @@ local function ringRadius(player: Player): number?
 	local lv = tonumber(string.match(player:GetAttribute("RunLoadout") or "", "ring=(%d)"))
 	return lv and Config.weaponStats("ring", lv).Radius * (1 + (player:GetAttribute("RunArea") or 0))
 end
+-- placeRing(key, pos, r): keeps key's ring disc at pos (ground level) with radius r; no r or pos removes it.
+local function placeRing(key, pos: Vector3?, r: number?)
+	local ring = rings[key]
+	if r and pos then
+		if not ring then
+			ring = fxPart(Vector3.one, RING.Color, Enum.PartType.Cylinder)
+			ring.Transparency = 0.75
+			rings[key] = ring
+		end
+		ring.Size = Vector3.new(0.15, r * 2, r * 2)
+		ring.CFrame = CFrame.new(pos.X, 0.1, pos.Z) * CFrame.Angles(0, 0, math.rad(90))
+	elseif ring then
+		ring:Destroy()
+		rings[key] = nil
+	end
+end
+-- Fire Ring showcase (SwordFXZone Ring1..Ring6, Ring6 = evolved): drawn like a player's ring while you're near.
+-- Looked up every frame: with streaming the stations only arrive once you walk over there.
+local RING_SHOW = {}
+for n = 1, 6 do
+	RING_SHOW[n] = Config.weaponStats("ring", n).Radius
+end
 
 local parts, cframes = {}, {}
 RunService.RenderStepped:Connect(function(dt)
@@ -888,21 +910,15 @@ RunService.RenderStepped:Connect(function(dt)
 		end
 	end
 	for _, player in Players:GetPlayers() do
-		local r = ringRadius(player)
 		local root = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
-		local ring = rings[player]
-		if r and root then
-			if not ring then
-				ring = fxPart(Vector3.one, RING.Color, Enum.PartType.Cylinder)
-				ring.Transparency = 0.75
-				rings[player] = ring
-			end
-			ring.Size = Vector3.new(0.15, r * 2, r * 2)
-			ring.CFrame = CFrame.new(root.Position.X, 0.1, root.Position.Z) * CFrame.Angles(0, 0, math.rad(90))
-		elseif ring then
-			ring:Destroy()
-			rings[player] = nil
-		end
+		placeRing(player, root and root.Position, ringRadius(player))
+	end
+	local myRoot = Players.LocalPlayer.Character and Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+	local showZone = Workspace:FindFirstChild("SwordFXZone")
+	for n, r in RING_SHOW do
+		local s = showZone and showZone:FindFirstChild("Ring" .. n)
+		local near = s and myRoot and (myRoot.Position - s.Position).Magnitude < 150
+		placeRing("show" .. n, if near then s.Position else nil, r)
 	end
 
 	local a = 1 - math.exp(-dt * SMOOTH)
