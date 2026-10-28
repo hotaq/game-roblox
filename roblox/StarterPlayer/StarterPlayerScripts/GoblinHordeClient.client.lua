@@ -18,6 +18,95 @@ local Shared = ReplicatedStorage:WaitForChild("Goblin")
 local networkObserved = if RunService:IsStudio() and Shared:GetAttribute("GAME24Active")
 	then {deaths=0,hits=0,swings=0,pickups=0} else nil
 local Config = require(Shared:WaitForChild("GoblinConfig"))
+-- GAME-44 Dash VFX BEGIN. Independent from horde pools; no textures, lights or camera edits.
+do
+	local D=Config.Dash
+	local jade=Color3.fromRGB(94,255,189)
+	local gold=Color3.fromRGB(255,220,112)
+	local active={}
+	local function clear(e)
+		for _,a in e.attachments do a:Destroy() end
+		e.folder:Destroy()
+	end
+	local function block(e,cf,size,color,life,velocity,alpha)
+		local p=Instance.new("Part");p.Name="DashFleck";p.Size=size;p.CFrame=cf
+		p.Color=color;p.Material=Enum.Material.Neon;p.Transparency=alpha or 0.2
+		p.Anchored=true;p.CanCollide=false;p.CanTouch=false;p.CanQuery=false;p.CastShadow=false;p.Parent=e.folder
+		table.insert(e.bits,{p=p,cf=cf,life=life,born=os.clock(),velocity=velocity or Vector3.zero,alpha=p.Transparency,size=size})
+	end
+	local function ghost(e)
+		local n=0
+		for _,p in e.character:GetChildren() do
+			if p:IsA("BasePart") and p~=e.root and p.Transparency<1 then
+				block(e,p.CFrame,p.Size*0.94,jade,0.22,Vector3.zero,0.75)
+				n+=1;if n>=10 then break end
+			end
+		end
+	end
+	local function begin(player,id,dir,started)
+		local character=player.Character;local root=character and character:FindFirstChild("HumanoidRootPart")
+		local camera=Workspace.CurrentCamera
+		if not root or not camera or (camera.CFrame.Position-root.Position).Magnitude>D.EffectDistance
+			or Workspace:GetServerTimeNow()-started>D.Duration+0.15 then return end
+		for i=#active,1,-1 do if active[i].player==player then clear(active[i]);table.remove(active,i) end end
+		if #active>=D.MaxEffects then clear(table.remove(active,1)) end
+		local f=Instance.new("Folder");f.Name="RunDashVFX";f.Parent=Workspace
+		local e={player=player,id=id,character=character,root=root,folder=f,attachments={},trails={},bits={},
+			born=os.clock(),nextGhost=0,ghosts=0,dir=dir,stopped=false}
+		table.insert(active,e)
+		-- Two long tapered jade ribbons and a narrow gold centre; their tails dissolve within 140ms.
+		for i=-1,1 do
+			local a=Instance.new("Attachment");a.Position=Vector3.new(i*0.8,0.5,0);a.Parent=root
+			local b=Instance.new("Attachment");b.Position=Vector3.new(i*0.8,-0.5,0);b.Parent=root
+			table.insert(e.attachments,a);table.insert(e.attachments,b)
+			local t=Instance.new("Trail");t.Attachment0=a;t.Attachment1=b;t.FaceCamera=true
+			t.Color=ColorSequence.new(if i==0 then gold else jade);t.LightEmission=0.7;t.Lifetime=0.14
+			t.MinLength=0.08;t.WidthScale=NumberSequence.new({NumberSequenceKeypoint.new(0,if i==0 then 0.2 else 0.65),NumberSequenceKeypoint.new(1,0)})
+			t.Transparency=NumberSequence.new({NumberSequenceKeypoint.new(0,0.35),NumberSequenceKeypoint.new(1,1)})
+			t.Parent=f;table.insert(e.trails,t)
+		end
+		local frame=CFrame.lookAt(root.Position,root.Position+dir)
+		for i=1,10 do
+			local theta=i*math.pi*2/10
+			local offset=Vector3.new(math.cos(theta)*0.9,math.sin(theta)*1.4,0.5)
+			local speed=frame:VectorToWorldSpace(Vector3.new(math.cos(theta)*4,math.sin(theta)*4,8))
+			local s=if i%3==0 then 0.24 else 0.12
+			block(e,frame*CFrame.new(offset)*CFrame.Angles(0,0,theta),Vector3.new(s,s,s*2),if i%3==0 then gold else jade,0.3,speed)
+		end
+	end
+	-- Function boundary is also used by the disposable visual regression; no Script.Source assignment.
+	local function update()
+		local now=os.clock()
+		for i=#active,1,-1 do
+			local e=active[i];local age=now-e.born
+			if not e.root.Parent or e.player.Character~=e.character then e.stopped=true end
+			if age>=D.Duration or e.stopped then
+				for _,t in e.trails do t.Enabled=false end
+			else
+				if age>=e.nextGhost and e.ghosts<3 then
+					ghost(e);e.ghosts+=1;e.nextGhost=age+0.065
+					local cf=CFrame.lookAt(e.root.Position,e.root.Position+e.dir)
+					for side=-1,1,2 do
+						block(e,cf*CFrame.new(side*1.3,-0.9,1.2),Vector3.new(0.08,0.08,2.4),gold,0.16,-e.dir*3,0.3)
+					end
+				end
+			end
+			for k=#e.bits,1,-1 do
+				local b=e.bits[k];local t=math.clamp((now-b.born)/b.life,0,1)
+				if t>=1 then b.p:Destroy();table.remove(e.bits,k)
+				else b.p.Transparency=b.alpha+(1-b.alpha)*t;b.p.CFrame=b.cf+b.velocity*(now-b.born) end
+			end
+			if age>D.Duration+0.4 then clear(e);table.remove(active,i) end
+		end
+	end
+	local event=Shared:WaitForChild("RunDash")
+	event.OnClientEvent:Connect(function(action,player,id,dir,started)
+		if action=="start" then begin(player,id,dir,started)
+		elseif action=="stop" then for _,e in active do if e.player==player and e.id==id then e.stopped=true end end end
+	end)
+	RunService.Heartbeat:Connect(update)
+end
+-- GAME-44 Dash VFX END.
 local ground = require(Shared:WaitForChild("MapLayout")).groundAt -- GAME-43: Map1's terraces (0 elsewhere)
 local template = Shared:FindFirstChild("HordeModel") or Shared:WaitForChild("HordeSource")
 template:ScaleTo(Config.Horde.ModelScale) -- in code, not just place content, so an Undo can't bring back the big goblin

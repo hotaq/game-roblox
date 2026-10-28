@@ -4,7 +4,7 @@ return function(configSource,serverSource,clientSource)
 	local code="local Config=(function()\n"..configSource.."\nend)()\n"..[=[
 local W,P,R=Config.Weapons,Config.Passives,Config.Run
 local fraction,choice=0,1;local rng={NextNumber=function(_,low,high)return low+(high-low)*fraction end,NextInteger=function(_,low,high)return math.clamp(choice,low,high)end}
-]=]..span(serverSource,"local function rollRarity(","local function offer(")..[=[
+]=]..span(serverSource,"local function rollRarity(","-- GAME-44 Dash server BEGIN")..[=[
 local checks={};local function check(v,label)assert(v,label);table.insert(checks,label)end
 local before,after={0,0,0},{0,0,0}
 for i=1,1000 do fraction=(i-.5)/1000;before[rollRarity(0)]+=1;after[rollRarity(1)]+=1 end

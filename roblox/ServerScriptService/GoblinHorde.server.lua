@@ -221,11 +221,125 @@ local function makeCards(run)
 	return cards
 end
 
+-- GAME-44 Dash server BEGIN. Kept in a scope so the large horde script gains only one local.
+local Dash = {}
+do
+	local D = Config.Dash
+	local event = remote("RunDash")
+	local serial = 0
+	local function inside(p, center, half)
+		return center and math.abs(p.X-center.X)<=half-1.5 and math.abs(p.Z-center.Z)<=half-1.5
+	end
+	local function valid(run)
+		return runs[run.player]==run and run.player.Parent==Players and run.player.Character==run.hum.Parent
+			and run.hum.Health>0 and not run.cards and not run.pausedAt and not run.hum.Sit
+	end
+	function Dash.cancel(run)
+		local d=run.dash
+		if not d then return end
+		run.dash=nil
+		if d.shield then d.shield:Destroy() end
+		if d.root.Parent then
+			if d.root.Anchored then d.root.Anchored=false end -- only acquired unanchored roots
+			d.root.AssemblyLinearVelocity=Vector3.zero
+		end
+		if run.hum.Parent and run.hum.AutoRotate==false then run.hum.AutoRotate=d.rotate end
+		run.player:SetAttribute("RunDashing",nil)
+		event:FireAllClients("stop",run.player,d.id)
+	end
+	local function floorAt(p, d)
+		return Workspace:Raycast(p,Vector3.new(0,-d.footGap-D.MaxDrop-0.2,0),d.ray)
+	end
+	local function move(d, distance)
+		-- Short substeps also see narrow gaps/ledges; the body sweep sees thin walls between frames.
+		local count=math.max(1,math.ceil(distance))
+		for _=1,count do
+			local delta=d.dir*(distance/count)
+			local cf=CFrame.lookAt(d.root.Position,d.root.Position+d.dir)
+			local hit=Workspace:Blockcast(cf,d.size,delta+d.dir*D.Skin,d.ray)
+			local nextPos=d.root.Position+delta
+			if hit or not inside(nextPos,d.center,d.half) then return false end
+			local support=floorAt(nextPos,d)
+			if not support or support.Normal.Y<0.65 then return false end
+			local change=support.Position.Y-d.floorY
+			if change < -D.MaxDrop or change > D.MaxRise then return false end
+			d.root.CFrame=CFrame.lookAt(nextPos,nextPos+d.dir)
+			d.position=nextPos
+		end
+		return true
+	end
+	function Dash.request(player, direction)
+		local run=runs[player]
+		if not run then return false end
+		local now=Workspace:GetServerTimeNow()
+		if now<(run.dashRequestAt or 0) then return false end
+		run.dashRequestAt=now+0.12 -- throttle rejected requests before physics queries
+		if not valid(run) or run.dash or now<(run.dashReadyAt or 0) then return false end
+		if typeof(direction)~="Vector3" then return false end
+		for _,v in {direction.X,direction.Y,direction.Z} do
+			if v~=v or math.abs(v)>1e4 then return false end
+		end
+		direction=Vector3.new(direction.X,0,direction.Z)
+		if direction.Magnitude<0.1 then return false end
+		local root=run.hum.Parent:FindFirstChild("HumanoidRootPart")
+		if not root or root.Anchored then return false end
+		local center,half=arena()
+		if not inside(root.Position,center,half) then return false end
+		local excluded={run.hum.Parent}
+		for _,p in Players:GetPlayers() do if p.Character then table.insert(excluded,p.Character) end end
+		local goblins=Workspace:FindFirstChild("Goblins")
+		if goblins then table.insert(excluded,goblins) end
+		local ray=RaycastParams.new();ray.FilterDescendantsInstances=excluded;ray.RespectCanCollide=true
+		ray.CollisionGroup=root.CollisionGroup
+		local footGap=run.hum.HipHeight+root.Size.Y/2
+		if run.hum.RigType==Enum.HumanoidRigType.R6 then footGap+=2 end
+		local floor=Workspace:Raycast(root.Position,Vector3.new(0,-footGap-0.35,0),ray)
+		if not floor or floor.Normal.Y<0.65 or math.abs(root.AssemblyLinearVelocity.Y)>3 then return false end
+		local size=Vector3.new(math.max(2.4,root.Size.X+0.4),math.max(2,footGap*2-0.6),math.max(2.4,root.Size.Z+0.4))
+		local overlap=OverlapParams.new();overlap.FilterDescendantsInstances=excluded;overlap.RespectCanCollide=true
+		overlap.CollisionGroup=root.CollisionGroup;overlap.MaxParts=1
+		-- Blockcast doesn't detect initial overlap, so reject an already obstructed body too.
+		local cf=CFrame.lookAt(root.Position,root.Position+direction.Unit)
+		if #Workspace:GetPartBoundsInBox(cf,size,overlap)>0 then return false end
+		if Workspace:Blockcast(cf,size,direction.Unit*1.1,ray) then return false end
+		serial+=1
+		local d={root=root,dir=direction.Unit,ray=ray,size=size,center=center,half=half,
+			area=Workspace:GetAttribute("Arena"),footGap=footGap,floorY=floor.Position.Y,
+			position=root.Position,elapsed=0,started=now,id=serial,rotate=run.hum.AutoRotate}
+		run.dash=d;run.dashReadyAt=now+D.Cooldown
+		root.Anchored=true;root.AssemblyLinearVelocity=Vector3.zero;run.hum.AutoRotate=false
+		local shield=Instance.new("ForceField");shield.Name="RunDashShield";shield.Visible=false;shield.Parent=run.hum.Parent;d.shield=shield
+		player:SetAttribute("RunDashReadyAt",run.dashReadyAt);player:SetAttribute("RunDashing",true)
+		event:FireAllClients("start",player,d.id,d.dir,now)
+		return true
+	end
+	function Dash.step(dt)
+		local now=Workspace:GetServerTimeNow()
+		for _,run in runs do
+			local d=run.dash
+			if not d then continue end
+			if not valid(run) or not d.root.Parent or not d.root.Anchored
+				or Workspace:GetAttribute("Arena")~=d.area or (d.root.Position-d.position).Magnitude>2 then
+				Dash.cancel(run);continue
+			end
+			if now-d.started>=D.ShieldTime and d.shield then d.shield:Destroy();d.shield=nil end
+			local amount=math.min(math.max(dt,0),D.Duration-d.elapsed)
+			d.elapsed+=amount
+			local clear=move(d,D.Distance*amount/D.Duration)
+			if not clear or d.elapsed>=D.Duration or now-d.started>D.Duration+0.1 then Dash.cancel(run) end
+		end
+	end
+	event.OnServerEvent:Connect(Dash.request)
+	RunService.Heartbeat:Connect(Dash.step)
+end
+-- GAME-44 Dash server END.
+
 local offerSerial=0
 -- A card pause is owned by this run, not by the shared simulation. Keep the
 -- original root state and destroy only our own shield on resume/death/leave.
 local function pauseRun(run, now)
 	if run.pausedAt then return end
+	Dash.cancel(run) -- release the dash root before the card pause takes its own lease
 	run.pausedAt = now
 	local root = run.hum.Parent and run.hum.Parent:FindFirstChild("HumanoidRootPart")
 	if root then
@@ -290,6 +404,8 @@ local function endRun(player: Player)
 		return
 	end
 	runs[player] = nil
+	Dash.cancel(run)
+	player:SetAttribute("RunDashReadyAt",nil)
 	resumeRun(run, Workspace:GetServerTimeNow())
 	restoreRunSpeed(run)
 	run.rocks = nil
@@ -408,6 +524,7 @@ end)
 Players.PlayerRemoving:Connect(function(player)
 	clearRunAxes(player)
 	clearRunTotems(player)
+	if runs[player] then Dash.cancel(runs[player]) end
 	if runs[player] then resumeRun(runs[player],Workspace:GetServerTimeNow());restoreRunSpeed(runs[player]);runs[player].rocks=nil end
 	runs[player] = nil
 	views[player], viewReadyAt[player] = nil, nil

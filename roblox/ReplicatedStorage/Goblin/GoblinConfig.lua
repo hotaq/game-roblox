@@ -3,6 +3,10 @@
 -- "rbxassetid://0" = REPLACE after uploading: Asset Manager > right-click the asset > Copy Asset ID.
 local Config = {}
 
+-- GAME-44: grounded dodge. Server owns movement, cooldown and the short damage shield.
+Config.Dash = { Distance=16, Duration=0.22, Cooldown=4, ShieldTime=0.18,
+	Skin=0.15, MaxDrop=0.75, MaxRise=0.6, EffectDistance=150, MaxEffects=8 }
+
 -- GAME-29 lab only: never enabled in published servers. Leave false until evaluated.
 Config.ObjectiveTrial = { Enabled=false, Trigger=30, Window=35, Hold=8, Radius=8, Decay=1 }
 

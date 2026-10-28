@@ -686,3 +686,58 @@ fit()
 gui.Parent = player:WaitForChild("PlayerGui")
 feet.Parent = player.PlayerGui
 refreshHUD()
+
+-- GAME-44 Dash UI BEGIN. Its own screen scale keeps it above the touch jump control and out of the card layout.
+do
+	local input=game:GetService("UserInputService")
+	local actions=game:GetService("ContextActionService")
+	local dashEvent=Shared:WaitForChild("RunDash")
+	local dashGui=new("ScreenGui",{Name="GoblinDashUI",ResetOnSpawn=false,DisplayOrder=1,Parent=player.PlayerGui})
+	local holder=new("Frame",{AnchorPoint=Vector2.new(1,1),Position=UDim2.new(1,-24,1,-44),Size=UDim2.fromOffset(96,72),BackgroundTransparency=1,Parent=dashGui})
+	local dashButton=new("TextButton",{Name="Dash",Size=UDim2.fromScale(1,1),Text="",AutoButtonColor=false,BackgroundColor3=KIT_CYAN,Parent=holder},
+		{corner(18),stroke(3,KIT_INK),gloss()})
+	local label=kitText({Position=UDim2.fromOffset(0,7),Size=UDim2.new(1,0,0,28),Text=">> DASH",TextSize=19,Parent=dashButton})
+	local hint=kitText({Position=UDim2.fromOffset(0,34),Size=UDim2.new(1,0,0,19),Text="Q",TextSize=14,TextColor3=KIT_YELLOW,Parent=dashButton})
+	local track,fill=bar(UDim2.new(1,-20,0,5),KIT_YELLOW);track.Position=UDim2.fromOffset(10,59);track.Parent=dashButton
+	local bound=false
+	local pendingUntil=0
+	local function usable()
+		local c=player.Character;local h=c and c:FindFirstChildOfClass("Humanoid")
+		return player:GetAttribute("RunStart")~=nil and player:GetAttribute("RunPausedAt")==nil and h and h.Health>0
+	end
+	local function request()
+		if not usable() or input:GetFocusedTextBox() then return end
+		local now=Workspace:GetServerTimeNow()
+		if now<(player:GetAttribute("RunDashReadyAt") or 0) or now<pendingUntil then return end
+		local c=player.Character;local h=c:FindFirstChildOfClass("Humanoid");local root=c:FindFirstChild("HumanoidRootPart")
+		if not root then return end
+		local dir=h.MoveDirection
+		if dir.Magnitude<0.1 then dir=root.CFrame.LookVector end
+		pendingUntil=now+0.2 -- no optimistic movement or false cooldown on a rejected request
+		dashEvent:FireServer(dir)
+	end
+	local function action(_,state)
+		if not usable() or input:GetFocusedTextBox() then return Enum.ContextActionResult.Pass end
+		if state==Enum.UserInputState.Begin then request() end
+		return Enum.ContextActionResult.Sink
+	end
+	dashButton.Activated:Connect(request);bouncy(dashButton,1.04)
+	local function updateDash()
+		local enabled=usable() and not levelUp.Visible and not results.Visible
+		holder.Visible=enabled==true
+		if enabled and not bound then actions:BindAction("GoblinDash",action,false,Enum.KeyCode.Q,Enum.KeyCode.ButtonB);bound=true
+		elseif not enabled and bound then actions:UnbindAction("GoblinDash");bound=false end
+		local touch=input.TouchEnabled
+		holder.Position=if touch then UDim2.new(1,-26,1,-178) else UDim2.new(1,-24,1,-44)
+		if not enabled then return end
+		local remaining=math.max(0,(player:GetAttribute("RunDashReadyAt") or 0)-Workspace:GetServerTimeNow())
+		local ready=remaining==0
+		dashButton.BackgroundColor3=if ready then KIT_CYAN else KIT_TRACK
+		label.Text=if player:GetAttribute("RunDashing") then ">>" else ">> DASH"
+		hint.Text=if not ready then string.format("%.1fs",remaining) elseif touch then "TAP" elseif input:GetLastInputType().Name:find("Gamepad") then "B" else "Q"
+		fill.Size=UDim2.fromScale(1-math.clamp(remaining/Config.Dash.Cooldown,0,1),1)
+	end
+	RunService.Heartbeat:Connect(updateDash)
+	updateDash()
+end
+-- GAME-44 Dash UI END.

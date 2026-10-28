@@ -5,6 +5,7 @@ return function(configSource,serverSource)
 	local code="local Config=(function()\n"..configSource.."\nend)()\n"..[=[
 local H,R,W,P=Config.Horde,Config.Run,Config.Weapons,Config.Passives
 local Workspace,Players=workspace,{}
+local RunService={Heartbeat={Connect=function()end}} -- exact Dash block is idle in this weapons fixture
 local alive,px,pz,hp,generation={},{},{},{},{}
 local swingAt,nextSwing,kvx,kvz,stunUntil,slowUntil={},{},{},{},{},{}
 local skel,throwAt,nextThrow={},{},{}
