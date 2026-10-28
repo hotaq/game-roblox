@@ -278,6 +278,20 @@ function STAGES.landmarks(map: Model, o: CFrame)
 	place(f, "Prop_SkullRock", on(o, L.GRAVEYARD.x, L.GRAVEYARD.z) * yaw(-30))
 	local shrine = (o * CFrame.new(SHRINE.x, SHRINE.y, SHRINE.z)).Position
 	place(f, "Prop_SkullShrine", CFrame.lookAt(shrine, o.Position + Vector3.new(0, SHRINE.y, 0))) -- stares at the plaza
+	-- A stepped mound of studded bricks over the mesh's low-poly rock base (about 40 x 40, 4.5 tall): grass on dirt.
+	for bx = -26, 26, 4 do
+		for bz = -26, 26, 4 do
+			local d = math.max(math.abs(bx), math.abs(bz)) + (hash(bx + 50, bz + 50) - 0.5) * 5
+			local top = SHRINE.y + (if d < 21 then 4.6 elseif d < 25 then 2.6 else 0.6)
+			local x, z = SHRINE.x + bx, SHRINE.z + bz
+			local _, g = L.at(x, z)
+			if d < 28 and top > g then
+				part(f, Vector3.new(4, top - 1 - (g - 2), 4), o * CFrame.new(x, (top - 1 + g - 2) / 2, z), rgb(110, 68, 40), { Name = "ShrineMound" })
+				part(f, Vector3.new(4, 1, 4), o * CFrame.new(x, top - 0.5, z), if hash(bz, bx) < 0.5 then rgb(90, 166, 64) else rgb(70, 140, 60),
+					{ Name = "ShrineMound", TopSurface = Enum.SurfaceType.Studs })
+			end
+		end
+	end
 	-- the NE mesa's waterfall into the cenote
 	local C = L.CENOTE
 	local fall = part(f, Vector3.new(10, 22, 2), o * CFrame.new(C.x + 12, 8, C.z - 22) * yaw(-35), rgb(120, 200, 240), {
@@ -364,30 +378,111 @@ function STAGES.bridges(map: Model, o: CFrame)
 	return #f:GetChildren()
 end
 
--- Jungle: trees on the jungle band and the green mountain slopes (none on bare rock), a few groves out in the grass.
+-- Where the jungle grows: the jungle band, forest patches in the grass outside the river ring (48-stud noise cells,
+-- FOREST of them), and the green mountain slopes (none on bare rock). The open lawns, paths and plaza stay clear.
+local FOREST = 0.38
+local function forested(kind: string, x: number, z: number, h: number, rng: Random): boolean
+	if kind == "Jungle" then
+		return true
+	elseif kind == "Grass" then
+		return math.max(math.abs(x), math.abs(z)) > 115 and hash(math.floor(x / 48), math.floor(z / 48)) < FOREST
+	elseif kind == "Mountain" then
+		local s = surface(TILE * (math.floor(x / TILE) + 0.5), TILE * (math.floor(z / TILE) + 0.5), h)
+		return rng:NextNumber() < (if s == "grass" then 0.35 elseif s == "moss" then 0.1 else 0)
+	end
+	return false
+end
+local function nearShrine(x: number, z: number, r: number): boolean
+	return (x - SHRINE.x) ^ 2 + (z - SHRINE.z) ^ 2 < (SHRINE.clear + r) ^ 2
+end
+
+-- Jungle: giant canopy trees, 2.4-3.6x the ~20-stud templates (50-80 studs), so they tower over a 5-stud player and
+-- shade the floor, with bushes under them.
 function STAGES.forest(map: Model, o: CFrame)
 	local f = Instance.new("Folder")
 	f.Name = "Forest"
 	f.Parent = map
 	local rng = Random.new(7)
 	local n = 0
-	for gx = -HALF + 7, HALF - 7, 12 do
-		for gz = -HALF + 7, HALF - 7, 12 do
-			local x, z = gx + rng:NextNumber(-4, 4), gz + rng:NextNumber(-4, 4)
+	for gx = -HALF + 13, HALF - 13, 26 do
+		for gz = -HALF + 13, HALF - 13, 26 do
+			local x, z = gx + rng:NextNumber(-8, 8), gz + rng:NextNumber(-8, 8)
 			local kind, h = L.at(x, z)
-			local grove = kind == "Grass" and hash(math.floor(x / 48), math.floor(z / 48)) < 0.12
-			local s = kind == "Mountain" and surface(L.TILE * (math.floor(x / L.TILE) + 0.5), L.TILE * (math.floor(z / L.TILE) + 0.5), h)
-			local mountain = rng:NextNumber() < (if s == "grass" then 0.2 elseif s == "moss" then 0.06 else 0) -- the rock shows
-			local shrine = (x - SHRINE.x) ^ 2 + (z - SHRINE.z) ^ 2 < SHRINE.clear ^ 2
-			if (kind == "Jungle" or grove or mountain) and not shrine then
+			if forested(kind, x, z, h, rng) and not nearShrine(x, z, 14) then
 				local r = rng:NextNumber()
-				local name = r < 0.4 and "Tree_Oak" or r < 0.7 and "Tree_Pine" or r < 0.85 and "Tree_Birch" or "Tree_Bush"
-				place(f, name, on(o, x, z) * yaw(90 * rng:NextInteger(0, 3)), rng:NextNumber(0.95, 1.25))
+				local name = r < 0.45 and "Tree_Oak" or r < 0.8 and "Tree_Pine" or "Tree_Birch"
+				place(f, name, on(o, x, z) * yaw(90 * rng:NextInteger(0, 3)), rng:NextNumber(2.4, 3.6))
 				n += 1
 			end
 		end
 		task.wait()
 	end
+	for gx = -HALF + 5, HALF - 5, 10 do -- understory
+		for gz = -HALF + 5, HALF - 5, 10 do
+			local x, z = gx + rng:NextNumber(-3, 3), gz + rng:NextNumber(-3, 3)
+			local kind, h = L.at(x, z)
+			if rng:NextNumber() < 0.45 and forested(kind, x, z, h, rng) and not nearShrine(x, z, 4) then
+				place(f, "Tree_Bush", on(o, x, z) * yaw(90 * rng:NextInteger(0, 3)), rng:NextNumber(1.4, 2.6))
+				n += 1
+			end
+		end
+		task.wait()
+	end
+	return n
+end
+
+-- Floor clutter so the ground isn't bare: grass tufts, flowers, ferns, pebbles, mushrooms. Small plastic bits with no
+-- collision, queries or shadows; denser in the jungle. ponytail: ~1 part per 30 sq studs; cut the odds if FPS suffers.
+function STAGES.decor(map: Model, o: CFrame)
+	local f = Instance.new("Folder")
+	f.Name = "Decor"
+	local rng = Random.new(19)
+	local GREENS = { rgb(62, 128, 56), rgb(98, 176, 70), rgb(80, 150, 66), rgb(45, 110, 55) }
+	local FLOWERS = { rgb(235, 70, 70), rgb(250, 210, 60), rgb(245, 245, 240), rgb(150, 100, 215), rgb(245, 145, 45) }
+	local LOOSE = { CanCollide = false, CanQuery = false, CanTouch = false, CastShadow = false, Name = "Decor" }
+	local function pick(list)
+		return list[rng:NextInteger(1, #list)]
+	end
+	local n = 0
+	for ix = 0, 2 * HALF // TILE - 1 do
+		for iz = 0, 2 * HALF // TILE - 1 do
+			local x, z = -HALF + TILE * (ix + 0.5) + rng:NextNumber(-2.5, 2.5), -HALF + TILE * (iz + 0.5) + rng:NextNumber(-2.5, 2.5)
+			local kind, h = L.at(x, z)
+			local green = kind == "Grass" or kind == "Jungle" or kind == "Graveyard"
+				or kind == "Mountain" and surface(TILE * (ix + 0.5) - HALF, TILE * (iz + 0.5) - HALF, h) ~= nil
+			local odds = if kind == "Jungle" or forested(kind, x, z, h, rng) then 0.5 else 0.22
+			if green and rng:NextNumber() < odds then
+				local c = on(o, x, z) * yaw(rng:NextNumber(0, 360))
+				local r = rng:NextNumber()
+				if r < 0.4 then -- grass tuft
+					for _ = 1, 3 do
+						local tall = rng:NextNumber(1, 2.4)
+						part(f, Vector3.new(0.35, tall, 0.35), c * CFrame.new(rng:NextNumber(-0.7, 0.7), tall / 2, rng:NextNumber(-0.7, 0.7))
+							* CFrame.Angles(rng:NextNumber(-0.3, 0.3), 0, rng:NextNumber(-0.3, 0.3)), pick(GREENS), LOOSE)
+					end
+				elseif r < 0.62 then -- flower
+					part(f, Vector3.new(0.2, 1.2, 0.2), c * CFrame.new(0, 0.6, 0), GREENS[1], LOOSE)
+					part(f, Vector3.new(0.8, 0.4, 0.8), c * CFrame.new(0, 1.3, 0), pick(FLOWERS), LOOSE)
+				elseif r < 0.8 then -- fern: three leaves splayed out
+					for k = 0, 2 do
+						part(f, Vector3.new(0.6, 0.2, 2.6), c * yaw(k * 120) * CFrame.new(0, 0.5, -1.1) * CFrame.Angles(math.rad(-25), 0, 0),
+							pick(GREENS), LOOSE)
+					end
+				elseif r < 0.93 then -- pebbles
+					local s = rng:NextNumber(1, 2.6)
+					part(f, Vector3.new(s, s * 0.6, s * 0.8), c * CFrame.new(0, s * 0.2, 0), if rng:NextNumber() < 0.5 then STONE else STONE_DK, LOOSE)
+				else -- mushroom
+					part(f, Vector3.new(0.4, 0.8, 0.4), c * CFrame.new(0, 0.4, 0), BONE, LOOSE)
+					part(f, Vector3.new(1.2, 0.5, 1.2), c * CFrame.new(0, 0.95, 0), rgb(215, 50, 45), LOOSE)
+				end
+				n += 1
+			end
+		end
+		if ix % 10 == 0 then
+			task.wait()
+		end
+	end
+	f.Parent = map
 	return n
 end
 
@@ -426,7 +521,7 @@ function STAGES.edge(map: Model, o: CFrame)
 	spawn.Parent = f
 end
 
-local ORDER = { "ground", "landmarks", "graveyard", "hazards", "bridges", "forest", "shadows", "edge" }
+local ORDER = { "ground", "landmarks", "graveyard", "hazards", "bridges", "forest", "shadows", "decor", "edge" }
 
 -- Builds (or rebuilds) Workspace.Map1 at `origin` (default (1000, 0, 0)). `stages` picks a subset of ORDER; existing
 -- folders of the stages being rebuilt are replaced, others are kept.
