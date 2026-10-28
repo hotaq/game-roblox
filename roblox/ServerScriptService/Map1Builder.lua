@@ -43,16 +43,22 @@ local TOPS = {
 	grass = { rgb(70, 140, 60), rgb(62, 128, 56), rgb(80, 150, 66) },
 	moss = { rgb(108, 138, 84), rgb(96, 126, 76), rgb(118, 146, 92) },
 }
--- Pixel textures (MaterialService.Voxel_*, scripts/10_voxel_textures.py): the mossy-stone look of the Meshy props.
--- A textured part's Color tints its texture, so it becomes a grey brightness (x dim); without the variant the flat
--- colour above stays. Water, bridges and thorns stay flat.
+-- Map1's own MaterialVariants (Studio's material generator, MaterialService.AssistantMaterials), in the overgrown look
+-- of the Meshy props. Each kind mixes the generated options that fit, one per 3-tile patch, so the ground doesn't
+-- repeat. A textured part's Color tints its texture, so it becomes a grey brightness (x dim); without the variant the
+-- flat colour above stays. Water, bridges and thorns stay flat.
+local GRASS = { "Map1_Grass", "Map1_Grass1", "Map1_Grass2", "Map1_Grass3" } -- the first has yellow flowers
+local LEAVES = { "Map1_JungleFloor", "Map1_JungleFloor1", "Map1_JungleFloor2", "Map1_JungleFloor3" }
+local TEMPLE = { "Map1_TempleStone", "Map1_TempleStone2" }
+local PLAZA = { "Map1_Plaza1", "Map1_Plaza3" }
+local DIRT = { "Map1_DirtPath1", "Map1_DirtPath3" }
 local TEX = {
-	Mountain = { "mossy_stone", 1 }, Ruin = { "mossy_stone", 1 }, Pyramid = { "mossy_stone", 1 }, Stairs = { "mossy_stone", 1 },
-	Plaza = { "ruin_brick", 1 }, Spawn = { "ruin_brick", 1 }, Shore = { "ruin_brick", 1 },
-	Grass = { "grass", 1 }, Jungle = { "grass", 0.8 }, Graveyard = { "grass", 0.75 }, Path = { "dirt", 1 }, Mud = { "dirt", 0.75 },
+	Mountain = { "Map1_MountainRock", "Map1_MountainRock1", "Map1_MountainRock2" }, Ruin = TEMPLE, Pyramid = TEMPLE,
+	Stairs = TEMPLE, Plaza = PLAZA, Spawn = PLAZA, Shore = { "Map1_Sand1", "Map1_Sand2" }, Grass = GRASS, Jungle = LEAVES,
+	Graveyard = { dim = 0.8, table.unpack(LEAVES) }, Path = DIRT, Mud = { dim = 0.7, table.unpack(DIRT) },
 }
-local function textured(p: BasePart, tex: string, k: number)
-	local v = game:GetService("MaterialService"):FindFirstChild("Voxel_" .. tex) :: MaterialVariant?
+local function textured(p: BasePart, options: { string }, pick: number, k: number)
+	local v = game:GetService("MaterialService"):FindFirstChild(options[math.floor(pick * #options) + 1], true) :: MaterialVariant?
 	if v then
 		p.Material, p.MaterialVariant, p.Color = v.BaseMaterial, v.Name, Color3.new(k, k, k)
 	end
@@ -153,16 +159,21 @@ function STAGES.ground(map: Model, o: CFrame)
 			local kind, h, shade, top = key.kind, key.h, key.shade, key.top
 			local z0, z1 = -HALF + TILE * start, -HALF + TILE * iz1
 			local b = if top then h - 1 else h -- the column stops under its cap
-			local p = part(row, Vector3.new(TILE, b - BOTTOM, z1 - z0), o * CFrame.new(x, (b + BOTTOM) / 2, (z0 + z1) / 2), shade)
+			-- Textures start at a part's corner, so equal tiles repeat the same crop: turn each column a random quarter
+			-- (a half for long runs, which aren't square) so the grid breaks up. The footprint stays the same.
+			local turns = if z1 - z0 == TILE then 4 else 2
+			local spin = CFrame.Angles(0, math.floor(hash(ix * 7 + 3, start * 13 + 5) * turns) * 2 * math.pi / turns, 0)
+			local p = part(row, Vector3.new(TILE, b - BOTTOM, z1 - z0), o * CFrame.new(x, (b + BOTTOM) / 2, (z0 + z1) / 2) * spin, shade)
 			p.TopSurface, p.Name = Enum.SurfaceType.Studs, kind
 			local t = TEX[kind]
+			local patch = hash(ix // 3 + 101, start // 3 + 37)
 			if t then
-				textured(p, t[1], key.k * t[2])
+				textured(p, t, patch, key.k * (t.dim or 1))
 			end
 			if top then
-				local cap = part(row, Vector3.new(TILE, 1, z1 - z0), o * CFrame.new(x, h - 0.5, (z0 + z1) / 2), top,
+				local cap = part(row, Vector3.new(TILE, 1, z1 - z0), o * CFrame.new(x, h - 0.5, (z0 + z1) / 2) * spin, top,
 					{ TopSurface = Enum.SurfaceType.Studs, Name = kind })
-				textured(cap, "grass", if key.moss then 0.72 else 0.9) -- moss is the darker green
+				textured(cap, if key.moss then LEAVES else GRASS, patch, 0.95) -- moss: the jungle floor
 			end
 			local w = WATER[kind]
 			if w then -- see-through water over the bed, wading deep
