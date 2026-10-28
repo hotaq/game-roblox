@@ -50,7 +50,7 @@ Config.Animations = {
 	Jump = "rbxassetid://129782374599464",
 	Fall = "rbxassetid://95323874284201",
 	Land = "rbxassetid://131102995523441",
-	BoneThrow = "", -- the skeleton's special (ReplicatedStorage.SkeletonAnims.BoneThrow); empty = Studio registers it
+	BoneThrow = "rbxassetid://80061510378515", -- the skeleton's special (source: ReplicatedStorage.SkeletonAnims.BoneThrow)
 }
 
 Config.VFX = {
