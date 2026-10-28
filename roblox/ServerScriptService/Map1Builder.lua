@@ -33,7 +33,13 @@ local SHADES = {
 	Mud = { rgb(96, 70, 46), rgb(88, 64, 42) },
 	Graveyard = { rgb(96, 120, 84), rgb(88, 110, 78) },
 	Spawn = { rgb(176, 168, 148), rgb(166, 158, 140) },
-	Mountain = { rgb(120, 150, 92), rgb(132, 132, 116), rgb(110, 140, 86), rgb(124, 124, 110) }, -- by terrace
+	Ruin = { rgb(150, 154, 140), rgb(136, 142, 128), rgb(124, 132, 116) },
+}
+-- Mountain columns: a mosaic of rock, capped with a 1-stud layer of grass or moss where it isn't bare (cliffs, summits).
+local ROCK = { rgb(132, 132, 116), rgb(120, 122, 108), rgb(144, 144, 128), rgb(110, 112, 100), rgb(126, 120, 104) }
+local TOPS = {
+	grass = { rgb(70, 140, 60), rgb(62, 128, 56), rgb(80, 150, 66) },
+	moss = { rgb(108, 138, 84), rgb(96, 126, 76), rgb(118, 146, 92) },
 }
 local WATER = { Water = { color = rgb(70, 170, 214), top = -0.5 }, Cenote = { color = rgb(52, 150, 200), top = -0.6 } }
 local STONE, STONE_DK, JADE, BONE = rgb(150, 154, 140), rgb(108, 112, 102), rgb(60, 176, 120), rgb(238, 228, 198)
@@ -79,6 +85,24 @@ local function on(o: CFrame, x: number, z: number): CFrame
 	return o * CFrame.new(x, h, z)
 end
 
+-- What tops a Mountain column at tile centre (x, z): grass on gentle foothills, moss higher up, nil = bare rock on
+-- cliffs (a drop of 8+ to a neighbour) and summits. The treeline is ragged so it never reads as a contour ring.
+local NEIGHBOURS = { Vector2.new(TILE, 0), Vector2.new(-TILE, 0), Vector2.new(0, TILE), Vector2.new(0, -TILE) }
+local function surface(x: number, z: number, h: number): string?
+	local drop = 0
+	for _, d in NEIGHBOURS do
+		local kind, hn = L.at(x + d.X, z + d.Y)
+		if kind ~= "Outside" then
+			drop = math.max(drop, h - hn)
+		end
+	end
+	local alt = h + 12 * (hash(x, z) - 0.5)
+	if drop >= 8 or alt >= 44 then
+		return nil
+	end
+	return if alt >= 24 or drop >= 6 then "moss" else "grass"
+end
+
 local STAGES = {}
 
 -- One part per run of tiles along Z with the same kind, height and shade (a 3-tile shade grid keeps runs long).
@@ -108,10 +132,15 @@ function STAGES.ground(map: Model, o: CFrame)
 			if not key then
 				return
 			end
-			local kind, h, shade = key.kind, key.h, key.shade
+			local kind, h, shade, top = key.kind, key.h, key.shade, key.top
 			local z0, z1 = -HALF + TILE * start, -HALF + TILE * iz1
-			local p = part(row, Vector3.new(TILE, h - BOTTOM, z1 - z0), o * CFrame.new(x, (h + BOTTOM) / 2, (z0 + z1) / 2), shade)
+			local b = if top then h - 1 else h -- the column stops under its cap
+			local p = part(row, Vector3.new(TILE, b - BOTTOM, z1 - z0), o * CFrame.new(x, (b + BOTTOM) / 2, (z0 + z1) / 2), shade)
 			p.TopSurface, p.Name = Enum.SurfaceType.Studs, kind
+			if top then
+				part(row, Vector3.new(TILE, 1, z1 - z0), o * CFrame.new(x, h - 0.5, (z0 + z1) / 2), top,
+					{ TopSurface = Enum.SurfaceType.Studs, Name = kind })
+			end
 			local w = WATER[kind]
 			if w then -- see-through water over the bed, wading deep
 				part(row, Vector3.new(TILE, 0.4, z1 - z0), o * CFrame.new(x, w.top - 0.2, (z0 + z1) / 2), w.color, {
@@ -123,12 +152,18 @@ function STAGES.ground(map: Model, o: CFrame)
 		for iz = 0, n - 1 do
 			local z = -HALF + TILE * (iz + 0.5)
 			local kind, h = L.at(x, z)
-			local shades = SHADES[kind] or SHADES.Grass
-			local pick = if kind == "Mountain" then (h // 5) % #shades + 1 else math.floor(hash(ix // 3, iz // 3) * #shades) + 1
-			local shade = shades[pick]
-			if not key or key.kind ~= kind or key.h ~= h or key.shade ~= shade then
+			local shade, top
+			if kind == "Mountain" then
+				shade = ROCK[math.floor(hash(ix, iz) * #ROCK) + 1]
+				local s = surface(x, z, h)
+				top = s and TOPS[s][math.floor(hash(ix // 2, iz // 2) * #TOPS[s]) + 1]
+			else
+				local shades = SHADES[kind] or SHADES.Grass
+				shade = shades[math.floor(hash(ix // 3, iz // 3) * #shades) + 1]
+			end
+			if not key or key.kind ~= kind or key.h ~= h or key.shade ~= shade or key.top ~= top then
 				flush(iz)
-				start, key = iz, { kind = kind, h = h, shade = shade }
+				start, key = iz, { kind = kind, h = h, shade = shade, top = top }
 			end
 		end
 		flush(n)
@@ -315,7 +350,7 @@ function STAGES.bridges(map: Model, o: CFrame)
 	return #f:GetChildren()
 end
 
--- Jungle: trees on the jungle band and on the mountains, a few groves out in the grass.
+-- Jungle: trees on the jungle band and the green mountain slopes (none on bare rock), a few groves out in the grass.
 function STAGES.forest(map: Model, o: CFrame)
 	local f = Instance.new("Folder")
 	f.Name = "Forest"
@@ -325,9 +360,10 @@ function STAGES.forest(map: Model, o: CFrame)
 	for gx = -HALF + 7, HALF - 7, 12 do
 		for gz = -HALF + 7, HALF - 7, 12 do
 			local x, z = gx + rng:NextNumber(-4, 4), gz + rng:NextNumber(-4, 4)
-			local kind = L.at(x, z)
+			local kind, h = L.at(x, z)
 			local grove = kind == "Grass" and hash(math.floor(x / 48), math.floor(z / 48)) < 0.12
-			local mountain = kind == "Mountain" and rng:NextNumber() < 0.2 -- sparse, so the ledges stay readable
+			local s = kind == "Mountain" and surface(L.TILE * (math.floor(x / L.TILE) + 0.5), L.TILE * (math.floor(z / L.TILE) + 0.5), h)
+			local mountain = rng:NextNumber() < (if s == "grass" then 0.2 elseif s == "moss" then 0.06 else 0) -- the rock shows
 			if kind == "Jungle" or grove or mountain then
 				local r = rng:NextNumber()
 				local name = r < 0.4 and "Tree_Oak" or r < 0.7 and "Tree_Pine" or r < 0.85 and "Tree_Birch" or "Tree_Bush"
