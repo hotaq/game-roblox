@@ -11,8 +11,8 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 
 local ANIMS = { SwordIdle = "", SwordRun = "", SwordHold = "", SwordPlant = "", SwordPull = "", -- "rbxassetid://..." once published
-	SwordDashF = "", SwordDashB = "", SwordDashL = "", SwordDashR = "" }
-local DASH_LENGTH = 0.4 -- SwordDash* are 12 frames at 30 fps
+	SwordDashF = "", SwordDashF2 = "", SwordDashB = "", SwordDashL = "", SwordDashR = "" }
+local DASH_LENGTH = 11 / 30 -- SwordDash* snap into their pose and hold it for 11 frames at 30 fps
 -- The grip centre on RightHand, blade forward, flat sideways: the rest pose of scripts/18_r15_anims.py
 local HAND_GRIP = CFrame.fromMatrix(Vector3.new(0, -0.158, 0), Vector3.new(-1, 0, 0), Vector3.new(0, 0, -1))
 local RUN_SPEED = 16 -- SwordRun is paced for this WalkSpeed
@@ -118,10 +118,11 @@ local function animate(char: Model)
 	-- GAME-44: a dash plays SwordDashF/B/L/R by where it goes relative to where the body faces (the server keeps that
 	-- facing through the dash, so side and back dashes are sidesteps / back hops). From the planted idle the sword comes
 	-- out into the trailing hold. The track fades out just before its end into the loop underneath.
-	for _, d in { "F", "B", "L", "R" } do
+	for _, d in { "F", "F2", "B", "L", "R" } do
 		t["SwordDash" .. d].Priority = Enum.AnimationPriority.Action4
 	end
 	local dashConn
+	local mirror = false -- forward dashes alternate SwordDashF / F2 (mirrored), like the owner's reference
 	task.spawn(function()
 		local remote = ReplicatedStorage:WaitForChild("Goblin"):WaitForChild("RunDash")
 		if not char.Parent then
@@ -135,6 +136,10 @@ local function animate(char: Model)
 			local ahead, side = dir:Dot(face), dir:Dot(face:Cross(Vector3.yAxis))
 			local which = if math.abs(ahead) >= math.abs(side) then (if ahead >= 0 then "F" else "B")
 				else (if side > 0 then "R" else "L")
+			if which == "F" then
+				mirror = not mirror
+				which = if mirror then "F2" else "F"
+			end
 			if state == "idle" then
 				enter("hold")
 				stoppedAt = os.clock()

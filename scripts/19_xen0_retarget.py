@@ -33,7 +33,7 @@ xen = bpy.data.objects["Roblox_R15"]
 with bpy.data.libraries.load(os.path.join(ROOT, "blender", "r15_rig.blend")) as (src, dst):
     dst.objects = ["R15_Rig", "Sword"] + [n for n in src.objects if n.startswith("Sword_Phase5_")]
     dst.actions = ["EXP_SwordIdle", "EXP_SwordRun", "EXP_SwordHold", "EXP_SwordPlant", "EXP_SwordPull"] + \
-        ["EXP_SwordDash" + d for d in "FBLR"]
+        ["EXP_SwordDash" + d for d in ("F", "F2", "B", "L", "R")]
 ours = next(o for o in dst.objects if o.name.startswith("R15_Rig"))
 for o in dst.objects:
     bpy.context.scene.collection.objects.link(o)
@@ -96,7 +96,7 @@ bake("EXP_SwordRun", "SwordRun")
 bake("EXP_SwordHold", "SwordHold")
 bake("EXP_SwordPlant", "SwordPlant")
 bake("EXP_SwordPull", "SwordPull")
-for d in "FBLR":  # GAME-44 dashes
+for d in ("F", "F2", "B", "L", "R"):  # GAME-44 dashes
     bake("EXP_SwordDash" + d, "SwordDash" + d)
 
 # The sword: same place as on our rig, turned to face +Y, riding on the RightHand deform bone.

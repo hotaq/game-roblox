@@ -20,7 +20,7 @@ gen.REST = os.path.join(ROOT, "docs", "r15_rig_rest.txt")
 OUT = os.path.join(ROOT, "roblox", "SwordAnims.rbxmx")
 A = np.array([[1, 0, 0], [0, 0, 1], [0, -1, 0]], float)
 ANIMS = {"SwordIdle": (True, 0), "SwordRun": (True, 1), "SwordHold": (True, 0), "SwordPlant": (False, 2), "SwordPull": (False, 2),
-         **{"SwordDash" + d: (False, 2) for d in "FBLR"}}  # loop, priority
+         **{"SwordDash" + d: (False, 2) for d in ("F", "F2", "B", "L", "R")}}  # loop, priority
 
 
 def to_roblox(d):

@@ -6,9 +6,8 @@
 #   SwordHold  (loop, 2 s): stopped after a run, sword still trailing behind; the client plants it after a few seconds.
 #   SwordPlant (once, 0.7 s): hold -> idle, lifts the sword high point down and slams it into the ground.
 #   SwordPull  (once, 0.5 s): idle -> run, yanks the sword out and swings it down behind into the drag.
-#   SwordDashF / B / L / R (once, 0.4 s, GAME-44): the dash, relative to where the character faces. F lunges with the
-#              sword trailing far behind, B hops back with the blade raised on guard in front, L / R sidestep leaning
-#              into it, the sword lagging on the other side. Each starts and ends on SwordHold's first frame.
+#   SwordDashF / F2 / B / L / R (once, 0.37 s, GAME-44): the dash, relative to where the character faces, posed after the
+#              owner's reference (REF below): snaps from SwordHold into the pose and holds it; F and F2 alternate.
 # Run headless (opens blender/r15_rig.blend, adds the actions, saves it back and renders previews):
 #   /Applications/Blender.app/Contents/MacOS/Blender -b goblin/blender/r15_rig.blend --python goblin/scripts/18_r15_anims.py
 #
@@ -382,53 +381,94 @@ def pull(rig, idle0, run0):
     ], extra)
 
 
-def sword_at(grip, blade):
-    """A sword matrix: grip at grip, blade along blade, flat facing as sideways as it can."""
-    z = Vector(blade).normalized()
-    x = z.cross(Vector((0, 0, 1)))
-    x = x.normalized() if x.length > 1e-6 else Vector((1, 0, 0))
-    m = Matrix((x, z.cross(x), z)).transposed().to_4x4()
-    m.translation = grip
-    return m
-
-
-# Dash peaks: pose offsets on top of SwordHold (world axes as above; +X = the character's left, -Y = forward) and the
-# lift, plus where the sword goes. The whole dash is 12 frames: out in 3, held 4, back to SwordHold in 5.
-DASHES = {
-    "F": ({"LowerTorso": (20, 0, 0), "UpperTorso": (14, 0, 0), "Head": (-18, 0, 0),
-           "LeftUpperArm": (50, -5, 0), "LeftLowerArm": (-15, 0, 0),
-           "RightUpperLeg": (-45, 0, 0), "RightLowerLeg": (55, 0, 0), "RightFoot": (-10, 0, 0),
-           "LeftUpperLeg": (30, 0, 0), "LeftLowerLeg": (20, 0, 0), "LeftFoot": (15, 0, 0)}, -0.45, "trail", (0, 0.6, -0.2)),
-    "B": ({"LowerTorso": (-10, 0, 0), "UpperTorso": (-8, 0, 0), "Head": (8, 0, 0),
-           "LeftUpperArm": (-45, -15, 0), "LeftLowerArm": (-35, 0, 0),
-           "RightUpperLeg": (-30, 0, 0), "LeftUpperLeg": (-15, 0, 0), "RightLowerLeg": (45, 0, 0),
-           "LeftLowerLeg": (35, 0, 0), "RightFoot": (-15, 0, 0), "LeftFoot": (-15, 0, 0)}, -0.4, "guard", None),
-    "L": ({"LowerTorso": (0, 16, 0), "UpperTorso": (0, 8, 0), "Head": (0, -10, 0),
-           "LeftUpperLeg": (0, -40, 0), "RightUpperLeg": (0, -4, 0), "LeftLowerLeg": (25, 0, 0),
-           "RightLowerLeg": (30, 0, 0), "LeftUpperArm": (0, -45, 0)}, -0.35, "trail", (-0.6, 0.3, 0)),
-    "R": ({"LowerTorso": (0, -16, 0), "UpperTorso": (0, -8, 0), "Head": (0, 10, 0),
-           "RightUpperLeg": (0, 40, 0), "LeftUpperLeg": (0, 4, 0), "RightLowerLeg": (25, 0, 0),
-           "LeftLowerLeg": (30, 0, 0), "LeftUpperArm": (0, 20, 0)}, -0.35, "trail", (0.4, 0.4, 0)),
+# The dashes follow the owner's reference, the Toolbox "Dash Animations Tutorial" (asset 79699704844002, an R6 rig with
+# Front / Front2 / Left / Right / Back): each R6 part's rotation relative to the root at its held pose, Roblox axes,
+# row-major 3x3, taken in Studio by forward kinematics (root * C0 * pose * C1^-1) at t = 0.167. F: torso pitched ~72 deg
+# into a dive, arms swept back; F2 is its mirror (forward dashes alternate); L / R: a 46 deg twist and 41 deg lean with a
+# leg kicked out; B: leaning back with the arms spread. The R6 torso becomes LowerTorso (UpperTorso follows), arms and
+# legs their upper parts with the lower ones straight, as on R6; the sword rides in the right hand.
+REF = {
+    "F": {
+        "Torso": (0.8468, 0.0000, -0.5320, 0.5050, 0.3147, 0.8037, 0.1674, -0.9492, 0.2665),
+        "Head": (0.9452, -0.1278, -0.3005, 0.1918, 0.9620, 0.1943, 0.2642, -0.2413, 0.9338),
+        "Left Arm": (0.0937, -0.8051, 0.5858, 0.7607, -0.3217, -0.5638, 0.6423, 0.4984, 0.5823),
+        "Right Arm": (-0.3789, 0.1857, -0.9066, 0.9245, 0.1203, -0.3618, 0.0419, -0.9752, -0.2173),
+        "Left Leg": (0.9269, 0.0000, -0.3754, 0.3563, 0.3147, 0.8798, 0.1181, -0.9492, 0.2917),
+        "Right Leg": (0.8468, -0.1632, -0.5063, 0.5050, 0.5461, 0.6684, 0.1674, -0.8217, 0.5448),
+    },
+    "F2": {
+        "Torso": (0.8468, 0.0000, 0.5320, -0.5050, 0.3147, 0.8037, -0.1674, -0.9492, 0.2665),
+        "Head": (0.9452, 0.1278, 0.3005, -0.1918, 0.9620, 0.1943, -0.2642, -0.2413, 0.9338),
+        "Left Arm": (-0.3789, -0.1857, 0.9066, -0.9245, 0.1203, -0.3618, -0.0419, -0.9752, -0.2173),
+        "Right Arm": (0.0937, 0.8051, -0.5858, -0.7607, -0.3217, -0.5638, -0.6423, 0.4984, 0.5823),
+        "Left Leg": (0.8468, 0.1632, 0.5063, -0.5050, 0.5461, 0.6684, -0.1674, -0.8217, 0.5448),
+        "Right Leg": (0.9269, 0.0000, 0.3754, -0.3563, 0.3147, 0.8798, -0.1181, -0.9492, 0.2917),
+    },
+    "L": {
+        "Torso": (0.5225, -0.7218, 0.4539, 0.5991, 0.6896, 0.4069, -0.6067, 0.0594, 0.7927),
+        "Head": (0.5225, -0.7218, 0.4539, 0.5991, 0.6896, 0.4069, -0.6067, 0.0594, 0.7927),
+        "Left Arm": (0.6418, 0.0962, 0.7608, 0.7657, -0.1344, -0.6290, 0.0417, 0.9862, -0.1599),
+        "Right Arm": (-0.0884, -0.9919, 0.0914, 0.9640, -0.0621, 0.2584, -0.2506, 0.1110, 0.9617),
+        "Left Leg": (0.4283, -0.7218, 0.5437, 0.5123, 0.6896, 0.5119, -0.7444, 0.0594, 0.6651),
+        "Right Leg": (0.2189, -0.8637, 0.4539, 0.8115, 0.4195, 0.4069, -0.5418, 0.2793, 0.7927),
+    },
+    "R": {
+        "Torso": (0.5225, 0.7218, -0.4539, -0.5991, 0.6896, 0.4069, 0.6067, 0.0594, 0.7927),
+        "Head": (0.5225, 0.7218, -0.4539, -0.5991, 0.6896, 0.4069, 0.6067, 0.0594, 0.7927),
+        "Left Arm": (-0.0884, 0.9919, -0.0914, -0.9640, -0.0621, 0.2584, 0.2506, 0.1110, 0.9617),
+        "Right Arm": (0.6418, -0.0962, -0.7608, -0.7657, -0.1344, -0.6290, -0.0417, 0.9862, -0.1599),
+        "Left Leg": (0.2189, 0.8637, -0.4539, -0.8115, 0.4195, 0.4069, 0.5418, 0.2793, 0.7927),
+        "Right Leg": (0.4283, 0.7218, -0.5437, -0.5123, 0.6896, 0.5119, 0.7444, 0.0594, 0.6651),
+    },
+    "B": {
+        "Torso": (1.0000, 0.0000, 0.0000, 0.0000, 0.9086, -0.4176, 0.0000, 0.4176, 0.9086),
+        "Head": (1.0000, 0.0000, 0.0000, 0.0000, 0.9927, 0.1205, 0.0000, -0.1205, 0.9927),
+        "Left Arm": (0.8490, 0.5173, -0.1075, 0.0007, -0.2046, -0.9788, -0.5284, 0.8310, -0.1741),
+        "Right Arm": (0.8526, -0.5225, 0.0000, -0.1518, -0.2477, -0.9569, 0.5000, 0.8159, -0.2905),
+        "Left Leg": (1.0000, 0.0000, 0.0000, 0.0000, 0.8331, -0.5532, 0.0000, 0.5532, 0.8331),
+        "Right Leg": (1.0000, -0.0082, -0.0015, 0.0076, 0.9697, -0.2441, 0.0035, 0.2441, 0.9698),
+    },
 }
-GUARD = sword_at(Vector((-1.4, -1.4, 3.0)), (0.45, -0.45, 0.77))  # blade up and across the front
+ROBLOX_TO_BLENDER = Matrix(((-1, 0, 0), (0, 0, 1), (0, 1, 0)))  # Roblox (x right, y up, -z forward) -> ours
+R6_TO_R15 = {"Torso": "LowerTorso", "Head": "Head", "Left Arm": "LeftUpperArm", "Right Arm": "RightUpperArm",
+             "Left Leg": "LeftUpperLeg", "Right Leg": "RightUpperLeg"}
+
+
+# R6 tucks a leg by sliding the whole leg up its hip (about a stud); R15 bends that knee instead: the thigh swings
+# forward 35 degrees about its own hip axis and the shin folds back 80.
+TUCK = {"F": "Right", "F2": "Left", "L": "Left", "R": "Right"}
+
+
+def ref_rot(which):
+    """REF[which] as a pose dict (world-axis rotations at each joint, chained as in world_deltas)."""
+    w = {k: ROBLOX_TO_BLENDER @ Matrix((v[0:3], v[3:6], v[6:9])) @ ROBLOX_TO_BLENDER.transposed()
+         for k, v in REF[which].items()}
+    rot = {}
+    for part, bone in R6_TO_R15.items():
+        local = w[part] if part == "Torso" else w["Torso"].transposed() @ w[part]  # every other part hangs off the torso
+        if which in TUCK and bone == TUCK[which] + "UpperLeg":
+            local = local @ Matrix.Rotation(math.radians(-35), 3, "X")
+            rot[TUCK[which] + "LowerLeg"] = (80, 0, 0)
+        rot[bone] = tuple(math.degrees(a) for a in local.to_euler("XYZ"))
+    return rot
 
 
 def dash(rig, hold0, which):
-    peak, lift, sword, shift = DASHES[which]
-
-    def weight(f):  # out fast, held, eased back
-        return 1 - (1 - f / 3) ** 2 if f <= 3 else 1.0 if f <= 7 else 1 - ease((f - 7) / 5)
-
-    def extra(f):
-        w = weight(f)
-        return {k: tuple(w * x for x in v) for k, v in peak.items()}, w * lift
-
-    target = GUARD if sword == "guard" else Matrix.Translation(shift) @ hold0[2]
-    transition(rig, "EXP_SwordDash" + which, hold0, hold0, [
-        (3, target, lambda t: 1 - (1 - t) ** 2, 0.5 if sword == "guard" else 0),
-        (4, target, ease, 0),
-        (5, hold0[2], ease, 0),
-    ], extra)
+    """SwordDash<which> (11 frames, 0.37 s): from SwordHold's first frame it snaps into the reference pose in 4 frames
+    (ease out) and holds it; the client fades the track out over its end."""
+    n = 11
+    new_action(rig, "EXP_SwordDash" + which, n)
+    a, b = hold0[0], ref_rot(which)
+    for f in range(n + 1):
+        t = 1 - (1 - min(1.0, f / 4)) ** 3
+        rot = {}
+        for k in set(a) | set(b):
+            qa, qb = (Euler([math.radians(x) for x in d.get(k, (0, 0, 0))]).to_quaternion() for d in (a, b))
+            if qa.dot(qb) < 0:  # the short way round
+                qb.negate()
+            rot[k] = tuple(math.degrees(x) for x in qa.slerp(qb, t).to_euler("XYZ"))
+        key(rig, f, rot, hold0[1] * (1 - t))
+    print("EXP_SwordDash" + which + ": reference pose from frame 4")
 
 
 def render(rig, path, shots):
@@ -478,7 +518,7 @@ run0 = run(rig)
 hold0 = guard(rig)
 plant(rig, hold0, idle0)
 pull(rig, idle0, run0)
-for which in DASHES:
+for which in REF:
     dash(rig, hold0, which)
 bpy.context.scene.render.fps = FPS
 bpy.ops.wm.save_mainfile()
@@ -486,6 +526,6 @@ render(rig, os.path.join(ROOT, "renders", "sword_carry_anims.png"),
        [("EXP_SwordIdle", 0, FRONT), ("EXP_SwordIdle", 0, SIDE), ("EXP_SwordIdle", 0, BACK34),
         ("EXP_SwordRun", 0, FRONT34), ("EXP_SwordRun", 5, FRONT34), ("EXP_SwordRun", 10, FRONT34)])
 render(rig, os.path.join(ROOT, "renders", "sword_dash_anims.png"),
-       [("EXP_SwordDashF", 5, SIDE), ("EXP_SwordDashB", 5, SIDE), ("EXP_SwordDashL", 5, FRONT), ("EXP_SwordDashR", 5, FRONT),
-        ("EXP_SwordDashF", 5, FRONT34), ("EXP_SwordDashB", 5, FRONT34)])
+       [("EXP_SwordDashF", 8, SIDE), ("EXP_SwordDashF2", 8, FRONT34), ("EXP_SwordDashL", 8, FRONT),
+        ("EXP_SwordDashR", 8, FRONT), ("EXP_SwordDashB", 8, SIDE), ("EXP_SwordDashB", 8, FRONT34)])
 print("actions:", [a.name for a in bpy.data.actions])
