@@ -2,8 +2,9 @@
 -- (GAME-43, replaced the 300 x 300 "Forest ruins") into Workspace.Map1. The layout itself (kinds, heights, hazards)
 -- lives in ReplicatedStorage.Goblin.MapLayout, shared with the horde scripts, so the ground built here is exactly what
 -- goblins walk on. Trees and ruins come from the ServerStorage.Map1Kit templates (scripts/14_voxel_trees.py,
--- 15_maya_ruins.py); the jade head and the stone skull (Meshy) from Map1Kit.Prop_JadeHead / Prop_SkullRock when
--- present; totems, the temple gate, graves, thorns and bridges are built from parts here.
+-- 15_maya_ruins.py); the Meshy props from Map1Kit when present: Prop_Totem (asset 80849974035661, 20 studs tall,
+-- pivot at its bottom centre), Prop_JadeHead, Prop_SkullRock. Missing ones fall back to the part-built versions here;
+-- the temple gate, graves, thorns and bridges are built from parts.
 -- Deterministic (fixed seeds). Usage from the command bar / MCP:
 --   require(game.ServerScriptService.Map1Builder).build()                      -- everything, at (1000, 0, 0)
 --   require(game.ServerScriptService.Map1Builder).build(nil, { "props" })      -- only some stages
@@ -250,7 +251,10 @@ function STAGES.landmarks(map: Model, o: CFrame)
 		for _, r in { R.half - R.width - 6, R.half + R.width + 6 } do
 			for _, s in { -1, 1 } do
 				local p = d * r + side * s
-				totem(f, on(o, p.X, p.Z))
+				local cf = on(o, p.X, p.Z)
+				if not place(f, "Prop_Totem", CFrame.lookAt(cf.Position, cf.Position - side * s)) then -- faces the road
+					totem(f, cf)
+				end
 			end
 		end
 	end
