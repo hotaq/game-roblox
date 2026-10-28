@@ -5,7 +5,7 @@
 -- Local coordinates: (0, 0) = the map centre, north = -Z, 600 x 600 studs. The ground is 6-stud tiles and every tile
 -- has one kind and one height, so heightAt is exact (it samples the tile's centre).
 --
---   centre      stone plaza, the Maya pyramid (tiers at 5 / 15 / 25, temple on top, stairs up every face)
+--   centre      stone plaza, the Maya pyramid (5 tiers to 51, temple on top at 75, stairs up every face)
 --   ring        a river (2 studs deep: wading slows) around the plaza, a bridge on each side
 --   NW          the big mountain: ridged rocky summits up to ~64 studs, climbed by jumping ledge to ledge
 --   NE          a mesa (4 wandering tiers of 6 studs) with a waterfall into a deep cenote
@@ -22,20 +22,33 @@ local STEP = 2
 Layout.TILE, Layout.HALF = TILE, HALF
 
 local PLAZA = 60
-local PYRAMID = { x = 0, z = 0, half = 30, top = 37 } -- Map1Kit.Prop_Pyramid (Meshy temple ruin), 60 wide, ~37 tall
--- Its highest surface per 6-stud tile (rows = x, columns = z, both -27..27), baked from the mesh with
--- `scripts/26_plasticify_glb.py heights <generate.glb> 60 6`. The horde walks these; players collide with the mesh.
+local PYRAMID = { x = 0, z = 0, half = 66, base = -6, top = 75.6 } -- Map1Kit.Prop_Pyramid (Meshy temple ruin), ~134 wide,
+-- its bottom sunk to y -6 (the owner's placement). Its highest surface per 6-stud tile (rows = x, columns = z, both
+-- -63..63), baked from the mesh with `scripts/26_plasticify_glb.py heights <generate.glb> 133.5726 6 -6`: tiers at
+-- 5 / 17 / 28 / 39 / 51, the temple on top at 75, stairs up every face. The horde walks these; players collide with the mesh.
 local PYRAMID_TILES = {
-	{ 0, 0, 0, 0, 2, 2, 0, 0, 0, 0 },
-	{ 0, 5, 5, 5, 10, 10, 5, 5, 5, 0 },
-	{ 0, 5, 15, 15, 17, 17, 15, 15, 5, 0 },
-	{ 0, 5, 15, 25, 25, 25, 25, 15, 5, 0 },
-	{ 3, 10, 17, 25, 36, 36, 25, 17, 10, 3 },
-	{ 3, 10, 17, 25, 35, 36, 25, 17, 10, 3 },
-	{ 0, 5, 15, 25, 25, 25, 25, 15, 5, 0 },
-	{ 0, 5, 15, 15, 17, 17, 15, 15, 5, 0 },
-	{ 0, 4, 5, 5, 10, 10, 5, 5, 5, 0 },
-	{ 0, 0, 0, 0, 3, 3, 0, 0, 0, 0 },
+	{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },
+	{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 6, 3, 3, 6, 0, 0, 0, 0, 0, 0, 0, 0, 0 },
+	{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 14, 10, 10, 13, 0, 0, 0, 0, 0, 0, 0, 0, 0 },
+	{ 0, 0, 0, 5, 5, 5, 5, 5, 5, 21, 19, 19, 21, 5, 5, 5, 5, 5, 5, 0, 0, 0 },
+	{ 0, 0, 0, 5, 17, 17, 16, 14, 14, 28, 26, 26, 28, 14, 14, 17, 17, 17, 6, 0, 0, 0 },
+	{ 0, 0, 0, 5, 17, 28, 28, 28, 28, 36, 33, 33, 35, 28, 28, 28, 28, 17, 5, 0, 0, 0 },
+	{ 0, 0, 0, 5, 16, 28, 34, 39, 39, 44, 40, 40, 43, 36, 39, 34, 28, 16, 5, 4, 0, 0 },
+	{ 0, 0, 0, 5, 16, 28, 39, 39, 48, 51, 46, 46, 51, 39, 39, 39, 28, 16, 5, 0, 0, 0 },
+	{ 0, 0, 5, 5, 16, 28, 39, 41, 51, 51, 51, 51, 51, 51, 39, 39, 28, 16, 5, 0, 0, 0 },
+	{ 0, 7, 14, 22, 29, 35, 44, 51, 52, 73, 73, 75, 75, 51, 51, 44, 37, 29, 22, 13, 7, 0 },
+	{ 0, 5, 11, 19, 26, 33, 40, 49, 51, 74, 74, 74, 75, 51, 49, 40, 33, 26, 19, 11, 5, 0 },
+	{ 0, 5, 10, 19, 26, 33, 40, 49, 51, 72, 74, 74, 75, 51, 49, 40, 33, 26, 19, 12, 3, 0 },
+	{ 0, 7, 13, 21, 29, 36, 44, 51, 51, 61, 73, 74, 75, 51, 51, 44, 36, 29, 21, 14, 6, 0 },
+	{ 0, 0, 0, 5, 16, 28, 39, 39, 51, 51, 51, 51, 51, 51, 39, 39, 28, 17, 5, 0, 0, 0 },
+	{ 0, 0, 0, 5, 16, 28, 39, 39, 42, 51, 49, 49, 51, 42, 39, 39, 28, 16, 5, 0, 0, 0 },
+	{ 0, 0, 0, 5, 17, 28, 39, 39, 39, 44, 40, 40, 44, 39, 39, 37, 28, 17, 5, 0, 0, 0 },
+	{ 0, 0, 0, 5, 17, 28, 28, 28, 28, 36, 33, 33, 36, 28, 28, 28, 28, 17, 5, 0, 0, 0 },
+	{ 0, 0, 0, 5, 17, 17, 17, 10, 15, 28, 26, 26, 28, 16, 17, 17, 17, 17, 5, 0, 0, 0 },
+	{ 0, 0, 0, 5, 5, 5, 5, 5, 11, 21, 19, 19, 21, 5, 5, 5, 5, 5, 5, 0, 0, 0 },
+	{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 14, 10, 10, 13, 0, 0, 0, 0, 0, 0, 0, 0, 0 },
+	{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 6, 3, 3, 6, 0, 0, 0, 0, 0, 0, 0, 0, 0 },
+	{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },
 }
 local RIVER = { half = 100, radius = 32, width = 10, depth = -2 }
 local BRIDGE = 9 -- half-width of the four bridges

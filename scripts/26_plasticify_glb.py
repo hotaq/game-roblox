@@ -4,7 +4,7 @@ MeshPart per colour and each gets a plain Plastic colour (the owner's art direct
   python3 -I 26_plasticify_glb.py clusters textured.glb [k]            # texture colour clusters, to pick ANCHORS
   python3 -I 26_plasticify_glb.py convert textured.glb out.glb preview.png [geometry.glb]
   python3 -I 26_plasticify_glb.py stone untextured.glb out.glb preview.png  # a stone building with no texture
-  python3 -I 26_plasticify_glb.py heights model.glb width tile           # top height per tile, Roblox studs
+  python3 -I 26_plasticify_glb.py heights model.glb width tile [base]    # top height per tile, Roblox studs
 
 `stone` colours by geometry: lighter steps up the middle of each face, green moss on the upward faces of about half the
 blocks below the top, stone elsewhere. `heights` scales the model to `width` studs and prints the highest surface at
@@ -188,14 +188,16 @@ def stone_classes(pos, tris):
     return cls
 
 
-def heights(pos, tris, width, tile):
-    """Highest surface at every tile centre once scaled to `width` studs (bottom at 0), as Roblox imports it."""
+def heights(pos, tris, width, tile, base=0.0):
+    """Highest surface at every map tile centre once scaled to `width` studs with its bottom at `base`, as Roblox
+    imports it. The grid is the map's (centres at odd multiples of tile/2), covering whole tiles of the footprint."""
     lo, hi = pos.min(0), pos.max(0)
-    k = width / max(hi[0] - lo[0], hi[2] - lo[2])
+    k = width / (hi[0] - lo[0])  # Roblox's Model:ScaleTo is uniform, and the width is the model's X size
     p = (pos - [(lo[0] + hi[0]) / 2, lo[1], (lo[2] + hi[2]) / 2]) * k
     p[:, 0], p[:, 2] = -p[:, 0], -p[:, 2]  # Roblox's import turns the model half way round
+    p[:, 1] += base
     v = p[tris]
-    half = width / 2
+    half = tile * round(width / 2 / tile)
     centres = np.arange(-half + tile / 2, half, tile)
     out = np.zeros((len(centres), len(centres)))
     a, b, c = v[:, 0], v[:, 1], v[:, 2]
@@ -209,8 +211,8 @@ def heights(pos, tris, width, tile):
             w3 = 1 - w1 - w2
             inside = (w1 >= 0) & (w2 >= 0) & (w3 >= 0) & (np.abs(d) > 1e-12)
             if inside.any():
-                out[i, j] = (w1 * a[:, 1] + w2 * b[:, 1] + w3 * c[:, 1])[inside].max()
-    return centres, out
+                out[i, j] = max(0.0, (w1 * a[:, 1] + w2 * b[:, 1] + w3 * c[:, 1])[inside].max())
+    return centres, out, half, p[:, 1].max()
 
 
 def kmeans(x, k, iters=30, seed=1):
@@ -229,8 +231,9 @@ if __name__ == "__main__" and sys.argv[1] in ("stone", "heights"):
         print("meshes:", ", ".join(f"{n} {(cls == NAMES.index(n)).sum()}" for n in names))
         preview(sys.argv[4], pos, tris, cls)
     else:
-        centres, h = heights(pos, tris, float(sys.argv[3]), float(sys.argv[4]))
-        print("-- tile centres", centres.tolist(), "rows = x, columns = z")
+        base = float(sys.argv[5]) if len(sys.argv) > 5 else 0.0
+        centres, h, half, top = heights(pos, tris, float(sys.argv[3]), float(sys.argv[4]), base)
+        print(f"-- half {half:g}, top {top:.1f}, tile centres {centres[0]:g}..{centres[-1]:g}, rows = x, columns = z")
         for row in h:
             print("{ " + ", ".join(str(int(round(v))) for v in row) + " },")
 elif __name__ == "__main__":

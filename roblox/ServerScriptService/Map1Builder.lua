@@ -6,7 +6,7 @@
 -- pivot at its bottom centre), Prop_TempleGate (asset 137670247217292, 34 wide, opening along Z, ~10-stud walkable
 -- gap), Prop_SkullShrine (asset 113206205477662: 8 plastic MeshParts, one per colour, from
 -- scripts/26_plasticify_glb.py, plus 2 neon jade eyes; 40 wide, on the E hill), Prop_Pyramid (Meshy temple ruin
--- through 26_plasticify_glb.py stone: Stone/Step/Moss MeshParts, 60 wide, bottom-centre pivot), Prop_JadeHead, Prop_SkullRock.
+-- through 26_plasticify_glb.py stone: Stone/Step/Moss MeshParts at scale 140, ~134 wide), Prop_JadeHead, Prop_SkullRock.
 -- Missing ones fall back to the part-built versions here; graves, thorns and bridges are built from parts.
 -- Deterministic (fixed seeds). Usage from the command bar / MCP:
 --   require(game.ServerScriptService.Map1Builder).build()                      -- everything, at (1000, 0, 0)
@@ -244,10 +244,11 @@ function STAGES.landmarks(map: Folder, o: CFrame)
 	local f = Instance.new("Folder")
 	f.Name = "Landmarks"
 	f.Parent = map
-	-- The pyramid (Meshy temple ruin, bottom-centre pivot, 60 wide; without it the ground stage stacks its baked tile
-	-- heights), a glowing jade crown and two braziers on the temple roof, and stelae at the foot of the south stairs.
+	-- The pyramid (Meshy temple ruin, bottom-centre pivot, ~134 wide, its bottom at P.base; without it the ground stage
+	-- stacks its baked tile heights), a glowing jade crown and two braziers on the temple roof, and stelae at the foot of
+	-- the south stairs.
 	local P = L.PYRAMID
-	place(f, "Prop_Pyramid", o * CFrame.new(P.x, 0, P.z))
+	place(f, "Prop_Pyramid", o * CFrame.new(P.x, P.base, P.z))
 	local top = o * CFrame.new(P.x, P.top, P.z)
 	part(f, Vector3.new(6, 4, 6), top * CFrame.new(0, 2, 0), JADE, { Material = Enum.Material.Neon, Name = "JadeCrown" })
 	for _, sx in { -4.5, 4.5 } do
