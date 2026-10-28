@@ -60,9 +60,74 @@ local function bar(size: UDim2, color: Color3)
 	local track = new("Frame", { Size = size, BackgroundColor3 = INK, BorderSizePixel = 0 }, { stroke(2), fill })
 	return track, fill
 end
-local function button(label: string, color: Color3, textColor: Color3, width: number)
-	local b = new("TextButton", { Size = UDim2.fromOffset(width, 44), BackgroundColor3 = color, AutoButtonColor = true, FontFace = FONT, Text = label, TextSize = 18, TextColor3 = textColor }, { corner(6), stroke(3) })
-	return b
+
+-- UI-kit look (owner's reference 2026-10-28, the bright Figma UI v3): chunky rounded pieces with a thick ink outline,
+-- glossy plastic fills, FredokaOne. Used by all three screens (GAME-40).
+local KIT_FONT = Font.fromEnum(Enum.Font.FredokaOne)
+local KIT_INK = Color3.fromRGB(20, 17, 43)
+local KIT_RED = Color3.fromRGB(255, 59, 78)
+local KIT_CYAN = Color3.fromRGB(32, 201, 230)
+local KIT_YELLOW = Color3.fromRGB(255, 210, 63)
+local KIT_TRACK = Color3.fromRGB(58, 52, 88)
+local KIT_TILE = Color3.fromRGB(236, 240, 255)
+local KIT_GREEN = Color3.fromRGB(61, 220, 90)
+local KIT_BLUE = Color3.fromRGB(61, 139, 255)
+local KIT_PURPLE = Color3.fromRGB(162, 89, 255)
+local KIT_ORANGE = Color3.fromRGB(255, 154, 31)
+local KIT_IDLE = Color3.fromRGB(170, 165, 190) -- a button that can't be pressed yet
+
+local function kitText(props, outline: number?)
+	props.FontFace = KIT_FONT
+	local label = text(props, outline)
+	label:FindFirstChildOfClass("UIStroke").Color = KIT_INK
+	return label
+end
+local function pill()
+	return new("UICorner", { CornerRadius = UDim.new(0.5, 0) })
+end
+-- Plastic shine: the top half keeps the colour, the bottom half is a shade darker.
+local function gloss()
+	local dark = Color3.fromRGB(205, 205, 215)
+	return new("UIGradient", { Rotation = 90, Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0, WHITE), ColorSequenceKeypoint.new(0.5, WHITE),
+		ColorSequenceKeypoint.new(0.52, dark), ColorSequenceKeypoint.new(1, dark),
+	}) })
+end
+-- A pill bar: dark track, glossy fill, value text on top.
+local function kitBar(width: number, height: number, color: Color3)
+	local fill = new("Frame", { Size = UDim2.fromScale(0, 1), BackgroundColor3 = color, BorderSizePixel = 0 }, { pill(), gloss() })
+	local label = kitText({ Size = UDim2.fromScale(1, 1), Text = "", TextSize = height - 6, ZIndex = 2 })
+	local track = new("Frame", { Size = UDim2.fromOffset(width, height), BackgroundColor3 = KIT_TRACK, BorderSizePixel = 0 }, { pill(), stroke(3, KIT_INK), fill, label })
+	return track, fill, label
+end
+-- A round glossy badge that caps the left end of a bar.
+local function badge(size: number, color: Color3)
+	return new("Frame", { Size = UDim2.fromOffset(size, size), BackgroundColor3 = color, ZIndex = 3 }, { pill(), stroke(3, KIT_INK), gloss() })
+end
+-- A kit panel: white body under a red header strip with the title, thick ink outline; `body` items stack below.
+local function panel(title: string, width: number, body)
+	local header = new("Frame", { Size = UDim2.new(1, 0, 0, 50), BackgroundColor3 = KIT_RED, BorderSizePixel = 0 }, {
+		corner(16),
+		new("Frame", { Position = UDim2.new(0, 0, 1, -16), Size = UDim2.new(1, 0, 0, 16), BackgroundColor3 = KIT_RED, BorderSizePixel = 0 }), -- squares off the strip's bottom corners
+		kitText({ Size = UDim2.fromScale(1, 1), Text = title, TextSize = 32, ZIndex = 2 }, 3),
+	})
+	local content = new("Frame", { Position = UDim2.fromOffset(0, 50), Size = UDim2.fromScale(1, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1 }, {
+		new("UIPadding", { PaddingTop = UDim.new(0, 10), PaddingBottom = UDim.new(0, 16), PaddingLeft = UDim.new(0, 20), PaddingRight = UDim.new(0, 20) }),
+		new("UIListLayout", { HorizontalAlignment = Enum.HorizontalAlignment.Center, Padding = UDim.new(0, 10), SortOrder = Enum.SortOrder.LayoutOrder }),
+	})
+	for _, item in body do
+		item.Parent = content
+	end
+	return new("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(width, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundColor3 = WHITE }, { corner(16), stroke(4, KIT_INK), header, content })
+end
+-- A kit button: glossy colour pill, thick ink outline, white outlined label (change it through b.Label.Text).
+local function button(label: string, color: Color3, width: number)
+	return new("TextButton", { Size = UDim2.fromOffset(width, 50), BackgroundColor3 = color, AutoButtonColor = true, Text = "" }, {
+		corner(14),
+		stroke(3, KIT_INK),
+		gloss(),
+		kitText({ Name = "Label", Size = UDim2.fromScale(1, 1), Text = label, TextSize = 22 }),
+	})
 end
 local function info(kind: string, id: string?)
 	if kind == "weapon" then
@@ -195,45 +260,6 @@ local scale = new("UIScale", {}) -- fits the fixed-size overlays to small phones
 scale.Parent = gui
 
 ---------------------------------------------------------------- HUD
-
--- UI-kit look (owner's reference 2026-10-28, the bright Figma UI v3): chunky rounded pieces with a thick ink outline,
--- glossy plastic fills, FredokaOne. Level up and Results keep the older look until the rest of GAME-40.
-local KIT_FONT = Font.fromEnum(Enum.Font.FredokaOne)
-local KIT_INK = Color3.fromRGB(20, 17, 43)
-local KIT_RED = Color3.fromRGB(255, 59, 78)
-local KIT_CYAN = Color3.fromRGB(32, 201, 230)
-local KIT_YELLOW = Color3.fromRGB(255, 210, 63)
-local KIT_TRACK = Color3.fromRGB(58, 52, 88)
-local KIT_TILE = Color3.fromRGB(236, 240, 255)
-
-local function kitText(props, outline: number?)
-	props.FontFace = KIT_FONT
-	local label = text(props, outline)
-	label:FindFirstChildOfClass("UIStroke").Color = KIT_INK
-	return label
-end
-local function pill()
-	return new("UICorner", { CornerRadius = UDim.new(0.5, 0) })
-end
--- Plastic shine: the top half keeps the colour, the bottom half is a shade darker.
-local function gloss()
-	local dark = Color3.fromRGB(205, 205, 215)
-	return new("UIGradient", { Rotation = 90, Color = ColorSequence.new({
-		ColorSequenceKeypoint.new(0, WHITE), ColorSequenceKeypoint.new(0.5, WHITE),
-		ColorSequenceKeypoint.new(0.52, dark), ColorSequenceKeypoint.new(1, dark),
-	}) })
-end
--- A pill bar: dark track, glossy fill, value text on top.
-local function kitBar(width: number, height: number, color: Color3)
-	local fill = new("Frame", { Size = UDim2.fromScale(0, 1), BackgroundColor3 = color, BorderSizePixel = 0 }, { pill(), gloss() })
-	local label = kitText({ Size = UDim2.fromScale(1, 1), Text = "", TextSize = height - 6, ZIndex = 2 })
-	local track = new("Frame", { Size = UDim2.fromOffset(width, height), BackgroundColor3 = KIT_TRACK, BorderSizePixel = 0 }, { pill(), stroke(3, KIT_INK), fill, label })
-	return track, fill, label
-end
--- A round glossy badge that caps the left end of a bar.
-local function badge(size: number, color: Color3)
-	return new("Frame", { Size = UDim2.fromOffset(size, size), BackgroundColor3 = color, ZIndex = 3 }, { pill(), stroke(3, KIT_INK), gloss() })
-end
 
 -- An item slot: an empty kit tile (always shown) holding the item's icon tile (glyph on the item's colour until the
 -- sheet loads); LV text under it (weapons) or a number in the corner (passives). Both hide with the icon tile.
@@ -379,21 +405,19 @@ end)
 
 ---------------------------------------------------------------- level up
 
-local levelTitle = text({ Size = UDim2.fromOffset(500, 40), Text = "LEVEL UP!", TextSize = 36, TextColor3 = GOLD, LayoutOrder = 1 }, 3)
-local levelSub = text({ Size = UDim2.fromOffset(500, 20), Text = "PICK ONE", TextSize = 15, LayoutOrder = 2 })
-local cardRow = new("Frame", { Size = UDim2.fromOffset(3 * 196 + 2 * 14, 236), BackgroundTransparency = 1, LayoutOrder = 3 }, {
+local KIT_CARD = { KIT_CYAN, KIT_BLUE, KIT_PURPLE } -- card colour per rarity (common, rare, epic); evolve cards are orange
+local levelSub = kitText({ Size = UDim2.fromOffset(500, 22), Text = "PICK ONE", TextSize = 20, TextColor3 = KIT_INK, LayoutOrder = 1 }, 0)
+local cardRow = new("Frame", { Size = UDim2.fromOffset(3 * 196 + 2 * 14, 252), BackgroundTransparency = 1, LayoutOrder = 2 }, {
 	new("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, HorizontalAlignment = Enum.HorizontalAlignment.Center, VerticalAlignment = Enum.VerticalAlignment.Bottom, Padding = UDim.new(0, 14) }),
 })
-local rerollButton = button("REROLL (2)", Color3.fromRGB(74, 63, 94), WHITE, 170)
-local takeButton = button("TAP A CARD", Color3.fromRGB(140, 132, 150), INK, 170)
+local rerollButton = button("REROLL (2)", KIT_CYAN, 180)
+local takeButton = button("TAP A CARD", KIT_IDLE, 180)
 levelUp = new("Frame", { Size = UDim2.fromScale(1, 1), BackgroundColor3 = SHADE, BackgroundTransparency = 0.35, Visible = false, ZIndex = 5 }, {
-	new("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(640, 340), BackgroundTransparency = 1 }, {
-		new("UIListLayout", { HorizontalAlignment = Enum.HorizontalAlignment.Center, Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }),
-		levelTitle,
+	panel("LEVEL UP!", 3 * 196 + 2 * 14 + 40, {
 		levelSub,
 		cardRow,
-		new("Frame", { Size = UDim2.fromOffset(360, 48), BackgroundTransparency = 1, LayoutOrder = 9 }, {
-			list(Enum.FillDirection.Horizontal, 12, Enum.HorizontalAlignment.Center),
+		new("Frame", { Size = UDim2.fromOffset(380, 50), BackgroundTransparency = 1, LayoutOrder = 9 }, {
+			list(Enum.FillDirection.Horizontal, 14, Enum.HorizontalAlignment.Center),
 			rerollButton,
 			takeButton,
 		}),
@@ -417,7 +441,7 @@ local function cardText(c)
 		return def, rarity, if c.level == 1 then "NEW WEAPON" else string.format("LV %d > %d", c.level - 1, c.level), desc, c.level == 1
 	elseif c.kind == "passive" then
 		local amount=Config.passiveAmount(c.id,c.rarity)
-		return def, rarity, if c.level == 1 then "NEW" else string.format("LV %d > %d", c.level - 1, c.level), string.format(def.Text, math.round(amount*(if def.Flat then 1 else 100))), c.level == 1
+		return def, rarity, if c.level == 1 then "NEW PASSIVE" else string.format("LV %d > %d", c.level - 1, c.level), string.format(def.Text, math.round(amount*(if def.Flat then 1 else 100))), c.level == 1
 	end
 	return def, rarity, "", string.format("Heal %d HP", R.Heal), false
 end
@@ -425,12 +449,12 @@ end
 local function selectCard(k: number?)
 	picked = k
 	for i, b in cardButtons do
-		b.stroke.Color = if i == k then GOLD else b.rarityColor
-		b.stroke.Thickness = if i == k then 5 else 3
+		b.stroke.Color = if i == k then KIT_YELLOW else KIT_INK
+		b.stroke.Thickness = if i == k then 6 else 3
 		b.button.Position = UDim2.fromOffset(0, if i == k then 0 else 8) -- lifted when picked
 	end
-	takeButton.Text = if k then "TAKE IT!" else "TAP A CARD"
-	takeButton.BackgroundColor3 = if k then GOLD else Color3.fromRGB(140, 132, 150)
+	takeButton.Label.Text = if k then "TAKE IT!" else "TAP A CARD"
+	takeButton.BackgroundColor3 = if k then KIT_GREEN else KIT_IDLE
 end
 
 local function showCards(cards, rerolls: number, level: number, offerId)
@@ -446,29 +470,45 @@ local function showCards(cards, rerolls: number, level: number, offerId)
 	end
 	for k, c in cards do
 		local def, rarity, levelText, desc, isNew = cardText(c)
-		local s = stroke(3, rarity.Color)
-		local glyph = new("TextLabel", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, FontFace = FONT, Text = def.Icon, TextSize = 30, TextColor3 = INK })
-		local iconTile = new("Frame", { AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 30), Size = UDim2.fromOffset(64, 64), BackgroundColor3 = def.Color }, { corner(8), stroke(3), glyph })
+		local s = stroke(3, KIT_INK)
+		local glyph = new("TextLabel", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, FontFace = KIT_FONT, Text = def.Icon, TextSize = 30, TextColor3 = KIT_INK })
+		local iconTile = new("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(56, 56), BackgroundColor3 = def.Color }, { corner(8), stroke(2, KIT_INK), glyph })
 		setArt(art(iconTile, { glyph }, iconTile), if c.kind == "heal" then "heart" elseif c.kind == "evolve" then "evo_"..c.id else c.id)
-		local b = new("TextButton", { Size = UDim2.fromOffset(196, 226), Position = UDim2.fromOffset(0, 8), BackgroundColor3 = SHADE, BackgroundTransparency = 0.15, Text = "", AutoButtonColor = false }, {
-			corner(8),
+		-- glossy tile in the rarity's colour: rarity top-left, NEW! pill top-right, icon on a white plate, name,
+		-- yellow level pill, description on a white box
+		local b = new("TextButton", { Size = UDim2.fromOffset(196, 236), Position = UDim2.fromOffset(0, 8), BackgroundColor3 = if c.kind == "evolve" then KIT_ORANGE else (KIT_CARD[c.rarity] or KIT_CYAN), Text = "", AutoButtonColor = false }, {
+			corner(16),
 			s,
-			text({ Position = UDim2.fromOffset(10, 6), Size = UDim2.fromOffset(100, 16), Text = rarity.Name, TextSize = 13, TextColor3 = rarity.Color, TextXAlignment = Enum.TextXAlignment.Left }),
-			text({ Position = UDim2.new(1, -90, 0, 6), Size = UDim2.fromOffset(80, 16), Text = if isNew then "NEW!" else "", TextSize = 13, TextColor3 = GOLD, TextXAlignment = Enum.TextXAlignment.Right }),
-			iconTile,
-			text({ Position = UDim2.fromOffset(4, 102), Size = UDim2.new(1, -8, 0, 24), Text = def.Name, TextSize = 18, TextScaled = false }),
-			text({ Position = UDim2.fromOffset(0, 128), Size = UDim2.new(1, 0, 0, 16), Text = levelText, TextSize = 13, TextColor3 = GOLD }),
-			text({ Position = UDim2.fromOffset(12, 152), Size = UDim2.new(1, -24, 0, 64), Text = desc, TextSize = 14, TextWrapped = true, TextYAlignment = Enum.TextYAlignment.Top, TextColor3 = Color3.fromRGB(230, 224, 240) }),
+			gloss(),
+			kitText({ Position = UDim2.fromOffset(12, 8), Size = UDim2.fromOffset(100, 18), Text = rarity.Name, TextSize = 15, TextXAlignment = Enum.TextXAlignment.Left }),
+			new("Frame", { AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 30), Size = UDim2.fromOffset(70, 70), BackgroundColor3 = WHITE }, { corner(14), stroke(3, KIT_INK), iconTile }),
+			kitText({ Position = UDim2.fromOffset(6, 104), Size = UDim2.new(1, -12, 0, 26), Text = def.Name, TextSize = 22 }),
+			new("Frame", { AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 134), Size = UDim2.fromOffset(150, 22), BackgroundColor3 = KIT_YELLOW, Visible = levelText ~= "" }, {
+				pill(),
+				stroke(2, KIT_INK),
+				kitText({ Size = UDim2.fromScale(1, 1), Text = levelText, TextSize = 14, TextColor3 = KIT_INK }, 0),
+			}),
+			new("Frame", { Position = UDim2.fromOffset(8, 162), Size = UDim2.new(1, -16, 0, 66), BackgroundColor3 = WHITE }, {
+				corner(10),
+				kitText({ Position = UDim2.fromOffset(6, 4), Size = UDim2.new(1, -12, 1, -8), Text = desc, TextSize = 14, TextWrapped = true, TextColor3 = KIT_INK }, 0),
+			}),
 		})
-		local holder = new("Frame", { Size = UDim2.fromOffset(196, 234), BackgroundTransparency = 1 }, { b })
+		if isNew then
+			new("Frame", { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -8, 0, 6), Size = UDim2.fromOffset(52, 20), BackgroundColor3 = KIT_YELLOW, Parent = b }, {
+				pill(),
+				stroke(2, KIT_INK),
+				kitText({ Size = UDim2.fromScale(1, 1), Text = "NEW!", TextSize = 13, TextColor3 = KIT_INK }, 0),
+			})
+		end
+		local holder = new("Frame", { Size = UDim2.fromOffset(196, 244), BackgroundTransparency = 1 }, { b })
 		holder.Parent = cardRow
 		b.Activated:Connect(function()
 			selectCard(k)
 		end)
-		cardButtons[k] = { holder = holder, button = b, stroke = s, rarityColor = rarity.Color }
+		cardButtons[k] = { holder = holder, button = b, stroke = s }
 	end
 	levelSub.Text = string.format("LV %d  -  PICK ONE", level)
-	rerollButton.Text = string.format("REROLL (%d)", rerolls)
+	rerollButton.Label.Text = string.format("REROLL (%d)", rerolls)
 	rerollButton.Visible = rerolls > 0
 	selectCard(nil)
 	levelUp.Visible = true
@@ -487,38 +527,36 @@ end)
 
 ---------------------------------------------------------------- results
 
--- A stat: small label over a big number, no box.
-local function stat(label: string, order: number)
-	local value = text({ Position = UDim2.fromOffset(0, 18), Size = UDim2.new(1, 0, 0, 32), Text = "", TextSize = 30 }, 3)
-	return new("Frame", { Size = UDim2.fromOffset(170, 52), BackgroundTransparency = 1, LayoutOrder = order }, {
-		text({ Size = UDim2.new(1, 0, 0, 16), Text = label, TextSize = 13, TextColor3 = Color3.fromRGB(217, 210, 230) }),
+-- A stat: small label over a big number on a glossy colour tile.
+local function stat(label: string, order: number, color: Color3)
+	local value = kitText({ Position = UDim2.fromOffset(0, 26), Size = UDim2.new(1, 0, 0, 36), Text = "", TextSize = 32 }, 3)
+	return new("Frame", { Size = UDim2.fromOffset(176, 70), BackgroundColor3 = color, LayoutOrder = order }, {
+		corner(14),
+		stroke(3, KIT_INK),
+		gloss(),
+		kitText({ Position = UDim2.fromOffset(0, 6), Size = UDim2.new(1, 0, 0, 20), Text = label, TextSize = 15 }),
 		value,
 	}), value
 end
-local timeStat, timeValue = stat("SURVIVED", 1)
-local killStat, killValue = stat("GOBLINS BONKED", 2)
-local levelStat, levelValue = stat("LEVEL", 3)
-local damageList = new("Frame", { Size = UDim2.fromOffset(540, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, LayoutOrder = 3 }, {
-	new("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }),
+local timeStat, timeValue = stat("SURVIVED", 1, KIT_CYAN)
+local killStat, killValue = stat("GOBLINS BONKED", 2, KIT_PURPLE)
+local levelStat, levelValue = stat("LEVEL", 3, KIT_ORANGE)
+local damageList = new("Frame", { Size = UDim2.fromOffset(560, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, LayoutOrder = 3 }, {
+	new("UIListLayout", { Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder }),
 })
-local lobbyButton = button("LOBBY", Color3.fromRGB(74, 63, 94), WHITE, 140)
-local againButton = button("PLAY AGAIN", GOLD, INK, 180)
+local lobbyButton = button("LOBBY", KIT_CYAN, 150)
+local againButton = button("PLAY AGAIN", KIT_GREEN, 200)
 local results = new("Frame", { Size = UDim2.fromScale(1, 1), BackgroundColor3 = SHADE, BackgroundTransparency = 0.35, Visible = false, ZIndex = 6 }, {
-	new("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(600, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundColor3 = SHADE, BackgroundTransparency = 0.2 }, {
-		corner(8),
-		stroke(3),
-		new("UIPadding", { PaddingTop = UDim.new(0, 12), PaddingBottom = UDim.new(0, 16), PaddingLeft = UDim.new(0, 24), PaddingRight = UDim.new(0, 24) }),
-		new("UIListLayout", { HorizontalAlignment = Enum.HorizontalAlignment.Center, Padding = UDim.new(0, 10), SortOrder = Enum.SortOrder.LayoutOrder }),
-		text({ Size = UDim2.new(1, 0, 0, 38), Text = "GREAT RUN!", TextSize = 34, TextColor3 = GOLD, LayoutOrder = 1 }, 3),
-		new("Frame", { Size = UDim2.new(1, 0, 0, 52), BackgroundTransparency = 1, LayoutOrder = 2 }, {
-			list(Enum.FillDirection.Horizontal, 6, Enum.HorizontalAlignment.Center),
+	panel("GREAT RUN!", 600, {
+		new("Frame", { Size = UDim2.new(1, 0, 0, 70), BackgroundTransparency = 1, LayoutOrder = 2 }, {
+			list(Enum.FillDirection.Horizontal, 10, Enum.HorizontalAlignment.Center),
 			timeStat,
 			killStat,
 			levelStat,
 		}),
 		damageList,
-		new("Frame", { Size = UDim2.new(1, 0, 0, 46), BackgroundTransparency = 1, LayoutOrder = 9 }, {
-			list(Enum.FillDirection.Horizontal, 12, Enum.HorizontalAlignment.Center),
+		new("Frame", { Size = UDim2.new(1, 0, 0, 50), BackgroundTransparency = 1, LayoutOrder = 9 }, {
+			list(Enum.FillDirection.Horizontal, 14, Enum.HorizontalAlignment.Center),
 			lobbyButton,
 			againButton,
 		}),
@@ -546,13 +584,13 @@ Shared:WaitForChild("RunOver").OnClientEvent:Connect(function(r)
 	for k, d in r.damage do
 		local def = W[d.id]
 		local pct = if total > 0 then math.round(d.amount / total * 100) else 0
-		local track, fill = bar(UDim2.new(1, -240, 0, 10), def.Color)
-		track.Position = UDim2.fromOffset(186, 4)
+		local track, fill = kitBar(270, 16, def.Color)
+		track.Position = UDim2.fromOffset(200, 3)
 		fill.Size = UDim2.fromScale(pct / 100, 1)
-		new("Frame", { Size = UDim2.new(1, 0, 0, 18), BackgroundTransparency = 1, LayoutOrder = k, Parent = damageList }, {
-			text({ Size = UDim2.fromOffset(180, 18), Text = if d.level==6 then string.upper(Config.Evolutions[d.id].Name).." EVO"else string.format("%s LV %d", string.upper(def.Name), d.level), TextSize = 13, TextXAlignment = Enum.TextXAlignment.Left }),
+		new("Frame", { Size = UDim2.new(1, 0, 0, 22), BackgroundTransparency = 1, LayoutOrder = k, Parent = damageList }, {
+			kitText({ Size = UDim2.fromOffset(190, 22), Text = if d.level==6 then string.upper(Config.Evolutions[d.id].Name).." EVO"else string.format("%s LV %d", string.upper(def.Name), d.level), TextSize = 16, TextColor3 = KIT_INK, TextXAlignment = Enum.TextXAlignment.Left }, 0),
 			track,
-			text({ AnchorPoint = Vector2.new(1, 0), Position = UDim2.fromScale(1, 0), Size = UDim2.fromOffset(44, 18), Text = pct .. "%", TextSize = 13, TextXAlignment = Enum.TextXAlignment.Right }),
+			kitText({ AnchorPoint = Vector2.new(1, 0), Position = UDim2.fromScale(1, 0), Size = UDim2.fromOffset(60, 22), Text = pct .. "%", TextSize = 16, TextColor3 = KIT_INK, TextXAlignment = Enum.TextXAlignment.Right }, 0),
 		})
 	end
 	results.Visible = true
@@ -566,10 +604,10 @@ lobbyButton.Activated:Connect(function()
 	Shared.RunLobby:FireServer()
 end)
 
--- Fit the 640x340 overlays on small screens (and let them grow a little on big ones).
+-- Fit the ~660x420 kit panels on small screens (and let them grow a little on big ones).
 local function fit()
 	local v = Workspace.CurrentCamera.ViewportSize
-	scale.Scale = math.clamp(math.min(v.X / 680, (v.Y - 40) / 360), 0.6, 1.3)
+	scale.Scale = math.clamp(math.min(v.X / 690, (v.Y - 20) / 440), 0.6, 1.3)
 end
 Workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(fit)
 fit()
