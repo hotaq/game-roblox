@@ -147,6 +147,7 @@ function spawnGoblin(home: CFrame, respawn: boolean, options): Model
 		tell=Instance.new("Part");tell.Name="EliteTell";tell.Anchored=true
 		tell.CanCollide,tell.CanQuery,tell.CanTouch=false,false,false
 		tell.Size=Vector3.new(E.Width,.08,E.Reach);tell.Color=Color3.fromRGB(230,163,55)
+		tell.CFrame=root.CFrame -- don't stretch the actor's initial bounds back to world origin while hidden
 		tell.Material=Enum.Material.Neon;tell.Transparency=1;tell.Parent=g
 	end
 	local function eligibleCharacters()
