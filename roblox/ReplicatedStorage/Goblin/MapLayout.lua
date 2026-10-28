@@ -31,6 +31,7 @@ local MOUNTAINS = { -- rocky massifs; noise only shrinks a footprint inside its 
 	{ x = -185, z = -185, rx = 100, rz = 90, peak = 76, shape = "peaks", seed = 1 }, -- NW mountain
 	{ x = 190, z = -180, rx = 72, rz = 62, peak = 24, shape = "mesa", seed = 2 }, -- NE mesa
 	{ x = 235, z = 70, rx = 50, rz = 70, peak = 20, shape = "hill", seed = 3 }, -- E hill
+	{ x = 118, z = -138, rx = 18, rz = 11, peak = 20, shape = "mesa", seed = 4 }, -- the falls: tiers down into the cenote
 }
 local RIDGE = { band = 56, low = 18, high = 60 } -- the valley wall: rises over the last 56 studs to 18..60 tall
 local PILLARS = { -- SE stepping stones, each a 12 x 12 block: jump from one to the next
@@ -52,6 +53,7 @@ local JUNGLE = 66 -- trees grow within this far of the border (and on the mounta
 
 Layout.SPAWN, Layout.PYRAMID, Layout.CENOTE, Layout.GRAVEYARD, Layout.PILLARS = SPAWN, PYRAMID, CENOTE, GRAVEYARD, PILLARS
 Layout.PLATFORMS, Layout.MOUNTAINS, Layout.RIVER, Layout.BRIDGE, Layout.STAIRS = PLATFORMS, MOUNTAINS, RIVER, BRIDGE, STAIRS
+Layout.FALLS = MOUNTAINS[4]
 
 local function ellipse(x: number, z: number, e, grow: number?): number -- < 1 inside
 	local g = grow or 0

@@ -294,16 +294,35 @@ function STAGES.landmarks(map: Folder, o: CFrame)
 			end
 		end
 	end
-	-- the NE mesa's waterfall into the cenote
-	local C = L.CENOTE
-	local fall = part(f, Vector3.new(10, 22, 2), o * CFrame.new(C.x + 12, 8, C.z - 22) * yaw(-35), rgb(120, 200, 240), {
-		Material = Enum.Material.Glass, Transparency = 0.3, CanCollide = false, Name = "Waterfall",
-	})
-	local mist = Instance.new("ParticleEmitter")
-	mist.Rate, mist.Lifetime, mist.Speed, mist.SpreadAngle = 30, NumberRange.new(0.8, 1.4), NumberRange.new(2, 5), Vector2.new(60, 60)
-	mist.Size, mist.Transparency = NumberSequence.new(1.5, 4), NumberSequence.new(0.5, 1)
-	mist.Color, mist.EmissionDirection = ColorSequence.new(rgb(230, 245, 255)), Enum.NormalId.Bottom
-	mist.Parent = fall
+	-- The waterfall: a stream from the top of the falls cliff down its tiers into the cenote, tile by tile towards it. A
+	-- see-through slab on every step, a sheet down every drop, white foam and mist where it lands.
+	local C, F = L.CENOTE, L.FALLS
+	local BLUE = rgb(120, 200, 240)
+	local WET = { Material = Enum.Material.Glass, Transparency = 0.3, CanCollide = false, CanQuery = false, CastShadow = false, Name = "Waterfall" }
+	local x, last = TILE * (math.floor(F.x / TILE) + 0.5), nil
+	for z = TILE * (math.floor(F.z / TILE) + 0.5), C.z, TILE do
+		local kind, h = L.at(x, z)
+		local top = if kind == "Cenote" then WATER.Cenote.top else h
+		if last and top < last then
+			part(f, Vector3.new(8, last - top, 0.6), o * CFrame.new(x, (last + top) / 2, z - TILE / 2), BLUE, WET)
+		end
+		if kind == "Cenote" then
+			for k = -1, 1 do
+				local foam = part(f, Vector3.new(2.6, 0.8, 2.6), o * CFrame.new(x + k * 2.8, top + 0.2, z - TILE / 2 + 1.6) * yaw(k * 20),
+					rgb(245, 250, 255), { CanCollide = false, CanQuery = false, Name = "Foam", TopSurface = Enum.SurfaceType.Studs })
+				if k == 0 then
+					local mist = Instance.new("ParticleEmitter")
+					mist.Rate, mist.Lifetime, mist.Speed, mist.SpreadAngle = 30, NumberRange.new(0.8, 1.4), NumberRange.new(2, 5), Vector2.new(60, 60)
+					mist.Size, mist.Transparency = NumberSequence.new(1.5, 4), NumberSequence.new(0.5, 1)
+					mist.Color, mist.EmissionDirection = ColorSequence.new(rgb(230, 245, 255)), Enum.NormalId.Top
+					mist.Parent = foam
+				end
+			end
+			break
+		end
+		part(f, Vector3.new(8, 0.3, TILE), o * CFrame.new(x, h + 0.15, z), BLUE, WET)
+		last = top
+	end
 	return #f:GetDescendants()
 end
 
