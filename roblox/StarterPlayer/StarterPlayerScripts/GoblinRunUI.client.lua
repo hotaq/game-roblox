@@ -711,10 +711,14 @@ do
 		if now<(player:GetAttribute("RunDashReadyAt") or 0) or now<pendingUntil then return end
 		local c=player.Character;local h=c:FindFirstChildOfClass("Humanoid");local root=c:FindFirstChild("HumanoidRootPart")
 		if not root then return end
-		local dir=h.MoveDirection
-		if dir.Magnitude<0.1 then dir=root.CFrame.LookVector end
+		-- Dash the way you move while facing the camera's way (sidesteps and back hops, like a combat dash);
+		-- standing still it goes where the body faces.
+		local dir,face=h.MoveDirection,root.CFrame.LookVector
+		local look=Workspace.CurrentCamera and Workspace.CurrentCamera.CFrame.LookVector
+		if dir.Magnitude<0.1 then dir=face
+		elseif look and Vector3.new(look.X,0,look.Z).Magnitude>0.1 then face=Vector3.new(look.X,0,look.Z).Unit end
 		pendingUntil=now+0.2 -- no optimistic movement or false cooldown on a rejected request
-		dashEvent:FireServer(dir)
+		dashEvent:FireServer(dir,face)
 	end
 	local function action(_,state)
 		if not usable() or input:GetFocusedTextBox() then return Enum.ContextActionResult.Pass end

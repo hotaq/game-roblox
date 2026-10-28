@@ -264,24 +264,31 @@ do
 			if not support or support.Normal.Y<0.65 then return false end
 			local change=support.Position.Y-d.floorY
 			if change < -D.MaxDrop or change > D.MaxRise then return false end
-			d.root.CFrame=CFrame.lookAt(nextPos,nextPos+d.dir)
+			d.root.CFrame=CFrame.lookAt(nextPos,nextPos+d.face) -- keeps facing: side and back dashes stay sideways/backward
 			d.position=nextPos
 		end
 		return true
 	end
-	function Dash.request(player, direction)
+	local function flat(v)
+		if typeof(v)~="Vector3" then return nil end
+		for _,c in {v.X,v.Y,v.Z} do
+			if c~=c or math.abs(c)>1e4 then return nil end
+		end
+		v=Vector3.new(v.X,0,v.Z)
+		return if v.Magnitude>=0.1 then v.Unit else nil
+	end
+	-- face (optional): where the body points during the dash (the client sends its camera's look), so a dash to the
+	-- side or back plays as a sidestep / back hop; without it the body turns to the dash direction as before.
+	function Dash.request(player, direction, face)
 		local run=runs[player]
 		if not run then return false end
 		local now=Workspace:GetServerTimeNow()
 		if now<(run.dashRequestAt or 0) then return false end
 		run.dashRequestAt=now+0.12 -- throttle rejected requests before physics queries
 		if not valid(run) or run.dash or now<(run.dashReadyAt or 0) then return false end
-		if typeof(direction)~="Vector3" then return false end
-		for _,v in {direction.X,direction.Y,direction.Z} do
-			if v~=v or math.abs(v)>1e4 then return false end
-		end
-		direction=Vector3.new(direction.X,0,direction.Z)
-		if direction.Magnitude<0.1 then return false end
+		direction=flat(direction)
+		if not direction then return false end
+		face=flat(face) or direction
 		local root=run.hum.Parent:FindFirstChild("HumanoidRootPart")
 		if not root or root.Anchored then return false end
 		local center,half=arena()
@@ -312,14 +319,14 @@ do
 		end
 		if Workspace:Blockcast(cf,size,direction.Unit*1.1,ray) then return false end
 		serial+=1
-		local d={root=root,dir=direction.Unit,ray=ray,size=size,center=center,half=half,
+		local d={root=root,dir=direction.Unit,face=face,ray=ray,size=size,center=center,half=half,
 			area=Workspace:GetAttribute("Arena"),footGap=footGap,floorY=floor.Position.Y,
 			position=root.Position,elapsed=0,started=now,id=serial,rotate=run.hum.AutoRotate}
 		run.dash=d;run.dashReadyAt=now+D.Cooldown
 		root.Anchored=true;root.AssemblyLinearVelocity=Vector3.zero;run.hum.AutoRotate=false
 		local shield=Instance.new("ForceField");shield.Name="RunDashShield";shield.Visible=false;shield.Parent=run.hum.Parent;d.shield=shield
 		player:SetAttribute("RunDashReadyAt",run.dashReadyAt);player:SetAttribute("RunDashing",true)
-		event:FireAllClients("start",player,d.id,d.dir,now)
+		event:FireAllClients("start",player,d.id,d.dir,now,d.face)
 		return true
 	end
 	function Dash.step(dt)

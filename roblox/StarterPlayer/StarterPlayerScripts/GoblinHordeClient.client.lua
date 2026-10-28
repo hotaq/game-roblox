@@ -20,26 +20,14 @@ local networkObserved = if RunService:IsStudio() and Shared:GetAttribute("GAME24
 local Config = require(Shared:WaitForChild("GoblinConfig"))
 -- GAME-44 Dash VFX BEGIN. Independent from horde pools; no textures or lights. White anime dash after the owner's
 -- reference clip: a spiky starburst where it starts, speed lines and shockwave rings along it, a smaller burst where it
--- lands. The body leans forward (local Root C0, every client) and the dasher's own camera kicks its FOV a little.
+-- lands. The dasher's own camera kicks its FOV a little; the body's pose is PlayerSword's SwordDash animation.
 do
 	local D=Config.Dash
 	local PlayersService=game:GetService("Players")
 	local WHITE=Color3.new(1,1,1)
-	local LEAN=CFrame.Angles(-math.rad(24),0,0)
 	local active={}
-	local function unlean(e)
-		if e.joint then
-			if e.joint.Parent then e.joint.C0=e.c0 end
-			e.joint=nil
-		end
-		if e.att then
-			if e.att.Parent then e.att.CFrame=e.c0 end
-			e.att=nil
-		end
-	end
 	local function clear(e)
 		for _,a in e.attachments do a:Destroy() end
-		unlean(e)
 		if e.fov and e.camera then e.camera.FieldOfView=e.fov end
 		e.folder:Destroy()
 	end
@@ -96,12 +84,6 @@ do
 		end
 		burst(e,root.Position,12,4.2,0.14)
 		ring(e,root.Position,1.4,3.4,0.3)
-		-- R15 Root: a Motor6D (lean its C0) or, on upgraded avatar joints, an AnimationConstraint (lean its Attachment0)
-		local lower=character:FindFirstChild("LowerTorso");local joint=lower and lower:FindFirstChild("Root")
-		if joint and joint:IsA("Motor6D") then e.joint,e.c0=joint,joint.C0;joint.C0=joint.C0*LEAN
-		elseif joint and joint:IsA("AnimationConstraint") and joint.Attachment0 then
-			e.att,e.c0=joint.Attachment0,joint.Attachment0.CFrame;e.att.CFrame=e.c0*LEAN
-		end
 		if player==PlayersService.LocalPlayer then e.camera,e.fov=camera,camera.FieldOfView end
 	end
 	-- Function boundary is also used by the disposable visual regression; no Script.Source assignment.
@@ -113,7 +95,7 @@ do
 			if age>=D.Duration or e.stopped then
 				for _,t in e.trails do t.Enabled=false end
 				if not e.landed then
-					e.landed=true;unlean(e)
+					e.landed=true
 					if e.root.Parent then
 						local p=e.root.Position+e.dir
 						burst(e,p,8,2.6,0.12);ring(e,p,1.2,3.6,0.28)

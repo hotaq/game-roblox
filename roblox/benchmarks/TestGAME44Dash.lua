@@ -90,6 +90,10 @@ local ok,err=xpcall(function()
  Dash.cancel(r);Dash.cancel(r);check(foreign.Parent==p.Character,"idempotent cleanup preserves unrelated shield");foreign:Destroy()
  reset(p,r,root);Dash.request(p,Vector3.xAxis);root.Anchored=false;root.AssemblyLinearVelocity=Vector3.new(0,12,0)
  Dash.cancel(r);check(root.AssemblyLinearVelocity.Y==12,"cleanup preserves velocity after another mover releases root")
+ reset(p,r,root);check(Dash.request(p,Vector3.xAxis,Vector3.new(0,0,-1)),"sidestep with a facing starts");advance(.24)
+ check(math.abs(root.Position.X-base.X-16)<.025 and root.CFrame.LookVector:Dot(Vector3.new(0,0,-1))>.999,"sidestep moves 16 along dir, body keeps facing")
+ reset(p,r,root);check(Dash.request(p,Vector3.xAxis,Vector3.new(0/0,0,0)),"invalid facing falls back to dir");advance(.24)
+ check(root.CFrame.LookVector:Dot(Vector3.xAxis)>.999,"fallback faces the dash direction")
  for _=1,50 do reset(p,r,root);assert(Dash.request(p,Vector3.xAxis));advance(.24)end
  local shields=0;for _,v in f:GetDescendants() do if v:IsA("ForceField")then shields+=1 end end
  check(shields==0 and not r.dash,"50 repeated dashes leave zero shields/state")

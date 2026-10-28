@@ -1,7 +1,7 @@
 # 20_sword_anims_export.py: the player sword animations (GAME-35) -> Roblox KeyframeSequences.
 #   /Applications/Blender.app/Contents/MacOS/Blender -b --disable-autoexec goblin/blender/r15_xen0.blend \
 #     --python goblin/scripts/20_sword_anims_export.py
-# Reads SwordIdle / SwordRun / SwordHold / SwordPlant / SwordPull on MrXen0's rig in r15_xen0.blend (from 19, so pose tweaks made
+# Reads SwordIdle / SwordRun / SwordHold / SwordPlant / SwordPull / SwordDashF/B/L/R on MrXen0's rig in r15_xen0.blend (from 19, so pose tweaks made
 # there are what ships) and writes roblox/SwordAnims.rbxmx: Folder "SwordAnims" with one KeyframeSequence each.
 # Same maths and helpers as 09_gen_anims.py, except: the deform bones are named after the R15 parts, the rig is in
 # studs and faces +Y, so Blender (x, y, z) -> Roblox (x, z, -y); limb joints keep rotation only (MrXen0's rest pivots
@@ -19,7 +19,8 @@ spec.loader.exec_module(gen)
 gen.REST = os.path.join(ROOT, "docs", "r15_rig_rest.txt")
 OUT = os.path.join(ROOT, "roblox", "SwordAnims.rbxmx")
 A = np.array([[1, 0, 0], [0, 0, 1], [0, -1, 0]], float)
-ANIMS = {"SwordIdle": (True, 0), "SwordRun": (True, 1), "SwordHold": (True, 0), "SwordPlant": (False, 2), "SwordPull": (False, 2)}  # loop, priority
+ANIMS = {"SwordIdle": (True, 0), "SwordRun": (True, 1), "SwordHold": (True, 0), "SwordPlant": (False, 2), "SwordPull": (False, 2),
+         **{"SwordDash" + d: (False, 2) for d in "FBLR"}}  # loop, priority
 
 
 def to_roblox(d):

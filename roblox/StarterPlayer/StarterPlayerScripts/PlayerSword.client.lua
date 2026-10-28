@@ -3,14 +3,16 @@
 -- 5) in the right hand; each client draws it for every character. The local character also plays the sword set:
 -- SwordRun moving (dragged behind); on stopping, SwordHold (still trailing) for HOLD_TIME, then SwordPlant into SwordIdle
 -- (planted beside the right foot); moving off from there plays SwordPull. Each transition ends on its loop's first
--- frame, so the loop waits there until it finishes; run <-> hold just cross-fade.
+-- frame, so the loop waits there until it finishes; run <-> hold just cross-fade. A dash (GAME-44) plays SwordDashF/B/L/R.
 -- Animation ids go in ANIMS once published; until then Studio plays the KeyframeSequences in
 -- ReplicatedStorage.SwordAnims (RegisterAnimationClip only works in Studio).
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 
-local ANIMS = { SwordIdle = "", SwordRun = "", SwordHold = "", SwordPlant = "", SwordPull = "" } -- "rbxassetid://..." once published
+local ANIMS = { SwordIdle = "", SwordRun = "", SwordHold = "", SwordPlant = "", SwordPull = "", -- "rbxassetid://..." once published
+	SwordDashF = "", SwordDashB = "", SwordDashL = "", SwordDashR = "" }
+local DASH_LENGTH = 0.4 -- SwordDash* are 12 frames at 30 fps
 -- The grip centre on RightHand, blade forward, flat sideways: the rest pose of scripts/18_r15_anims.py
 local HAND_GRIP = CFrame.fromMatrix(Vector3.new(0, -0.158, 0), Vector3.new(-1, 0, 0), Vector3.new(0, 0, -1))
 local RUN_SPEED = 16 -- SwordRun is paced for this WalkSpeed
@@ -112,10 +114,47 @@ local function animate(char: Model)
 		char:SetAttribute("SwordState", new) -- GoblinSFX plays the pull / drag / plant sounds from it
 	end
 
+	-- GAME-44: a dash plays SwordDashF/B/L/R by where it goes relative to where the body faces (the server keeps that
+	-- facing through the dash, so side and back dashes are sidesteps / back hops). From the planted idle the sword comes
+	-- out into the trailing hold. The track fades out just before its end into the loop underneath.
+	for _, d in { "F", "B", "L", "R" } do
+		t["SwordDash" .. d].Priority = Enum.AnimationPriority.Action4
+	end
+	local dashConn
+	task.spawn(function()
+		local remote = ReplicatedStorage:WaitForChild("Goblin"):WaitForChild("RunDash")
+		if not char.Parent then
+			return
+		end
+		dashConn = remote.OnClientEvent:Connect(function(action, player, _, dir, _, face)
+			if action ~= "start" or player ~= me or not state or typeof(dir) ~= "Vector3" then
+				return
+			end
+			face = if typeof(face) == "Vector3" then face else dir
+			local ahead, side = dir:Dot(face), dir:Dot(face:Cross(Vector3.yAxis))
+			local which = if math.abs(ahead) >= math.abs(side) then (if ahead >= 0 then "F" else "B")
+				else (if side > 0 then "R" else "L")
+			if state == "idle" then
+				enter("hold")
+				stoppedAt = os.clock()
+			end
+			local track = t["SwordDash" .. which]
+			track:Play(0.05)
+			task.delay(DASH_LENGTH - 0.12, function()
+				if track.IsPlaying then
+					track:Stop(0.12)
+				end
+			end)
+		end)
+	end)
+
 	local conn
 	conn = RunService.Heartbeat:Connect(function()
 		if not char.Parent then
 			conn:Disconnect()
+			if dashConn then
+				dashConn:Disconnect()
+			end
 			return
 		end
 		if not (picked or swordLevel(me)) then

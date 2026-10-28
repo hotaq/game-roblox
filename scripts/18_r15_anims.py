@@ -6,6 +6,9 @@
 #   SwordHold  (loop, 2 s): stopped after a run, sword still trailing behind; the client plants it after a few seconds.
 #   SwordPlant (once, 0.7 s): hold -> idle, lifts the sword high point down and slams it into the ground.
 #   SwordPull  (once, 0.5 s): idle -> run, yanks the sword out and swings it down behind into the drag.
+#   SwordDashF / B / L / R (once, 0.4 s, GAME-44): the dash, relative to where the character faces. F lunges with the
+#              sword trailing far behind, B hops back with the blade raised on guard in front, L / R sidestep leaning
+#              into it, the sword lagging on the other side. Each starts and ends on SwordHold's first frame.
 # Run headless (opens blender/r15_rig.blend, adds the actions, saves it back and renders previews):
 #   /Applications/Blender.app/Contents/MacOS/Blender -b goblin/blender/r15_rig.blend --python goblin/scripts/18_r15_anims.py
 #
@@ -379,6 +382,55 @@ def pull(rig, idle0, run0):
     ], extra)
 
 
+def sword_at(grip, blade):
+    """A sword matrix: grip at grip, blade along blade, flat facing as sideways as it can."""
+    z = Vector(blade).normalized()
+    x = z.cross(Vector((0, 0, 1)))
+    x = x.normalized() if x.length > 1e-6 else Vector((1, 0, 0))
+    m = Matrix((x, z.cross(x), z)).transposed().to_4x4()
+    m.translation = grip
+    return m
+
+
+# Dash peaks: pose offsets on top of SwordHold (world axes as above; +X = the character's left, -Y = forward) and the
+# lift, plus where the sword goes. The whole dash is 12 frames: out in 3, held 4, back to SwordHold in 5.
+DASHES = {
+    "F": ({"LowerTorso": (20, 0, 0), "UpperTorso": (14, 0, 0), "Head": (-18, 0, 0),
+           "LeftUpperArm": (50, -5, 0), "LeftLowerArm": (-15, 0, 0),
+           "RightUpperLeg": (-45, 0, 0), "RightLowerLeg": (55, 0, 0), "RightFoot": (-10, 0, 0),
+           "LeftUpperLeg": (30, 0, 0), "LeftLowerLeg": (20, 0, 0), "LeftFoot": (15, 0, 0)}, -0.45, "trail", (0, 0.6, -0.2)),
+    "B": ({"LowerTorso": (-10, 0, 0), "UpperTorso": (-8, 0, 0), "Head": (8, 0, 0),
+           "LeftUpperArm": (-45, -15, 0), "LeftLowerArm": (-35, 0, 0),
+           "RightUpperLeg": (-30, 0, 0), "LeftUpperLeg": (-15, 0, 0), "RightLowerLeg": (45, 0, 0),
+           "LeftLowerLeg": (35, 0, 0), "RightFoot": (-15, 0, 0), "LeftFoot": (-15, 0, 0)}, -0.4, "guard", None),
+    "L": ({"LowerTorso": (0, 16, 0), "UpperTorso": (0, 8, 0), "Head": (0, -10, 0),
+           "LeftUpperLeg": (0, -40, 0), "RightUpperLeg": (0, -4, 0), "LeftLowerLeg": (25, 0, 0),
+           "RightLowerLeg": (30, 0, 0), "LeftUpperArm": (0, -45, 0)}, -0.35, "trail", (-0.6, 0.3, 0)),
+    "R": ({"LowerTorso": (0, -16, 0), "UpperTorso": (0, -8, 0), "Head": (0, 10, 0),
+           "RightUpperLeg": (0, 40, 0), "LeftUpperLeg": (0, 4, 0), "RightLowerLeg": (25, 0, 0),
+           "LeftLowerLeg": (30, 0, 0), "LeftUpperArm": (0, 20, 0)}, -0.35, "trail", (0.4, 0.4, 0)),
+}
+GUARD = sword_at(Vector((-1.4, -1.4, 3.0)), (0.45, -0.45, 0.77))  # blade up and across the front
+
+
+def dash(rig, hold0, which):
+    peak, lift, sword, shift = DASHES[which]
+
+    def weight(f):  # out fast, held, eased back
+        return 1 - (1 - f / 3) ** 2 if f <= 3 else 1.0 if f <= 7 else 1 - ease((f - 7) / 5)
+
+    def extra(f):
+        w = weight(f)
+        return {k: tuple(w * x for x in v) for k, v in peak.items()}, w * lift
+
+    target = GUARD if sword == "guard" else Matrix.Translation(shift) @ hold0[2]
+    transition(rig, "EXP_SwordDash" + which, hold0, hold0, [
+        (3, target, lambda t: 1 - (1 - t) ** 2, 0.5 if sword == "guard" else 0),
+        (4, target, ease, 0),
+        (5, hold0[2], ease, 0),
+    ], extra)
+
+
 def render(rig, path, shots):
     """shots: [(action, frame, camera position)] -> a row of views in one image."""
     sc = bpy.context.scene
@@ -423,11 +475,17 @@ FRONT, SIDE, BACK34, FRONT34 = (0, -12, 3.6), (-12, 0, 3.6), (-7, 8, 5.5), (6.5,
 rig = bpy.data.objects["R15_Rig"]
 idle0 = idle(rig)
 run0 = run(rig)
-plant(rig, guard(rig), idle0)
+hold0 = guard(rig)
+plant(rig, hold0, idle0)
 pull(rig, idle0, run0)
+for which in DASHES:
+    dash(rig, hold0, which)
 bpy.context.scene.render.fps = FPS
 bpy.ops.wm.save_mainfile()
 render(rig, os.path.join(ROOT, "renders", "sword_carry_anims.png"),
        [("EXP_SwordIdle", 0, FRONT), ("EXP_SwordIdle", 0, SIDE), ("EXP_SwordIdle", 0, BACK34),
         ("EXP_SwordRun", 0, FRONT34), ("EXP_SwordRun", 5, FRONT34), ("EXP_SwordRun", 10, FRONT34)])
+render(rig, os.path.join(ROOT, "renders", "sword_dash_anims.png"),
+       [("EXP_SwordDashF", 5, SIDE), ("EXP_SwordDashB", 5, SIDE), ("EXP_SwordDashL", 5, FRONT), ("EXP_SwordDashR", 5, FRONT),
+        ("EXP_SwordDashF", 5, FRONT34), ("EXP_SwordDashB", 5, FRONT34)])
 print("actions:", [a.name for a in bpy.data.actions])
