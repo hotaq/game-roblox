@@ -2,6 +2,8 @@
 -- A viewing strip 400 studs west of the camp: five pedestals Lv1..Lv5 that GoblinHordeClient makes swing the sword at
 -- that level, over and over, while you stand nearby (GAME-33). The SWORD FX pad by the spawn (GoblinHorde) and the
 -- Studio-only GoblinStressHUD "FX" button drop you on ViewPad; a BACK pad beside it returns you to the spawn.
+-- Behind the swords: the Fire Ring row and the other weapons (GAME-41 and the weapon showcase); behind the view pad:
+-- the sword gallery.
 -- Undo: delete workspace.SwordFXZone.
 local CENTER, GAP = Vector3.new(-400, 0, 0), 26
 
@@ -27,6 +29,7 @@ local function station(name: string, pos: Vector3, text: string)
 	root.Transparency, root.CanCollide, root.CanQuery = 1, false, false
 	local gui = Instance.new("BillboardGui")
 	gui.Size, gui.StudsOffset, gui.AlwaysOnTop = UDim2.fromOffset(160, 40), Vector3.new(0, 4, 0), true
+	gui.MaxDistance = 60 -- with ~40 stations the names only read when you walk up to a row
 	local label = Instance.new("TextLabel")
 	label.Size, label.BackgroundTransparency = UDim2.fromScale(1, 1), 1
 	label.Text, label.Font, label.TextSize = text, Enum.Font.GothamBold, 20
@@ -48,6 +51,29 @@ local RGAP, RZ = 32, -50
 part("RingFloor", Vector3.new(RGAP * 6 + 10, 1, 30), Vector3.new(0, -0.45, RZ), Color3.fromRGB(124, 92, 62))
 for n = 1, 6 do
 	station("Ring" .. n, Vector3.new((n - 3.5) * RGAP, 1, RZ), if n == 6 then "Inferno Halo" else "Ring Lv " .. n)
+end
+
+-- The other weapons behind the rings (n = 6 is the evolved form), drawn by GoblinHordeClient's weapon showcase:
+-- Rocks and Totem rows in the middle; Fireball and Axe columns at the sides, shooting and throwing outward so their
+-- paths cross no other station.
+local DIRT = Color3.fromRGB(124, 92, 62)
+part("WeaponFloor", Vector3.new(400, 1, 110), Vector3.new(0, -0.45, -120), DIRT)
+for n = 1, 6 do
+	local lv = if n == 6 then "Evo" else "Lv " .. n
+	station("Rocks" .. n, Vector3.new((n - 3.5) * RGAP, 1, -85), "Rocks " .. lv)
+	station("Totem" .. n, Vector3.new((n - 3.5) * RGAP, 1, -125), "Totem " .. lv)
+	station("Fire" .. n, Vector3.new(-150, 1, -75 - (n - 1) * 20), "Fireball " .. lv)
+	station("Axe" .. n, Vector3.new(150, 1, -75 - (n - 1) * 20), "Axe " .. lv)
+end
+
+-- Sword gallery behind the view pad: GalleryA = the new set (SwordsShadow), GalleryB = the old black/red skin
+-- (Swords); the client stands each Sword_PhaseN it finds there, turning.
+part("GalleryFloor", Vector3.new(GAP * 5 + 20, 1, 30), Vector3.new(0, -0.45, 50), DIRT)
+for n = 1, 5 do
+	for row, z in { A = 44, B = 56 } do
+		part("Stand" .. row .. n, Vector3.new(2, 0.6, 2), Vector3.new((n - 3) * 14, 0.3, z), Color3.fromRGB(158, 150, 132))
+		station("Gallery" .. row .. n, Vector3.new((n - 3) * 14, 1, z), (if row == "A" then "New Lv " else "Old skin Lv ") .. n)
+	end
 end
 part("ViewPad", Vector3.new(8, 1, 8), Vector3.new(0, 0.5, 26), Color3.fromRGB(90, 140, 200))
 

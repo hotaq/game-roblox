@@ -989,6 +989,150 @@ for n = 1, 6 do
 	RING_SHOW[n] = Config.weaponStats("ring", n).Radius
 end
 
+-- Weapon showcase (SwordFXZone stations from BuildSwordFXZone.luau; n = 6 is the evolved form), with the in-run
+-- visuals at each level's Config stats: Fire1-6 shoot fireballs and Axe1-6 throw axes outward, Rocks1-6 orbit,
+-- Totem1-6 zap; GalleryA/B stand every Sword_PhaseN of the new and old sword sets, turning. Client-only, and only
+-- while you're within SHOW_NEAR of the WeaponFloor; everything is cleared when you leave.
+local SHOW_NEAR = 280
+local GALLERY = { A = "SwordsShadow", B = "Swords" }
+local showStats = {}
+for _, id in { "fire", "axe", "rocks", "totem" } do
+	showStats[id] = {}
+	for n = 1, 6 do
+		showStats[id][n] = Config.weaponStats(id, n)
+	end
+end
+local show = { rocks = {}, totems = {}, axes = {}, gallery = {}, next = {} }
+local function clearShow()
+	for _, list in { show.rocks, show.totems, show.gallery } do
+		for k, v in list do
+			for _, m in (if typeof(v) == "table" then v else { v }) do
+				m:Destroy()
+			end
+			list[k] = nil
+		end
+	end
+	for k, a in show.axes do
+		a.model:Destroy()
+		show.axes[k] = nil
+	end
+	table.clear(show.next)
+end
+local function due(key: string, every: number, now: number): boolean
+	if now >= (show.next[key] or 0) then
+		show.next[key] = now + every
+		return true
+	end
+	return false
+end
+RunService.Heartbeat:Connect(function(dt)
+	local zone = Workspace:FindFirstChild("SwordFXZone")
+	local floor = zone and zone:FindFirstChild("WeaponFloor")
+	local me = Players.LocalPlayer.Character and Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+	if not (floor and me and (me.Position - floor.Position).Magnitude < SHOW_NEAR) then
+		if next(show.next) or next(show.gallery) then
+			clearShow()
+		end
+		return
+	end
+	local now = os.clock()
+	for n = 1, 6 do
+		-- Rocks: Count stones on the Orbit circle, turning at Speed.
+		local s, st = zone:FindFirstChild("Rocks" .. n), showStats.rocks[n]
+		if s then
+			show.rocks[n] = show.rocks[n] or {}
+			local list = show.rocks[n]
+			for k = #list + 1, st.Count do
+				list[k] = makeRockVisual(folder, n, st.Radius)
+			end
+			for k, m in list do
+				local angle = now * st.Speed + (k - 1) * math.pi * 2 / #list
+				m:PivotTo(CFrame.new(s.Position + Vector3.new(math.cos(angle) * st.Orbit, 1.2, math.sin(angle) * st.Orbit))
+					* CFrame.Angles(0.12 * math.sin(angle), -angle + 0.3, 0.15))
+			end
+		end
+		-- Totem: standing on the floor, zapping Targets points inside its Range every Interval.
+		s, st = zone:FindFirstChild("Totem" .. n), showStats.totem[n]
+		if s then
+			local ground = s.Position - Vector3.new(0, s.Size.Y / 2, 0)
+			if not show.totems[n] then
+				show.totems[n] = makeTotemVisual(folder, n)
+				show.totems[n]:PivotTo(CFrame.new(ground))
+			end
+			if due("zap" .. n, st.Interval, now) then
+				local bolts = {}
+				for _ = 1, st.Targets do
+					local a, d = math.random() * math.pi * 2, st.Range * (0.3 + math.random() * 0.4)
+					table.insert(bolts, { ground.X, ground.Z, ground.Y + 3.8, ground.X + math.cos(a) * d, ground.Z + math.sin(a) * d, n })
+				end
+				drawLightning(bolts)
+			end
+		end
+		-- Fireball: Count balls fanned out toward -x every Cooldown, flying their Range.
+		s, st = zone:FindFirstChild("Fire" .. n), showStats.fire[n]
+		if s and due("fire" .. n, st.Cooldown, now) then
+			for k = 1, st.Count do
+				local a = math.pi + (k - (st.Count + 1) / 2) * 0.12
+				local p = pooled(ballPool, function()
+					return fxPart(Vector3.one * 1.3, Color3.fromRGB(255, 140, 50), Enum.PartType.Ball)
+				end)
+				table.insert(balls, { part = p, x = s.Position.X, z = s.Position.Z, dx = math.cos(a), dz = math.sin(a), speed = st.Speed, left = st.Range })
+			end
+		end
+		-- Axe: Count axes thrown toward +x every Cooldown, out to Range at Speed and back at ReturnSpeed.
+		s, st = zone:FindFirstChild("Axe" .. n), showStats.axe[n]
+		if s and due("axe" .. n, st.Cooldown, now) then
+			local count = st.Count or 1
+			for k = 1, count do
+				local a = (k - (count + 1) / 2) * 0.35
+				table.insert(show.axes, {
+					model = makeAxeVisual(folder, n, st.Radius / 1.8), from = s.Position, dir = Vector3.new(math.cos(a), 0, math.sin(a)),
+					d = 0, back = false, age = 0, st = st,
+				})
+			end
+		end
+	end
+	for k = #show.axes, 1, -1 do
+		local a = show.axes[k]
+		a.age += dt
+		if not a.back then
+			a.d += a.st.Speed * dt
+			a.back = a.d >= a.st.Range
+		else
+			a.d -= a.st.ReturnSpeed * dt
+		end
+		if a.back and a.d <= 0 then
+			a.model:Destroy()
+			table.remove(show.axes, k)
+		else
+			a.model:PivotTo(CFrame.new(a.from + a.dir * a.d + Vector3.new(0, 1.5, 0)) * CFrame.Angles(0, a.age * 18, 0))
+		end
+	end
+	-- Gallery: the grip on the stand, blade up, turning slowly.
+	for row, setName in GALLERY do
+		local set = ReplicatedStorage:FindFirstChild(setName)
+		for n = 1, 5 do
+			local stand, src = zone:FindFirstChild("Gallery" .. row .. n), set and set:FindFirstChild("Sword_Phase" .. n)
+			local key = row .. n
+			if stand and src and not show.gallery[key] then
+				local m = src:Clone()
+				for _, d in m:GetDescendants() do
+					if d:IsA("BasePart") then
+						d.Anchored, d.CanCollide, d.CanQuery = true, false, false
+					end
+				end
+				m:SetAttribute("GripToPivot", m.PrimaryPart.CFrame:ToObjectSpace(m:GetPivot()))
+				m.Parent = folder
+				show.gallery[key] = m
+			end
+			local m = show.gallery[key]
+			if m and stand then
+				m:PivotTo(CFrame.new(stand.Position + Vector3.new(0, 1.2, 0)) * CFrame.Angles(0, now * 0.8 + n, 0) * m:GetAttribute("GripToPivot"))
+			end
+		end
+	end
+end)
+
 local parts, cframes = {}, {}
 RunService.RenderStepped:Connect(function(dt)
 	for id,v in totemViews do
