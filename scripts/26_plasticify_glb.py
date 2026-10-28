@@ -4,7 +4,7 @@ MeshPart per colour and each gets a plain Plastic colour (the owner's art direct
   python3 -I 26_plasticify_glb.py clusters textured.glb [k]            # texture colour clusters, to pick ANCHORS
   python3 -I 26_plasticify_glb.py convert textured.glb out.glb preview.png [geometry.glb]
   python3 -I 26_plasticify_glb.py stone untextured.glb out.glb preview.png  # a stone building with no texture
-  python3 -I 26_plasticify_glb.py heights model.glb width tile [base]    # top height per tile, Roblox studs
+  python3 -I 26_plasticify_glb.py heights model.glb width tile [base] [hex]  # top height per tile, Roblox studs
 
 `stone` colours by geometry: lighter steps up the middle of each face, green moss on the upward faces of about half the
 blocks below the top, stone elsewhere. `heights` scales the model to `width` studs and prints the highest surface at
@@ -235,7 +235,10 @@ if __name__ == "__main__" and sys.argv[1] in ("stone", "heights"):
         centres, h, half, top = heights(pos, tris, float(sys.argv[3]), float(sys.argv[4]), base)
         print(f"-- half {half:g}, top {top:.1f}, tile centres {centres[0]:g}..{centres[-1]:g}, rows = x, columns = z")
         for row in h:
-            print("{ " + ", ".join(str(int(round(v))) for v in row) + " },")
+            if len(sys.argv) > 6 and sys.argv[6] == "hex":  # two hex digits per cell, one string per row
+                print('"' + "".join(f"{int(round(v)):02x}" for v in row) + '",')
+            else:
+                print("{ " + ", ".join(str(int(round(v))) for v in row) + " },")
 elif __name__ == "__main__":
     mode, textured = sys.argv[1], sys.argv[2]
     tpos, ttris, tuv, timg = read_glb(textured)
