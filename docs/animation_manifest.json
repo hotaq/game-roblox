@@ -106,6 +106,19 @@
       "displacement": "Move HumanoidRootPart forward ~10 studs between LungeStart (0.33 s) and 0.6 s.",
       "notes": ""
     },
+    "BoneThrow": {
+      "frames": 32,
+      "duration": 1.0667,
+      "loop": false,
+      "priority": "Action",
+      "events": {
+        "Windup": 0.0667,
+        "Throw": 0.5,
+        "Recover": 0.7
+      },
+      "displacement": null,
+      "notes": "Spawn the bone at the LeftHand on Throw (0.5 s); frames 10-13 are the telegraph hold."
+    },
     "HitFront": {
       "frames": 20,
       "duration": 0.6667,

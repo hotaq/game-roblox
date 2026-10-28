@@ -24,6 +24,9 @@
       },
       "SwordAnims": {
         "$path": "SwordAnims.rbxmx"
+      },
+      "SkeletonAnims": {
+        "$path": "SkeletonAnims.rbxmx"
       }
     },
     "ServerScriptService": {

@@ -308,6 +308,31 @@ clip("LungeAttack", 40, False, "Action", [
 ], events={"LungeStart": 10, "Swing": 12, "HitStart": 13, "HitEnd": 20, "Footstep": 18, "Recover": 28},
    displacement="Move HumanoidRootPart forward ~10 studs between LungeStart (0.33 s) and 0.6 s.", strict=True)
 
+# BoneThrow (the jungle skeleton's special): the free left hand cocks back behind the head while the torso winds up,
+# holds a beat (telegraph), then whips forward and hurls a bone overhand; the club stays in guard in the right hand.
+# The big head keeps facing forward (no yaw): with the head's 2-frame delay a twist reads as the skull flopping.
+clip("BoneThrow", 32, False, "Action", [
+    (0, P()),
+    (10, Q(body(hip=(0, 0.06, -0.07), hipr=(2, 0, 6), chest=(-10, 0, 14), head=(-10, 0, 0)), ears(back=20),
+           arm_l((-115, -50, 0), (-95, 0, 0), (-20, 0, 0)),  # hand cocked beside the head, where it can be seen
+           feet(l=((0.05, 0.07, 0), (0, 0, 14)))), "hold"),
+    (13, Q(body(hip=(0, 0.07, -0.08), hipr=(0, 0, 7), chest=(-12, 0, 16), head=(-10, 0, 0)), ears(back=25),
+           arm_l((-120, -52, 0), (-100, 0, 0), (-25, 0, 0)),
+           feet(l=((0.05, 0.07, 0), (0, 0, 14))))),
+    (14, Q(body(hip=(0, 0.0, -0.06), hipr=(8, 0, 0), chest=(6, 0, 0), head=(-14, 0, 0)),
+           arm_l((-110, -30, 0), (-50, 0, 0), (0, 0, 0)),
+           feet(l=((0.05, -0.04, 0.06), (-10, 0, 10))))),  # the stepping foot lifts instead of sliding
+    (15, Q(body(hip=(0, -0.04, -0.10), hipr=(14, 0, -6), chest=(18, 0, -10), head=(-22, 0, 0)),
+           ears(back=-10, tilt=10),
+           arm_l((-95, -8, 0), (-8, 0, 0), (10, 0, 0)),
+           feet(l=((0.05, -0.14, 0), (0, 0, 8))))),
+    (19, Q(body(hip=(0, -0.05, -0.12), hipr=(16, 0, -6), chest=(22, 0, -12), head=(-26, 0, 0)),
+           arm_l((-30, 10, 0), (-10, 0, 0)),
+           feet(l=((0.05, -0.14, 0), (0, 0, 8)))), "hold"),
+    (32, P()),
+], events={"Windup": 2, "Throw": 15, "Recover": 21}, strict=True,
+   notes="Spawn the bone at the LeftHand on Throw (0.5 s); frames 10-13 are the telegraph hold.")
+
 
 def hit(name, hip, hipr, chest, head, sw):
     clip(name, 20, False, "Action", [
