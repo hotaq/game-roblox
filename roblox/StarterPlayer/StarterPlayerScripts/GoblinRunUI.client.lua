@@ -703,7 +703,8 @@ do
 	local pendingUntil=0
 	local function usable()
 		local c=player.Character;local h=c and c:FindFirstChildOfClass("Humanoid")
-		return player:GetAttribute("RunStart")~=nil and player:GetAttribute("RunPausedAt")==nil and h and h.Health>0
+		return (player:GetAttribute("RunStart")~=nil or player:GetAttribute("DashPractice")) and player:GetAttribute("RunPausedAt")==nil
+			and h and h.Health>0 -- in a run, or on the dash practice field
 	end
 	local function request()
 		if not usable() or input:GetFocusedTextBox() then return end

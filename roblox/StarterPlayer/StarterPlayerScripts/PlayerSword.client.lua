@@ -31,6 +31,7 @@ end
 
 local function swordLevel(player: Player): number?
 	return tonumber(string.match(player:GetAttribute("RunLoadout") or "", "sword=(%d+)"))
+		or (if player:GetAttribute("DashPractice") then 5 else nil) -- the dash practice field lends a sword (GAME-44)
 end
 
 -- A sword picked up from the showcase gallery (this client only); it wins over the run's sword until dropped.
@@ -188,9 +189,11 @@ local function animate(char: Model)
 end
 
 local function watch(player: Player)
-	player:GetAttributeChangedSignal("RunLoadout"):Connect(function()
-		hold(player)
-	end)
+	for _, attr in { "RunLoadout", "DashPractice" } do
+		player:GetAttributeChangedSignal(attr):Connect(function()
+			hold(player)
+		end)
+	end
 	local function spawned(char)
 		char:WaitForChild("RightHand")
 		hold(player)

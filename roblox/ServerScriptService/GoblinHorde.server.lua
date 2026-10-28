@@ -230,9 +230,18 @@ do
 	local function inside(p, center, half)
 		return center and math.abs(p.X-center.X)<=half-1.5 and math.abs(p.Z-center.Z)<=half-1.5
 	end
+	-- Practice: standing in Workspace.DashZone (roblox/BuildDashZone.luau) with no run, a player gets a stand-in run
+	-- {player, hum, practice = true}: the same dash, inside the field's bounds, with no cooldown.
+	local practice = {}
+	local nextScan = 0
+	local function practiceZone()
+		local z=Workspace:FindFirstChild("DashZone")
+		local center=z and z:GetAttribute("Center")
+		return center, center and z:GetAttribute("Size")/2-2
+	end
 	local function valid(run)
-		return runs[run.player]==run and run.player.Parent==Players and run.player.Character==run.hum.Parent
-			and run.hum.Health>0 and not run.cards and not run.pausedAt and not run.hum.Sit
+		return (runs[run.player]==run or practice[run.player]==run) and run.player.Parent==Players
+			and run.player.Character==run.hum.Parent and run.hum.Health>0 and not run.cards and not run.pausedAt and not run.hum.Sit
 	end
 	function Dash.cancel(run)
 		local d=run.dash
@@ -280,7 +289,7 @@ do
 	-- face (optional): where the body points during the dash (the client sends its camera's look), so a dash to the
 	-- side or back plays as a sidestep / back hop; without it the body turns to the dash direction as before.
 	function Dash.request(player, direction, face)
-		local run=runs[player]
+		local run=runs[player] or practice[player]
 		if not run then return false end
 		local now=Workspace:GetServerTimeNow()
 		if now<(run.dashRequestAt or 0) then return false end
@@ -291,7 +300,8 @@ do
 		face=flat(face) or direction
 		local root=run.hum.Parent:FindFirstChild("HumanoidRootPart")
 		if not root or root.Anchored then return false end
-		local center,half=arena()
+		local center,half
+		if run.practice then center,half=practiceZone() else center,half=arena() end
 		if not inside(root.Position,center,half) then return false end
 		local excluded={run.hum.Parent}
 		for _,p in Players:GetPlayers() do if p.Character then table.insert(excluded,p.Character) end end
@@ -320,29 +330,54 @@ do
 		if Workspace:Blockcast(cf,size,direction.Unit*1.1,ray) then return false end
 		serial+=1
 		local d={root=root,dir=direction.Unit,face=face,ray=ray,size=size,center=center,half=half,
-			area=Workspace:GetAttribute("Arena"),footGap=footGap,floorY=floor.Position.Y,
+			area=if run.practice then nil else Workspace:GetAttribute("Arena"),footGap=footGap,floorY=floor.Position.Y,
 			position=root.Position,elapsed=0,started=now,id=serial,rotate=run.hum.AutoRotate}
-		run.dash=d;run.dashReadyAt=now+D.Cooldown
+		run.dash=d;run.dashReadyAt=now+(if run.practice then 0 else D.Cooldown)
 		root.Anchored=true;root.AssemblyLinearVelocity=Vector3.zero;run.hum.AutoRotate=false
 		local shield=Instance.new("ForceField");shield.Name="RunDashShield";shield.Visible=false;shield.Parent=run.hum.Parent;d.shield=shield
 		player:SetAttribute("RunDashReadyAt",run.dashReadyAt);player:SetAttribute("RunDashing",true)
 		event:FireAllClients("start",player,d.id,d.dir,now,d.face)
 		return true
 	end
+	local function scanPractice(now) -- who stands in the field with no run (four times a second)
+		nextScan=now+0.25
+		local center,half=practiceZone()
+		for _,p in Players:GetPlayers() do
+			local c=p.Character
+			local h=c and c:FindFirstChildOfClass("Humanoid")
+			local r=c and c:FindFirstChild("HumanoidRootPart")
+			local here=center and h and r and h.Health>0 and not runs[p] and inside(r.Position,center,half+1.5)
+			local cur=practice[p]
+			if here and not (cur and cur.hum==h) then
+				if cur then Dash.cancel(cur) end
+				practice[p]={player=p,hum=h,practice=true}
+				p:SetAttribute("DashPractice",true);p:SetAttribute("RunDashReadyAt",nil)
+			elseif not here and cur then
+				Dash.cancel(cur);practice[p]=nil
+				p:SetAttribute("DashPractice",nil)
+			end
+		end
+		for p,run in practice do
+			if p.Parent~=Players then Dash.cancel(run);practice[p]=nil end
+		end
+	end
 	function Dash.step(dt)
 		local now=Workspace:GetServerTimeNow()
-		for _,run in runs do
-			local d=run.dash
-			if not d then continue end
-			if not valid(run) or not d.root.Parent or not d.root.Anchored
-				or Workspace:GetAttribute("Arena")~=d.area or (d.root.Position-d.position).Magnitude>2 then
-				Dash.cancel(run);continue
+		if now>=nextScan then scanPractice(now) end
+		for _,set in {runs,practice} do
+			for _,run in set do
+				local d=run.dash
+				if not d then continue end
+				if not valid(run) or not d.root.Parent or not d.root.Anchored
+					or (not run.practice and Workspace:GetAttribute("Arena")~=d.area) or (d.root.Position-d.position).Magnitude>2 then
+					Dash.cancel(run);continue
+				end
+				if now-d.started>=D.ShieldTime and d.shield then d.shield:Destroy();d.shield=nil end
+				local amount=math.min(math.max(dt,0),D.Duration-d.elapsed)
+				d.elapsed+=amount
+				local clear=move(d,D.Distance*amount/D.Duration)
+				if not clear or d.elapsed>=D.Duration or now-d.started>D.Duration+0.1 then Dash.cancel(run) end
 			end
-			if now-d.started>=D.ShieldTime and d.shield then d.shield:Destroy();d.shield=nil end
-			local amount=math.min(math.max(dt,0),D.Duration-d.elapsed)
-			d.elapsed+=amount
-			local clear=move(d,D.Distance*amount/D.Duration)
-			if not clear or d.elapsed>=D.Duration or now-d.started>D.Duration+0.1 then Dash.cancel(run) end
 		end
 	end
 	event.OnServerEvent:Connect(Dash.request)
@@ -607,6 +642,17 @@ if fxView then
 		return fxView.Position
 	end)
 	makePad("SwordFXBackPad", fxView.Position + Vector3.new(10, 0.7, 0), Color3.fromRGB(255, 210, 90), "BACK", nil, function()
+		local spawnPad = Workspace:FindFirstChild("SpawnLocation")
+		return spawnPad and spawnPad.Position
+	end)
+end
+-- GAME-44: the dash practice field (Workspace.DashZone, place content from roblox/BuildDashZone.luau) and back
+local dashField = Workspace:FindFirstChild("DashZone")
+if dashField and dashField:GetAttribute("Spawn") then
+	makePad("DashPad", Vector3.new(11, 1.2, 40), Color3.fromRGB(90, 200, 235), "DASH FIELD", nil, function()
+		return dashField:GetAttribute("Spawn")
+	end)
+	makePad("DashBackPad", dashField:GetAttribute("Spawn") + Vector3.new(12, 0, 0), Color3.fromRGB(255, 210, 90), "BACK", nil, function()
 		local spawnPad = Workspace:FindFirstChild("SpawnLocation")
 		return spawnPad and spawnPad.Position
 	end)
