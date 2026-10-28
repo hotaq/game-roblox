@@ -486,20 +486,22 @@ function STAGES.decor(map: Model, o: CFrame)
 	return n
 end
 
--- Fake contact shadows under trees (real shadows are off at low graphics quality).
+-- Fake contact shadows under trees (real shadows are off at low graphics quality). Each disc lives inside its tree, so
+-- moving, scaling or duplicating a tree by hand carries its shadow along.
 function STAGES.shadows(map: Model, o: CFrame)
-	local f = Instance.new("Folder")
-	f.Name = "Shadows"
 	for _, m in (map:FindFirstChild("Forest") :: Folder):GetChildren() do
+		local old = m:FindFirstChild("Shadow")
+		if old then
+			old:Destroy()
+		end
 		local _, size = m:GetBoundingBox()
 		local p = m:GetPivot().Position
 		local d = math.min(size.X, size.Z) * 0.85
-		part(f, Vector3.new(0.1, d, d), CFrame.new(p.X, p.Y + 0.06, p.Z) * CFrame.Angles(0, 0, math.rad(90)), rgb(28, 52, 30), {
+		part(m, Vector3.new(0.1, d, d), CFrame.new(p.X, p.Y + 0.06, p.Z) * CFrame.Angles(0, 0, math.rad(90)), rgb(28, 52, 30), {
 			Shape = Enum.PartType.Cylinder, Material = Enum.Material.SmoothPlastic, Transparency = 0.45,
 			CastShadow = false, CanCollide = false, CanQuery = false, CanTouch = false, Name = "Shadow",
 		})
 	end
-	f.Parent = map
 end
 
 -- Invisible walls on the four sides, and the (disabled) spawn pad in the south clearing.
@@ -524,7 +526,8 @@ end
 local ORDER = { "ground", "landmarks", "graveyard", "hazards", "bridges", "forest", "shadows", "decor", "edge" }
 
 -- Builds (or rebuilds) Workspace.Map1 at `origin` (default (1000, 0, 0)). `stages` picks a subset of ORDER; existing
--- folders of the stages being rebuilt are replaced, others are kept.
+-- folders of the stages being rebuilt are replaced, others are kept. A stage folder with the HandEdited attribute (the
+-- owner placed things in it by hand) is skipped by a full build; only naming its stage rebuilds it.
 function Builder.build(origin: Vector3?, stages: { string }?)
 	local o = CFrame.new(origin or Vector3.new(1000, 0, 0))
 	local map = workspace:FindFirstChild("Map1") :: Model?
@@ -541,6 +544,11 @@ function Builder.build(origin: Vector3?, stages: { string }?)
 	local report = {}
 	for _, stage in stages or ORDER do
 		local folderName = stage:sub(1, 1):upper() .. stage:sub(2)
+		local kept = model:FindFirstChild(folderName)
+		if not stages and kept and kept:GetAttribute("HandEdited") then
+			report[stage] = "kept (HandEdited)"
+			continue
+		end
 		for _, name in { folderName, if stage == "ground" then "WaterSurface" else nil } do
 			local old = model:FindFirstChild(name :: string)
 			if old then
