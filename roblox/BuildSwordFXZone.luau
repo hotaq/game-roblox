@@ -75,6 +75,9 @@ for n = 1, 5 do
 		station("Gallery" .. row .. n, Vector3.new((n - 3) * 14, 1, z), (if row == "A" then "New Lv " else "Old skin Lv ") .. n)
 	end
 end
+-- Step on a stand to pick that sword up (PlayerSword); step on this pad to put it back.
+part("GalleryClear", Vector3.new(5, 0.4, 5), Vector3.new(42, 0.2, 50), Color3.fromRGB(200, 70, 70))
+station("GalleryClearSign", Vector3.new(42, 1, 50), "Drop sword")
 part("ViewPad", Vector3.new(8, 1, 8), Vector3.new(0, 0.5, 26), Color3.fromRGB(90, 140, 200))
 
 zone.Parent = workspace

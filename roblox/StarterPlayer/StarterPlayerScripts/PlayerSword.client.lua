@@ -31,6 +31,9 @@ local function swordLevel(player: Player): number?
 	return tonumber(string.match(player:GetAttribute("RunLoadout") or "", "sword=(%d+)"))
 end
 
+-- A sword picked up from the showcase gallery (this client only); it wins over the run's sword until dropped.
+local picked: Model? = nil
+
 local function hold(player: Player)
 	local char = player.Character
 	local hand = char and char:FindFirstChild("RightHand")
@@ -38,7 +41,8 @@ local function hold(player: Player)
 		return
 	end
 	local level = swordLevel(player)
-	local name = level and "Sword_Phase" .. math.clamp(level, 1, 5)
+	local src = if player == me and picked then picked elseif level then swordModel("Sword_Phase" .. math.clamp(level, 1, 5)) else nil
+	local name = src and src:GetFullName()
 	local held = char:FindFirstChild("HeldSword")
 	if held and held:GetAttribute("Model") == name then
 		return
@@ -46,10 +50,10 @@ local function hold(player: Player)
 	if held then
 		held:Destroy()
 	end
-	if not name then
+	if not src then
 		return
 	end
-	held = swordModel(name):Clone()
+	held = src:Clone()
 	held.Name = "HeldSword"
 	held:SetAttribute("Model", name)
 	local weld = Instance.new("Weld")
@@ -114,7 +118,7 @@ local function animate(char: Model)
 			conn:Disconnect()
 			return
 		end
-		if not swordLevel(me) then
+		if not (picked or swordLevel(me)) then
 			for _, track in t do
 				if track.IsPlaying then
 					track:Stop(0.2)
@@ -165,3 +169,39 @@ Players.PlayerAdded:Connect(watch)
 for _, player in Players:GetPlayers() do
 	watch(player)
 end
+
+-- Showcase gallery (SwordFXZone, BuildSwordFXZone.luau): stepping onto a stand (StandA1..5 = SwordsShadow, StandB1..5 =
+-- Swords) picks up that stand's Sword_PhaseN; the GalleryClear pad or the start of a run drops it again.
+local GALLERY = { A = "SwordsShadow", B = "Swords" }
+local function pick(src: Model?)
+	if picked ~= src then
+		picked = src
+		hold(me)
+	end
+end
+me:GetAttributeChangedSignal("RunStart"):Connect(function()
+	pick(nil)
+end)
+RunService.Heartbeat:Connect(function()
+	local zone = workspace:FindFirstChild("SwordFXZone")
+	local root = zone and me.Character and me.Character:FindFirstChild("HumanoidRootPart")
+	if not root then
+		return
+	end
+	local function on(part: BasePart?, reach: number): boolean
+		return part ~= nil and Vector2.new(root.Position.X - part.Position.X, root.Position.Z - part.Position.Z).Magnitude < reach
+	end
+	if on(zone:FindFirstChild("GalleryClear"), 3) then
+		pick(nil)
+		return
+	end
+	for row, setName in GALLERY do
+		local set = ReplicatedStorage:FindFirstChild(setName)
+		for n = 1, 5 do
+			local src = set and set:FindFirstChild("Sword_Phase" .. n)
+			if src and on(zone:FindFirstChild("Stand" .. row .. n), 1.8) then
+				pick(src)
+			end
+		end
+	end
+end)

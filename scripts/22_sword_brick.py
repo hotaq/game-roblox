@@ -36,7 +36,8 @@ for v in o.data.vertices:
     width[i] = max(width[i], abs(v.co.x))
 z_of = lambda i: z0 + (i + 0.5) * (z1 - z0) / N  # noqa: E731
 guard = max(range(N), key=lambda i: width[i])
-grip_w = min(width[: guard])  # the narrowest slice under the guard is the grip
+under = sorted(w for w in width[:guard] if w > 0)
+grip_w = under[len(under) // 2]  # the grip is most of what's under the guard (min would catch a pointed pommel)
 top = guard
 while top > 0 and width[top - 1] > grip_w * 1.3:  # walk down off the guard
     top -= 1
@@ -58,7 +59,7 @@ for img in bpy.data.images:
     if img.size[0] > 1024:
         img.scale(1024, 1024)
 
-out = f"{ROOT}/export/SwordBrick_Phase{phase}.glb"
+out = f"{ROOT}/export/SwordShadow_Phase{phase}.glb"
 bpy.ops.export_scene.gltf(filepath=out, use_selection=True, export_format="GLB", export_image_format="JPEG", export_jpeg_quality=90)
 zs = [v.co.z for v in o.data.vertices]
 print(f"{out}: {sum(len(p.vertices) - 2 for p in o.data.polygons)} tris, length {max(zs) - min(zs):.2f} studs "
