@@ -54,7 +54,7 @@ d.decimate_type, d.use_collapse_triangulate = "COLLAPSE", True
 d.ratio = TRIS / sum(len(p.vertices) - 2 for p in o.data.polygons)
 bpy.ops.object.modifier_apply(modifier="Decimate")
 o.data.transform(Matrix.Scale(scale, 4) @ Matrix.Translation(Vector((0, 0, -grip_z))))
-o.name = f"SwordBrick_Phase{phase}"
+o.name = f"SwordShadow_Phase{phase}"
 for img in bpy.data.images:
     if img.size[0] > 1024:
         img.scale(1024, 1024)
