@@ -14,6 +14,31 @@ end
 local stress = ReplicatedStorage:WaitForChild("Goblin"):WaitForChild("Stress")
 local horde = ReplicatedStorage.Goblin:WaitForChild("Horde")
 local player = Players.LocalPlayer
+if ReplicatedStorage.Goblin:GetAttribute("GAME11Active") then
+	task.spawn(function()
+		local shared=ReplicatedStorage.Goblin;local bridge=shared:WaitForChild("GAME11Test")
+		local cards,offerId,errors={},{},{}
+		shared:WaitForChild("RunLevelUp").OnClientEvent:Connect(function(c,_,_,id)cards,offerId=c,id end)
+		game:GetService("ScriptContext").Error:Connect(function(m,_,s)if s and s.Name:find("Goblin",1,true)then table.insert(errors,m)end end)
+		bridge.OnClientInvoke=function(command,args)
+			args=args or {}
+			if command=="leave"then task.defer(function()player:Kick("GAME11 disposable disconnect check")end);return true end
+			if command=="pick"then
+				local index=args.index
+				if not index then
+					local best=-1;index=1
+					for i,c in cards do local score=if c.kind=="evolve"then 100 elseif c.id=="sword"then 90 elseif c.id=="ring"then 80 elseif c.kind=="weapon"then 50 else 10
+						if score>best then best,index=score,i end end
+				end
+				shared.RunPick:FireServer(index,args.offerId or offerId);return true
+			elseif command=="reroll"then shared.RunReroll:FireServer(offerId);return true end
+			local safe=false
+			for _,d in player.PlayerGui:GetDescendants()do if d:IsA("TextLabel")and d.Text:find("AUTO FIRST CARD",1,true)then safe=true end end
+			return {paused=player:GetAttribute("RunPausedAt")~=nil,safeText=safe,errors=errors}
+		end
+		bridge:InvokeServer()
+	end)
+end
 local function acceptanceIcon(d,key)
 	local fallback={axe="AxeIcon",rocks="RocksIcon",totem="totemIcon"}
 	if d.Name==fallback[key]then return true end

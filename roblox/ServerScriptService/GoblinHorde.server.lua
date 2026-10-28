@@ -9,7 +9,7 @@
 -- No physics, no pathfinding: the arena (workspace.StressZone, or Map1 via its pad) is flat at y = 0. Humanoid goblins
 -- (GoblinAI) stay for elites.
 -- Runs: entering the arena starts one (PlayPad / Map1Pad by the spawn teleport there). Weapons (Config.Weapons) fire on
--- their own and hit the same goblin arrays; each kill drops an XP gem; level-ups pause the horde while the player
+-- their own and hit the same goblin arrays; each kill drops an XP gem; level-ups pause only the choosing player
 -- picks 1 of 3 cards (GoblinRunUI); dying ends the run with a results screen. Player attributes carry the HUD state.
 -- Studio test: GoblinStressHUD's H buttons override the horde size (Goblin.Horde remote).
 local CollectionService = game:GetService("CollectionService")
@@ -53,6 +53,7 @@ end
 local snap, died, gemTaken, hits, fx = remote("HordeSnap"), remote("HordeDied"), remote("HordeGems"), remote("HordeHits"), remote("HordeFx")
 local swingsOut = remote("HordeSwing")
 local levelUp, pickCard, rerollCards, runOver = remote("RunLevelUp"), remote("RunPick"), remote("RunReroll"), remote("RunOver")
+local choiceClosed = remote("RunChoiceClosed")
 local restart, toLobby = remote("RunRestart"), remote("RunLobby")
 local gemState = remote("HordeGemState")
 
@@ -219,8 +220,35 @@ local function makeCards(run)
 end
 
 local offerSerial=0
+-- A card pause is owned by this run, not by the shared simulation. Keep the
+-- original root state and destroy only our own shield on resume/death/leave.
+local function pauseRun(run, now)
+	if run.pausedAt then return end
+	run.pausedAt = now
+	local root = run.hum.Parent and run.hum.Parent:FindFirstChild("HumanoidRootPart")
+	if root then
+		run.pauseRoot, run.pauseAnchored = root, root.Anchored
+		root.Anchored = true
+	end
+	local shield = Instance.new("ForceField")
+	shield.Name, shield.Visible, shield.Parent = "RunUpgradeShield", true, run.hum.Parent
+	run.pauseShield = shield
+	run.player:SetAttribute("RunPausedAt", now)
+end
+local function resumeRun(run, now)
+	if run.pausedAt then run.start += math.max(0, now - run.pausedAt) end
+	if run.pauseShield then run.pauseShield:Destroy(); run.pauseShield = nil end
+	local root = run.pauseRoot
+	if root and root.Parent and root.Anchored then root.Anchored = run.pauseAnchored end
+	run.pauseRoot, run.pauseAnchored, run.pausedAt, run.cardDeadline = nil, nil, nil, nil
+	run.player:SetAttribute("RunPausedAt", nil)
+	run.player:SetAttribute("RunCardDeadline", nil)
+end
 local function offer(run)
-	run.pausedAt = run.pausedAt or Workspace:GetServerTimeNow() -- the run clock stops while picking
+	local now = Workspace:GetServerTimeNow()
+	pauseRun(run, now)
+	run.cardDeadline = run.cardDeadline or now + R.CardSeconds -- reroll never extends this offer's deadline
+	run.player:SetAttribute("RunCardDeadline", run.cardDeadline)
 	run.cards = makeCards(run)
 	offerSerial+=1;run.offerId=offerSerial;run.player:SetAttribute("RunOfferId",offerSerial)
 	levelUp:FireClient(run.player, run.cards, run.rerolls, run.level,run.offerId)
@@ -260,6 +288,7 @@ local function endRun(player: Player)
 		return
 	end
 	runs[player] = nil
+	resumeRun(run, Workspace:GetServerTimeNow())
 	restoreRunSpeed(run)
 	run.rocks = nil
 	local damage = {}
@@ -307,7 +336,7 @@ local function startRun(player: Player, hum: Humanoid)
 	end)
 end
 
-pickCard.OnServerEvent:Connect(function(player, index, offerId)
+local function chooseCard(player, index, offerId)
 	local run = runs[player]
 	if not run or not run.cards or (run.offerId and offerId~=run.offerId)
 		or typeof(index)~="number" or index%1~=0 or index<1 or index>#run.cards then return end
@@ -336,16 +365,18 @@ pickCard.OnServerEvent:Connect(function(player, index, offerId)
 		run.hum.Health = math.min(run.hum.MaxHealth, run.hum.Health + R.Heal)
 	end
 	run.pending -= 1
+	choiceClosed:FireClient(player, run.offerId)
 	run.cards = nil
+	run.cardDeadline = nil -- a queued level gets its own bounded choice window
 	run.offerId=nil;player:SetAttribute("RunOfferId",nil)
 	if run.pending > 0 then
 		offer(run)
 	else
-		run.start += Workspace:GetServerTimeNow() - run.pausedAt
-		run.pausedAt = nil
+		resumeRun(run, Workspace:GetServerTimeNow())
 	end
 	publish(run)
-end)
+end
+pickCard.OnServerEvent:Connect(chooseCard)
 
 rerollCards.OnServerEvent:Connect(function(player,offerId)
 	local run = runs[player]
@@ -375,7 +406,7 @@ end)
 Players.PlayerRemoving:Connect(function(player)
 	clearRunAxes(player)
 	clearRunTotems(player)
-	if runs[player] then restoreRunSpeed(runs[player]);runs[player].rocks=nil end
+	if runs[player] then resumeRun(runs[player],Workspace:GetServerTimeNow());restoreRunSpeed(runs[player]);runs[player].rocks=nil end
 	runs[player] = nil
 	views[player], viewReadyAt[player] = nil, nil
 end)
@@ -545,7 +576,7 @@ local function objectiveTick(dt,paused)
 	end
 	local holding=false
 	for player,run in state.roster do
-		if objectiveEligible(player,run) then
+		if not run.cards and objectiveEligible(player,run) then
 			local p=player.Character.HumanoidRootPart.Position
 			if (p.X-state.position.X)^2+(p.Z-state.position.Z)^2<=c.Radius^2 and math.abs(p.Y-state.position.Y)<=8 then holding=true;break end
 		end
@@ -570,6 +601,7 @@ local shots = {} -- live fireballs
 -- A weapon hit from (fromX, fromZ): damage and a slow; if `stuns`, also a short stun that cancels a wind-up, and with
 -- the Force passive a push away from that point (knock = the weapon's share of it).
 local function hit(i: number, dmg: number, run, weapon: string, fromX: number, fromZ: number, knock: number, stuns: boolean)
+	if run.cards then return end
 	local dx, dz = px[i] - fromX, pz[i] - fromZ
 	local d = math.sqrt(dx * dx + dz * dz)
 	if d > 0.01 and run.bonus.force > 0 and knock > 0 then
@@ -657,6 +689,7 @@ end
 local function moveAxes(dt: number)
 	for k = #axes, 1, -1 do
 		local a = axes[k]
+		if a.run.cards then continue end
 		a.age += dt
 		local remaining, done = dt, a.age >= 4.5
 		while remaining > 0.00001 and not done do
@@ -719,6 +752,7 @@ local function rockSweep(run,state,x0,z0,x1,z1,s)
 	end)
 end
 local function moveRocks(run,root,dt)
+	if run.cards then return end
 	local level=run.weapons.rocks
 	if not level or not validRockOwner(run,root) then run.rocks=nil;return end
 	if run.evolved and run.evolved.rocks then level=6 end
@@ -788,7 +822,9 @@ local function placeTotem(run,root,s,level)
 end
 local function moveTotems(dt)
 	for k=#totems,1,-1 do
-		local t=totems[k];t.age+=dt;t.pulse-=dt
+		local t=totems[k]
+		if t.run.cards then continue end
+		t.age+=dt;t.pulse-=dt
 		if t.age>=t.duration then table.remove(totems,k);totemsDirty=true
 		elseif t.pulse<=0 then
 			t.pulse=t.interval
@@ -812,6 +848,7 @@ end
 -- END GAME-12 totem simulation
 
 local function fireWeapons(run, root: BasePart, dt: number)
+	if run.cards then return end
 	if run.weapons.rocks then moveRocks(run,root,dt) end
 	local pos = root.Position
 	local haste = 1 - math.min(run.bonus.haste, 0.6)
@@ -899,7 +936,7 @@ local function fireWeapons(run, root: BasePart, dt: number)
 				local a = math.atan2(pz[i] - pos.Z, px[i] - pos.X) + (k - 1 >= #aims and (k % 2 * 2 - 1) * 0.25 or 0)
 				local dx, dz = math.cos(a), math.sin(a)
 				table.insert(shots, { x = pos.X, z = pos.Z, dx = dx, dz = dz, speed = s.Speed, t = range / s.Speed, pierce = s.Pierce, dmg = s.Damage * might, knock = s.Knock, stuns = s.Stun ~= false, run = run, hit = {} })
-				fx:FireAllClients("fire", pos.X, pos.Z, dx, dz, s.Speed, range)
+				fx:FireAllClients("fire", pos.X, pos.Z, dx, dz, s.Speed, range, run.player)
 			end
 		end
 	end
@@ -908,6 +945,7 @@ end
 local function moveShots(dt: number)
 	for k = #shots, 1, -1 do
 		local s = shots[k]
+		if s.run.cards then continue end
 		s.x += s.dx * s.speed * dt
 		s.z += s.dz * s.speed * dt
 		s.t -= dt
@@ -960,7 +998,7 @@ local function moveBones(dt: number)
 end
 
 local function step(dt: number)
-	pruneAxes() -- also runs while the existing global card pause is active
+	pruneAxes() -- cleanup is independent of each owner's card pause
 	pruneRocks()
 	pruneTotems()
 	-- Lifetime cleanup must run even when another player is choosing a card.
@@ -976,6 +1014,13 @@ local function step(dt: number)
 	end
 	local center, half = arena()
 	local now = Workspace:GetServerTimeNow()
+	for player, run in runs do
+		if player.Character ~= run.hum.Parent or run.hum.Health <= 0 then
+			endRun(player)
+		elseif run.cards and run.cardDeadline and now >= run.cardDeadline then
+			chooseCard(player, 1, run.offerId) -- same validation/id as a click; no second award on a late reply
+		end
+	end
 	table.clear(targets)
 	for _, pl in Players:GetPlayers() do
 		local c = pl.Character
@@ -987,15 +1032,9 @@ local function step(dt: number)
 			if inside and not runs[pl] then
 				startRun(pl, h)
 			end
-			table.insert(targets, { root = r, hum = h, run = runs[pl], inside = inside })
-		end
-	end
-
-	-- Survivors-style pause: nothing moves or hurts while someone is picking a card.
-	for _, run in runs do
-		if run.cards then
-			objectiveTick(0,true)
-			return
+			if not runs[pl] or not runs[pl].cards then
+				table.insert(targets, { root = r, hum = h, run = runs[pl], inside = inside })
+			end
 		end
 	end
 
@@ -1159,7 +1198,7 @@ local function step(dt: number)
 	moveTotems(dt)
 	for g, gem in gems do
 		for _, t in targets do
-			if t.run then
+			if t.run and not t.run.cards then -- an earlier gem in this same tick may have opened a card
 				local p = t.root.Position
 				local reach = R.PickupRange * (1 + t.run.bonus.magnet)
 				if (gem.x - p.X) ^ 2 + (gem.z - p.Z) ^ 2 < reach * reach then
@@ -1179,7 +1218,7 @@ local function step(dt: number)
 	-- Horde size and toughness grow with the longest run; spawn on a ring around a player in the arena.
 	local longest = nil
 	for _, run in runs do
-		longest = math.max(longest or 0, now - run.start)
+		longest = math.max(longest or 0, (run.pausedAt or now) - run.start)
 	end
 	local target = override or (longest and math.min(R.MaxAlive, math.floor(R.StartAlive + R.AlivePerMinute * longest / 60))) or 0
 	local spawnAt = {}
@@ -1214,7 +1253,9 @@ local function step(dt: number)
 		for id in gems do table.insert(clearedGems, id) end
 		table.clear(gems)
 	end
-	objectiveTick(dt,false) -- death/leave eligibility is evaluated after this tick's damage
+	local activeRun = false
+	for _,t in targets do if t.run then activeRun = true; break end end
+	objectiveTick(dt,not activeRun) -- protected card choosers cannot advance an objective
 end
 
 local function sendBroadcast(): number
@@ -1440,8 +1481,12 @@ local completeTestArgs
 local objectiveTestArgs
 local cleanupTestArgs
 local networkTestArgs, networkManual
+local polishTestArgs
 if RunService:IsStudio() then
 	local ok, args = pcall(function() return game:GetService("StudioTestService"):GetTestArgs() end)
+	if ok and typeof(args)=="table" and args.name=="GAME11Complete" then
+		polishTestArgs=args; Shared:SetAttribute("GAME11Active",true)
+	end
 	if ok and typeof(args) == "table" and args.name == "GAME23Baseline" then
 		benchmarkArgs = args
 	end
@@ -1477,7 +1522,7 @@ RunService.Heartbeat:Connect(function(dt)
 	while simAcc >= 1 / H.SimRate do
 		simAcc -= 1 / H.SimRate
 		local t0 = os.clock()
-		if not axeTestArgs and not rocksTestArgs and not completeTestArgs and not objectiveTestArgs and not cleanupTestArgs and not networkManual then step(1 / H.SimRate) end -- named fixtures drive exact steps
+		if not polishTestArgs and not axeTestArgs and not rocksTestArgs and not completeTestArgs and not objectiveTestArgs and not cleanupTestArgs and not networkManual then step(1 / H.SimRate) end -- named fixtures drive exact steps
 		local elapsed = os.clock() - t0
 		if networkSample then table.insert(networkSample.step,elapsed*1000) end
 		simTime += elapsed
@@ -2380,6 +2425,122 @@ if completeTestArgs then
 			check(#errors==0 and #snap(a).errors==0 and (not report.review.b or #report.review.b.errors==0),"zero captured Goblin runtime errors")
 		end,debug.traceback)
 		report.ok,report.error=ok,if ok then nil else tostring(err);finish(report)
+	end)
+end
+
+-- GAME-11: named, disposable Studio acceptance/balance fixture only.
+if polishTestArgs then
+	local sts=game:GetService("StudioTestService")
+	local bridge=Instance.new("RemoteFunction");bridge.Name,bridge.Parent="GAME11Test",Shared
+	local ready,errors={},{}
+	bridge.OnServerInvoke=function(p)ready[p]=true;return true end
+	game:GetService("ScriptContext").Error:Connect(function(m,_,s)if s and s.Name:find("Goblin",1,true)then table.insert(errors,m)end end)
+	local report={checks={},errors=errors,mode=polishTestArgs.mode or "acceptance",levels={},samples={}}
+	local function check(v,s)assert(v,s);table.insert(report.checks,s)end
+	local function waitFor(fn,label)
+		local untilAt=os.clock()+45
+		repeat if fn()then return end;task.wait(.05)until os.clock()>untilAt
+		error("GAME11 timeout "..label)
+	end
+	local function clearWorld()
+		while count>0 do kill(top)end
+		table.clear(gems);table.clear(grid);table.clear(shots);table.clear(bones);table.clear(axes);table.clear(totems)
+		for _,r in runs do r.rocks=nil end
+	end
+	local function enemy(i,x,z)
+		if not alive[i]then count+=1 end;top=math.max(top,i)
+		alive[i],px[i],pz[i],hp[i]=true,x,z,10000
+		generation[i]=(generation[i]or 0)+2;skel[i]=false;throwAt[i]=nil;nextThrow[i]=1e12
+		kvx[i],kvz[i],stunUntil[i],slowUntil[i],swingAt[i],nextSwing[i]=0,0,0,0,nil,1e12
+	end
+	task.spawn(function()
+		local ok,err=xpcall(function()
+			waitFor(function()
+				if #Players:GetPlayers()~=(polishTestArgs.clients or 2)then return false end
+				for _,p in Players:GetPlayers()do if not ready[p]or not p.Character or not p.Character:FindFirstChild("HumanoidRootPart")then return false end end
+				return true
+			end,"ready")
+			Workspace:SetAttribute("Arena","StressZone");local center=assert(arena());rng=Random.new(11011)
+			local list=Players:GetPlayers();table.sort(list,function(a,b)return a.UserId<b.UserId end)
+			local function prepare(p,x)
+				local root=p.Character.HumanoidRootPart;root.Anchored=true;root.CFrame=CFrame.new(center+Vector3.new(x,4,0))
+				startRun(p,p.Character:FindFirstChildOfClass("Humanoid"));return runs[p],root
+			end
+			if report.mode=="balance"then
+				if polishTestArgs.baseline then R.XPFirst,R.XPGrowth,R.StartAlive,R.AlivePerMinute,R.HealthPerMinute=5,1.22,25,45,.4 end
+				local p=list[1];local r,root=prepare(p,0);r.hum.MaxHealth=10000;r.hum.Health=10000
+				report.tuning={xp=R.XPFirst,growth=R.XPGrowth,alive=R.StartAlive,perMinute=R.AlivePerMinute,hpGrowth=R.HealthPerMinute,contact=H.ContactDamage,bone=SK.BoneDamage}
+				report.note="Scripted circle, anchored route, 10000HP measurement dummy; damage recorded; not human survival/fun evidence"
+				local started=os.clock();local lastLevel=1;local nextSample=10;local lastPick=0
+				while os.clock()-started<(polishTestArgs.seconds or 120)do
+					local t=os.clock()-started
+					if not r.cards then local a=t*.65;root.CFrame=CFrame.new(center+Vector3.new(math.cos(a)*12,4,math.sin(a)*12))end
+					step(1/30)
+					if r.level~=lastLevel then table.insert(report.levels,{level=r.level,wall=t,active=(r.pausedAt or Workspace:GetServerTimeNow())-r.start,kills=r.kills});lastLevel=r.level end
+					if r.cards and os.clock()-lastPick>.8 then bridge:InvokeClient(p,"pick");lastPick=os.clock()end
+					if t>=nextSample then table.insert(report.samples,{seconds=t,level=r.level,kills=r.kills,gems=r.gems,alive=count,damage=10000-r.hum.Health});nextSample+=10 end
+					task.wait(1/30)
+				end
+				report.final={level=r.level,kills=r.kills,gems=r.gems,damage=10000-r.hum.Health,alive=count}
+				check(#errors==0,"balance no server errors");check(#bridge:InvokeClient(p,"snapshot").errors==0,"balance no client errors")
+				endRun(p);clearWorld();return
+			end
+			local a,b=list[1],list[2];local ra,rootA=prepare(a,-20);local rb,rootB=prepare(b,20)
+			ra.weapons,ra.wOrder={fire=1,axe=1,rocks=1,totem=1},{"fire","axe","rocks","totem"};ra.next=1e8
+			rb.weapons,rb.wOrder={sword=1},{"sword"};rb.next=1e8;override=2
+			clearWorld();enemy(1,center.X-15,center.Z);enemy(2,center.X+25,center.Z);step(1/30)
+			check(#shots>0 and #axes>0 and #totems>0 and ra.rocks~=nil,"four active weapons before pause")
+			local shot,axe,totem,rock=shots[1],axes[1],totems[1],ra.rocks
+			local sx,ax,ta,rp,damage=shot.x,axe.x,totem.age,rock.phase,ra.damage.fire or 0
+			rootA.Anchored=false;ra.pending=1;offer(ra);local pausedAt,deadline,offerId=ra.pausedAt,ra.cardDeadline,ra.offerId
+			check(rootA.Anchored and ra.pauseShield and a:GetAttribute("RunPausedAt"),"chooser anchored with owned shield and pause attribute")
+			local health=ra.hum.Health;ra.hum:TakeDamage(50);check(ra.hum.Health==health,"engine shield protects damage while choosing")
+			local bStart=rb.start;local bx=px[2];rb.cd.sword=0
+			for _=1,15 do step(1/30)end
+			check(shot.x==sx and axe.x==ax and totem.age==ta and rock.phase==rp,"only chooser projectiles and lifetime stop")
+			check((rb.damage.sword or 0)>0,"teammate weapons keep dealing damage")
+			check(#targets==1 and targets[1].run==rb,"chooser excluded from melee bone and spawn target list")
+			local before=ra.kills;hit(1,20000,ra,"fire",0,0,0,false);check(ra.kills==before and alive[1],"paused damage cannot award a kill")
+			gems[60000]={x=rootA.Position.X,z=rootA.Position.Z};local gemsBefore=ra.gems;step(1/30)
+			check(gems[60000] and ra.gems==gemsBefore,"chooser does not collect gems")
+			bridge:InvokeClient(a,"reroll");waitFor(function()return ra.offerId~=offerId end,"reroll")
+			check(ra.pausedAt==pausedAt and ra.cardDeadline==deadline,"reroll keeps same pause and deadline")
+			local current=ra.offerId;bridge:InvokeClient(a,"pick",{index=1,offerId=offerId});task.wait(.2)
+			check(ra.offerId==current and ra.cards,"stale click cannot close replacement offer")
+			bridge:InvokeClient(a,"pick",{index=1});waitFor(function()return not ra.cards end,"manual pick")
+			check(not rootA.Anchored and not ra.pauseShield and not a:GetAttribute("RunPausedAt"),"manual pick restores only chooser movement and protection")
+			rootA.Anchored=true
+			check(ra.start>rb.start and rb.start==bStart,"pause time excluded only from chooser clock")
+			step(1/30);check(shot.x~=sx and axe.x~=ax and totem.age>ta,"own projectiles resume after choice")
+			-- Real timeout uses the production 20s window; peers continue receiving steps.
+			clearWorld();override=0;ra.pending=2;offer(ra);local first=ra.offerId;local endAt=ra.cardDeadline
+			local cardsSeen=bridge:InvokeClient(a,"snapshot");check(cardsSeen.safeText and cardsSeen.paused,"UI explains safety and automatic first card")
+			while Workspace:GetServerTimeNow()<endAt+.1 do step(1/30);task.wait(1/30)end
+			check(ra.pending==1 and ra.offerId~=first and ra.cards,"timeout consumes exactly one pending offer")
+			check(ra.cardDeadline>endAt and ra.pausedAt~=nil,"queued level keeps protection with fresh deadline")
+			local second=ra.offerId;bridge:InvokeClient(a,"pick",{offerId=first,index=1});task.wait(.15)
+			check(ra.offerId==second and ra.pending==1,"late timeout reply does not consume next card")
+			bridge:InvokeClient(a,"pick",{index=1});waitFor(function()return not ra.cards end,"second choice")
+			task.wait(.2);check(not bridge:InvokeClient(a,"snapshot").paused,"client pause attribute clears")
+			-- Both choose: no gameplay targets; each can resume independently.
+			ra.pending=1;rb.pending=1;offer(ra);offer(rb);step(1/30)
+			check(#targets==0,"both choosing excludes both from gameplay targets")
+			bridge:InvokeClient(a,"pick",{index=1});waitFor(function()return not ra.cards end,"first resumes")
+			step(1/30);check(#targets==1 and targets[1].run==ra and rb.cards,"one resumes without waiting for teammate")
+			local rbShield=rb.pauseShield;rb.hum.Health=0;waitFor(function()return not runs[b]end,"death cleanup")
+			check(rbShield.Parent==nil and not b:GetAttribute("RunPausedAt"),"death removes own shield and attributes")
+			ra.pending=1;offer(ra);local oldRoot,shield=rootA,ra.pauseShield
+			endRun(a);check(shield.Parent==nil and oldRoot.Anchored==true,"end run restores original anchored state")
+			check(not a:GetAttribute("RunCardDeadline") and not a:GetAttribute("RunStart"),"end run clears card deadline and HUD state")
+			for _,p in list do check(#bridge:InvokeClient(p,"snapshot").errors==0,"client has no Goblin errors")end
+			startRun(a,ra.hum);local departed=runs[a];departed.pending=1;offer(departed);local departedShield=departed.pauseShield
+			bridge:InvokeClient(a,"leave");waitFor(function()return a.Parent~=Players end,"disconnect")
+			check(runs[a]==nil and departedShield.Parent==nil,"disconnect during choice releases run and shield")
+			check(#errors==0,"server has no Goblin errors")
+			clearWorld()
+		end,debug.traceback)
+		report.ok,report.error=ok,if ok then nil else tostring(err)
+		sts:EndTest(report)
 	end)
 end
 

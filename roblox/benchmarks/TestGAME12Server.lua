@@ -7,11 +7,13 @@ local H,R,W,P=Config.Horde,Config.Run,Config.Weapons,Config.Passives
 local Workspace,Players=workspace,{}
 local alive,px,pz,hp,generation={},{},{},{},{}
 local swingAt,nextSwing,kvx,kvz,stunUntil,slowUntil={},{},{},{},{},{}
+local skel,throwAt,nextThrow={},{},{}
 local free,top,count,dead,deadFirstGem,gems,nextGem={},0,0,{},0,{},0
 local deathEvents={};local runs={};local rng=Random.new(120)
 local function arena()return Vector3.zero,200 end
 local packets={};local fx={FireAllClients=function(_,kind,data)table.insert(packets,{kind=kind,data=data})end}
 local runOver={FireClient=function()end};local levelUp={FireClient=function()end}
+local choiceClosed={FireClient=function()end}
 local function remote()local r={};r.OnServerEvent={Connect=function(_,f)r.callback=f end};return r end
 local pickCard,rerollCards=remote(),remote()
 ]=]..span("local axes, axeSerial","-- `run` =")..span("local function kill(","-- The run arena:")
@@ -40,7 +42,7 @@ local ok,err=xpcall(function()
   local second=r.offerId;pickCard.callback(r.player,1,first);check(r.offerId==second and r.pending==1,"queued offer resists stale "..id.." pick")
   rerollCards.callback(r.player,first);check(r.rerolls==2,"stale "..id.." reroll rejected")
   rerollCards.callback(r.player,second);check(r.rerolls==1 and r.offerId~=second,"current "..id.." reroll creates new identity")
-  r.cards=nil;r.pending=0;r.offerId=nil;r.pausedAt=nil
+  resumeRun(r,Workspace:GetServerTimeNow());r.cards=nil;r.pending=0;r.offerId=nil
  end
  r.weapons={totem=5};r.wOrder={"totem"};r.evolved={};r.bonus={might=.3,area=.5,haste=.25,force=1,duration=.75,projectile=0,speed=0,luck=0}
  target({{5,0},{10,0},{15,0},{40,0}});fireWeapons(r,root,0);moveTotems(.01)

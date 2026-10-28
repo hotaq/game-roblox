@@ -905,11 +905,11 @@ Shared:WaitForChild("HordeFx").OnClientEvent:Connect(function(kind: string, ...)
 	elseif kind=="lightning" then
 		drawLightning(...)
 	elseif kind == "fire" then
-		local x, z, dx, dz, speed, range = ...
+		local x, z, dx, dz, speed, range, owner = ...
 		local p = pooled(ballPool, function()
 			return fxPart(Vector3.one * 1.3, Color3.fromRGB(255, 140, 50), Enum.PartType.Ball)
 		end)
-		table.insert(balls, { part = p, x = x, z = z, dx = dx, dz = dz, speed = speed, left = range })
+		table.insert(balls, { part = p, owner = owner, x = x, z = z, dx = dx, dz = dz, speed = speed, left = range })
 	elseif kind == "bone" then -- GAME-42: a skeleton's bone, tumbling end over end
 		local x, z, dx, dz, speed, range = ...
 		local p = pooled(bonePool, makeBone)
@@ -1268,6 +1268,11 @@ RunService.RenderStepped:Connect(function(dt)
 	end
 	for k = #balls, 1, -1 do
 		local b = balls[k]
+		if b.owner and (b.owner.Parent ~= Players or not b.owner:GetAttribute("RunStart")) then
+			b.left = 0
+		elseif b.owner and b.owner:GetAttribute("RunPausedAt") then
+			continue -- hold this owner's fireball visuals along with server collision/lifetime
+		end
 		local step = b.speed * dt
 		b.x += b.dx * step
 		b.z += b.dz * step

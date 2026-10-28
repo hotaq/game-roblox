@@ -156,6 +156,7 @@ Config.Run = {
 	XPFirst = 5, -- XP for level 2; each next level needs XPGrowth times more (+1)
 	XPGrowth = 1.22,
 	Rerolls = 2, -- per run
+	CardSeconds = 20, -- per offer, wall time; reroll does not extend it; timeout chooses the first card
 	WeaponSlots = 4,
 	PassiveSlots = 4,
 	Heal = 30, -- the fallback card once everything is maxed

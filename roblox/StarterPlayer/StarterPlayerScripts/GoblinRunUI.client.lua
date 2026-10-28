@@ -438,8 +438,8 @@ player.AttributeChanged:Connect(refreshHUD)
 local levelUp: Frame -- the level-up overlay, built below
 RunService.Heartbeat:Connect(function()
 	local start = player:GetAttribute("RunStart")
-	if start and not levelUp.Visible then -- the server stops the run clock while a card is being picked
-		timeLabel.Text = clock(Workspace:GetServerTimeNow() - start)
+	if start then
+		timeLabel.Text = clock((player:GetAttribute("RunPausedAt") or Workspace:GetServerTimeNow()) - start)
 	end
 	local char = player.Character
 	local hum = char and char:FindFirstChildOfClass("Humanoid")
@@ -570,6 +570,15 @@ local function showCards(cards, rerolls: number, level: number, offerId)
 end
 
 Shared:WaitForChild("RunLevelUp").OnClientEvent:Connect(showCards)
+Shared:WaitForChild("RunChoiceClosed").OnClientEvent:Connect(function(offerId)
+	if offerId == currentOfferId then levelUp.Visible = false end
+end)
+RunService.Heartbeat:Connect(function()
+	local deadline = player:GetAttribute("RunCardDeadline")
+	if levelUp.Visible and deadline then
+		levelSub.Text = string.format("SAFE | AUTO FIRST CARD IN %ds", math.max(0, math.ceil(deadline - Workspace:GetServerTimeNow())))
+	end
+end)
 takeButton.Activated:Connect(function()
 	if picked then
 		levelUp.Visible = false
