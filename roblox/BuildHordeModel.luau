@@ -6,11 +6,16 @@
 -- mirrors the KeyframeSequence pose tree: the MeshPart is named LowerTorso (the Root joint's Part1) and its Bone
 -- instances go UpperTorso > Head > Ear_L ... (rebuilt here from the mesh's bind pose; the importer's are replaced).
 -- Re-run after re-importing. Deletes workspace.GoblinHorde when done.
+-- Goblin v2 (export/GoblinV2Horde.fbx, same rig): import it as workspace.GoblinV2Horde instead; it wins when both
+-- are present and keeps the texture the importer uploaded with it.
 local AssetService = game:GetService("AssetService")
 local RIGID = { Root = true, HumanoidRootNode = true, LowerTorso = true } -- move with the MeshPart itself: no Bone
-local ATLAS = "rbxassetid://125017663072921" -- the 17-part goblin's ColorMap; the importer's own re-upload looks blurry
-
-local imported = workspace.GoblinHorde
+local imported = workspace:FindFirstChild("GoblinV2Horde") or workspace.GoblinHorde
+-- v1: the 17-part goblin's ColorMap, since the importer's own re-upload of the pixel atlas looks blurry
+local ATLAS = if imported.Name == "GoblinHorde" then "rbxassetid://125017663072921" else nil
+-- v2 is drawn at 0.7x (4.5 studs, under the player's height; owner: "too big"). The client reads the hip height from
+-- the pivot, so the model is lowered after scaling to keep the feet on y = 0.
+local SCALE = if ATLAS then 1 else 0.7
 local source = workspace.Goblin -- for the HumanoidRootPart and the Root joint's HumanoidRootPart side
 local mesh = imported:FindFirstChildOfClass("MeshPart"):Clone()
 mesh:ClearAllChildren()
@@ -33,7 +38,7 @@ hrp.Anchored, hrp.Transparency, hrp.CanCollide, hrp.CanTouch = true, 1, false, f
 hrp.Parent = model
 model.PrimaryPart = hrp
 mesh.Name = "LowerTorso"
-mesh.TextureID = ATLAS
+mesh.TextureID = ATLAS or mesh.TextureID
 mesh.Anchored = false
 mesh.CanCollide, mesh.CanQuery, mesh.CanTouch, mesh.CastShadow = false, false, false, false
 mesh.Parent = model
@@ -71,6 +76,11 @@ end
 local controller = Instance.new("AnimationController")
 Instance.new("Animator").Parent = controller
 controller.Parent = model
+
+if SCALE ~= 1 then
+	model:ScaleTo(SCALE) -- scales the bones and attachments too; the Animator scales clip translations to match
+	model:PivotTo(model:GetPivot() - Vector3.new(0, mesh.Position.Y - mesh.Size.Y / 2, 0))
+end
 
 local shared = game.ReplicatedStorage.Goblin
 local old = shared:FindFirstChild("HordeModel")

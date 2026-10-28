@@ -4,19 +4,26 @@
 # Writes export/GoblinHorde.fbx: same rig and export settings as export/Goblin.fbx, one mesh, one material (the eyes'
 # own material is dropped and their UVs point at a yellow atlas texel). Import it with Studio's 3D Importer, then run
 # roblox/BuildHordeModel.luau to turn it into ReplicatedStorage.Goblin.HordeModel. The .blend is not saved.
+# Goblin v2 (24_goblin_v2_model.py): GOBLIN_STYLE=v2 ... -b goblin/blender/goblin_v2.blend --python ...12_horde_mesh.py
+# writes export/GoblinV2Horde.fbx instead, keeps the eyes' own atlas texels and builds the export rig if 05 never ran.
 import importlib.util
 import os
 
 import bpy
 
 ROOT = os.environ.get("GOBLIN_ROOT", "/Users/chinnaphat/Desktop/cedt/roblox/goblin")
-EYE_TEXEL = (894, 366)  # atlas pixel (255, 201, 35), counted from the top-left like Roblox
+V2 = os.environ.get("GOBLIN_STYLE") == "v2"
+NAME = "GoblinV2Horde" if V2 else "GoblinHorde"
+EYE_TEXEL = None if V2 else (894, 366)  # v1 atlas pixel (255, 201, 35), counted from the top-left like Roblox
 
 spec = importlib.util.spec_from_file_location("export05", os.path.join(ROOT, "scripts", "05_export.py"))
 export05 = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(export05)
 
-rig = bpy.data.objects[export05.EXP]
+rig = bpy.data.objects.get(export05.EXP)
+if not rig:  # a fresh build that never ran 05 (no baked animations needed for the model file)
+    rig = export05.make_export_rig(bpy.data.objects[export05.SRC])
+    export05.retarget_meshes(rig)
 for c in [c for pb in rig.pose.bones for c in pb.constraints]:
     c.mute = True  # rest pose, as 05_export does for the model file
 rig.animation_data_create()
@@ -25,13 +32,13 @@ for pb in rig.pose.bones:
     pb.location, pb.rotation_quaternion = (0, 0, 0), (1, 0, 0, 0)
 
 body = bpy.data.materials["M_Goblin_Voxel"]
-eye_uv = ((EYE_TEXEL[0] + 0.5) / 1024, 1 - (EYE_TEXEL[1] + 0.5) / 1024)  # Blender's V runs bottom-up
+eye_uv = EYE_TEXEL and ((EYE_TEXEL[0] + 0.5) / 1024, 1 - (EYE_TEXEL[1] + 0.5) / 1024)  # Blender's V runs bottom-up
 parts = []
 for ob in export05.meshes():
     dup = ob.copy()
     dup.data = ob.data.copy()
     bpy.context.scene.collection.objects.link(dup)
-    if ob.name.startswith("Eyes"):
+    if eye_uv and ob.name.startswith("Eyes"):
         for loop_uv in dup.data.uv_layers.active.data:
             loop_uv.uv = eye_uv
     dup.data.materials.clear()
@@ -46,9 +53,9 @@ for o in parts:
 bpy.context.view_layer.objects.active = parts[0]
 bpy.ops.object.join()  # vertex groups merge by name, so every part keeps its skin weights
 horde = bpy.context.view_layer.objects.active
-horde.name = horde.data.name = "GoblinHorde"
+horde.name = horde.data.name = NAME
 
 os.makedirs(os.path.join(ROOT, "export"), exist_ok=True)
-out = os.path.join(ROOT, "export", "GoblinHorde.fbx")
+out = os.path.join(ROOT, "export", NAME + ".fbx")
 export05.fbx(out, [rig, horde], False)
 print("HORDE MESH", out, "verts", len(horde.data.vertices), "groups", len(horde.vertex_groups))

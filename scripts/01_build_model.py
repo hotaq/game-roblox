@@ -13,6 +13,8 @@ ROOT = os.environ.get("GOBLIN_ROOT", "/Users/chinnaphat/Desktop/cedt/roblox/gobl
 TEX = os.path.join(ROOT, "textures", "goblin_atlas.png")
 V = 0.0225
 ATLAS_W = 1024
+WEAPON_GRID = ((-9, -14, -1), (34, 8, 1))  # grip-space (u, w, t) bounds of paint_sword
+PATTERN = None  # optional surface overlay: PATTERN(quad, upscaled texel patch, S) -> patch
 SATURATION, BRIGHTNESS = 1.05, 1.0  # global vividness on top of the palette
 # pixel-art shading baked per texel (multipliers): lit top rim, dark outline on the other edges, AO in corners
 SHADE = {"rim": 1.2, "bottom": 0.42, "side": 0.58, "top_edge": 0.72, "under_edge": 0.45, "concave": 0.62,
@@ -453,6 +455,8 @@ def build_atlas(all_quads):
     for q, (px, py) in zip(all_quads, pos):
         patch = q[8]  # rows = v (b), cols = u (c)
         up = np.repeat(np.repeat(patch, S, 0), S, 1)
+        if PATTERN:
+            up = PATTERN(q, up, S)
         up = np.pad(up, ((g, g), (g, g), (0, 0)), mode="edge")
         img[py:py + up.shape[0], px:px + up.shape[1], :3] = up
     im = bpy.data.images.get("goblin_atlas")
@@ -530,7 +534,7 @@ def main():
 
     G = Grid((-30, -17, 0), (30, 12, 88))
     paint_body(G)
-    SG = Grid((-9, -14, -1), (34, 8, 1))
+    SG = Grid(*WEAPON_GRID)
     paint_sword(SG)
 
     jobs = []  # (mesh name, quads, grid lo, xform)
