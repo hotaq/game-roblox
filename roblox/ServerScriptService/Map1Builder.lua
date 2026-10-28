@@ -2,7 +2,7 @@
 -- (GAME-43, replaced the 300 x 300 "Forest ruins") into Workspace.Map1. The layout itself (kinds, heights, hazards)
 -- lives in ReplicatedStorage.Goblin.MapLayout, shared with the horde scripts, so the ground built here is exactly what
 -- goblins walk on. Trees and ruins come from the ServerStorage.Map1Kit templates (scripts/14_voxel_trees.py,
--- 15_maya_ruins.py); the Meshy props from Map1Kit when present: Prop_Totem (asset 80849974035661, 20 studs tall,
+-- 15_maya_ruins.py); the Meshy props from Map1Kit when present: Prop_Totem (asset 88033274288355: plastic per-colour MeshParts via 26_plasticify_glb.py, 20 studs tall,
 -- pivot at its bottom centre), Prop_TempleGate (asset 137670247217292, 34 wide, opening along Z, ~10-stud walkable
 -- gap), Prop_SkullShrine (asset 113206205477662: 8 plastic MeshParts, one per colour, from
 -- scripts/26_plasticify_glb.py, plus 2 neon jade eyes; 40 wide, on the E hill), Prop_Pyramid (Meshy temple ruin
