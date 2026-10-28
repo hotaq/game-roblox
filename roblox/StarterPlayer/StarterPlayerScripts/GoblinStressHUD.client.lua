@@ -31,10 +31,10 @@ if ReplicatedStorage.Goblin:GetAttribute("GAME11Active") then
 						if score>best then best,index=score,i end end
 				end
 				shared.RunPick:FireServer(index,args.offerId or offerId);return true
-			elseif command=="reroll"then shared.RunReroll:FireServer(offerId);return true end
+			elseif command=="reroll"then shared.RunReroll:FireServer(args.offerId or offerId);return {sent=offerId,attribute=player:GetAttribute("RunOfferId")} end
 			local safe=false
 			for _,d in player.PlayerGui:GetDescendants()do if d:IsA("TextLabel")and d.Text:find("AUTO FIRST CARD",1,true)then safe=true end end
-			return {paused=player:GetAttribute("RunPausedAt")~=nil,safeText=safe,errors=errors}
+			return {paused=player:GetAttribute("RunPausedAt")~=nil,safeText=safe,offerId=offerId,attributeOfferId=player:GetAttribute("RunOfferId"),errors=errors}
 		end
 		bridge:InvokeServer()
 	end)
