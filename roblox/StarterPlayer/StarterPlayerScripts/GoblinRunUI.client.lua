@@ -157,15 +157,17 @@ local function bouncy(b: GuiButton, hover: number?)
 	end)
 end
 -- A kit button: glossy colour pill, thick ink outline, white outlined label (change it through b.Label.Text).
+-- Returns the holder (put that in layouts, toggle its Visible) and the button: UIScale scales around the AnchorPoint
+-- and a scaled child reflows a UIListLayout, so the button sits centred in a fixed-size holder and grows in place.
 local function button(label: string, color: Color3, width: number)
-	local b = new("TextButton", { Size = UDim2.fromOffset(width, 50), BackgroundColor3 = color, AutoButtonColor = true, Text = "" }, {
+	local b = new("TextButton", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromScale(1, 1), BackgroundColor3 = color, AutoButtonColor = true, Text = "" }, {
 		corner(14),
 		stroke(3, KIT_INK),
 		gloss(),
 		kitText({ Name = "Label", Size = UDim2.fromScale(1, 1), Text = label, TextSize = 22 }),
 	})
 	bouncy(b)
-	return b
+	return new("Frame", { Size = UDim2.fromOffset(width, 50), BackgroundTransparency = 1 }, { b }), b
 end
 local function info(kind: string, id: string?)
 	if kind == "weapon" then
@@ -366,6 +368,7 @@ local timeLabel = kitText({ AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.
 local xpTrack, xpFill, xpLabel = kitBar(340, 24, KIT_CYAN)
 xpTrack.Position = UDim2.fromOffset(24, 9)
 local levelBadge = badge(42, KIT_YELLOW)
+levelBadge.AnchorPoint, levelBadge.Position = Vector2.new(0.5, 0.5), UDim2.fromOffset(21, 21) -- pulses from its centre
 local levelLabel = kitText({ Size = UDim2.fromScale(1, 1), Text = "1", TextSize = 22 })
 levelLabel.Parent = levelBadge
 local bottomBar = new("Frame", { AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -10), Size = UDim2.fromOffset(364, 42), BackgroundTransparency = 1 }, { xpTrack, levelBadge })
@@ -452,19 +455,19 @@ end)
 
 local KIT_CARD = { KIT_CYAN, KIT_BLUE, KIT_PURPLE } -- card colour per rarity (common, rare, epic); evolve cards are orange
 local levelSub = kitText({ Size = UDim2.fromOffset(500, 22), Text = "PICK ONE", TextSize = 20, TextColor3 = KIT_INK, LayoutOrder = 1 }, 0)
-local cardRow = new("Frame", { Size = UDim2.fromOffset(3 * 196 + 2 * 14, 252), BackgroundTransparency = 1, LayoutOrder = 2 }, {
+local cardRow = new("Frame", { Size = UDim2.fromOffset(3 * 196 + 2 * 14, 264), BackgroundTransparency = 1, LayoutOrder = 2 }, {
 	new("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, HorizontalAlignment = Enum.HorizontalAlignment.Center, VerticalAlignment = Enum.VerticalAlignment.Bottom, Padding = UDim.new(0, 14) }),
 })
-local rerollButton = button("REROLL (2)", KIT_CYAN, 180)
-local takeButton = button("TAP A CARD", KIT_IDLE, 180)
+local rerollHolder, rerollButton = button("REROLL (2)", KIT_CYAN, 180)
+local takeHolder, takeButton = button("TAP A CARD", KIT_IDLE, 180)
 levelUp = new("Frame", { Size = UDim2.fromScale(1, 1), BackgroundColor3 = SHADE, BackgroundTransparency = 0.35, Visible = false, ZIndex = 5 }, {
 	panel("LEVEL UP!", 3 * 196 + 2 * 14 + 40, {
 		levelSub,
 		cardRow,
 		new("Frame", { Size = UDim2.fromOffset(380, 50), BackgroundTransparency = 1, LayoutOrder = 9 }, {
 			list(Enum.FillDirection.Horizontal, 14, Enum.HorizontalAlignment.Center),
-			rerollButton,
-			takeButton,
+			rerollHolder,
+			takeHolder,
 		}),
 	}),
 })
@@ -497,7 +500,7 @@ local function selectCard(k: number?)
 	for i, b in cardButtons do
 		b.stroke.Color = if i == k then KIT_YELLOW else KIT_INK
 		b.stroke.Thickness = if i == k then 6 else 3
-		b.button.Position = UDim2.fromOffset(0, if i == k then 0 else 8) -- lifted when picked
+		b.button.Position = UDim2.new(0.5, 0, 1, if i == k then -8 else 0) -- lifted when picked
 	end
 	takeButton.Label.Text = if k then "TAKE IT!" else "TAP A CARD"
 	takeButton.BackgroundColor3 = if k then KIT_GREEN else KIT_IDLE
@@ -522,7 +525,7 @@ local function showCards(cards, rerolls: number, level: number, offerId)
 		setArt(art(iconTile, { glyph }, iconTile), if c.kind == "heal" then "heart" elseif c.kind == "evolve" then "evo_"..c.id else c.id)
 		-- glossy tile in the rarity's colour: rarity top-left, NEW! pill top-right, icon on a white plate, name,
 		-- yellow level pill, description on a white box
-		local b = new("TextButton", { Size = UDim2.fromOffset(196, 236), Position = UDim2.fromOffset(0, 8), BackgroundColor3 = if c.kind == "evolve" then KIT_ORANGE else (KIT_CARD[c.rarity] or KIT_CYAN), Text = "", AutoButtonColor = false }, {
+		local b = new("TextButton", { AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.fromScale(0.5, 1), Size = UDim2.fromOffset(196, 236), BackgroundColor3 = if c.kind == "evolve" then KIT_ORANGE else (KIT_CARD[c.rarity] or KIT_CYAN), Text = "", AutoButtonColor = false }, {
 			corner(16),
 			s,
 			gloss(),
@@ -548,7 +551,9 @@ local function showCards(cards, rerolls: number, level: number, offerId)
 		end
 		local holder = new("Frame", { Size = UDim2.fromOffset(196, 244), BackgroundTransparency = 1 }, { b })
 		holder.Parent = cardRow
-		popIn(holder, 0.08 + 0.07 * k, 0) -- the cards pop in one after another
+		-- anchored bottom-centre, so the pop and the hover grow upward (never into the buttons) and the fixed-size
+		-- holder keeps the row from reflowing
+		popIn(b, 0.08 + 0.07 * k, 0) -- the cards pop in one after another
 		bouncy(b, 1.04)
 		b.Activated:Connect(function()
 			selectCard(k)
@@ -557,7 +562,7 @@ local function showCards(cards, rerolls: number, level: number, offerId)
 	end
 	levelSub.Text = string.format("LV %d  -  PICK ONE", level)
 	rerollButton.Label.Text = string.format("REROLL (%d)", rerolls)
-	rerollButton.Visible = rerolls > 0
+	rerollHolder.Visible = rerolls > 0
 	selectCard(nil)
 	if not levelUp.Visible then -- a reroll only re-deals the cards
 		showOverlay(levelUp, levelPanel)
@@ -577,16 +582,20 @@ end)
 
 ---------------------------------------------------------------- results
 
--- A stat: small label over a big number on a glossy colour tile.
+-- A stat: small label over a big number on a glossy colour tile, centred in a fixed-size holder so its pop-in
+-- doesn't reflow the row.
+local statTiles = {}
 local function stat(label: string, order: number, color: Color3)
 	local value = kitText({ Position = UDim2.fromOffset(0, 26), Size = UDim2.new(1, 0, 0, 36), Text = "", TextSize = 32 }, 3)
-	return new("Frame", { Size = UDim2.fromOffset(176, 70), BackgroundColor3 = color, LayoutOrder = order }, {
+	local tile = new("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromScale(1, 1), BackgroundColor3 = color }, {
 		corner(14),
 		stroke(3, KIT_INK),
 		gloss(),
 		kitText({ Position = UDim2.fromOffset(0, 6), Size = UDim2.new(1, 0, 0, 20), Text = label, TextSize = 15 }),
 		value,
-	}), value
+	})
+	table.insert(statTiles, tile)
+	return new("Frame", { Size = UDim2.fromOffset(176, 70), BackgroundTransparency = 1, LayoutOrder = order }, { tile }), value
 end
 local timeStat, timeValue = stat("SURVIVED", 1, KIT_CYAN)
 local killStat, killValue = stat("GOBLINS BONKED", 2, KIT_PURPLE)
@@ -594,8 +603,8 @@ local levelStat, levelValue = stat("LEVEL", 3, KIT_ORANGE)
 local damageList = new("Frame", { Size = UDim2.fromOffset(560, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, LayoutOrder = 3 }, {
 	new("UIListLayout", { Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder }),
 })
-local lobbyButton = button("LOBBY", KIT_CYAN, 150)
-local againButton = button("PLAY AGAIN", KIT_GREEN, 200)
+local lobbyHolder, lobbyButton = button("LOBBY", KIT_CYAN, 150)
+local againHolder, againButton = button("PLAY AGAIN", KIT_GREEN, 200)
 local results = new("Frame", { Size = UDim2.fromScale(1, 1), BackgroundColor3 = SHADE, BackgroundTransparency = 0.35, Visible = false, ZIndex = 6 }, {
 	panel("GREAT RUN!", 600, {
 		new("Frame", { Size = UDim2.new(1, 0, 0, 70), BackgroundTransparency = 1, LayoutOrder = 2 }, {
@@ -607,8 +616,8 @@ local results = new("Frame", { Size = UDim2.fromScale(1, 1), BackgroundColor3 = 
 		damageList,
 		new("Frame", { Size = UDim2.new(1, 0, 0, 50), BackgroundTransparency = 1, LayoutOrder = 9 }, {
 			list(Enum.FillDirection.Horizontal, 14, Enum.HorizontalAlignment.Center),
-			lobbyButton,
-			againButton,
+			lobbyHolder,
+			againHolder,
 		}),
 	}),
 })
@@ -645,7 +654,7 @@ Shared:WaitForChild("RunOver").OnClientEvent:Connect(function(r)
 		})
 	end
 	showOverlay(results, resultsPanel)
-	for k, tile in { timeStat, killStat, levelStat } do
+	for k, tile in statTiles do
 		popIn(tile, 0.1 + 0.07 * k, 0)
 	end
 end)
