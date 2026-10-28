@@ -6,6 +6,8 @@
 # Settings follow create.roblox.com/docs/art/modeling/export-requirements (checked 2026-10-24):
 # Path Mode Copy + Embed Textures, Apply Scalings = FBX Unit Scale, Add Leaf Bones off, Bake Animation
 # only for animation files.
+# Goblin v2 (24_goblin_v2_model.py, same rig and clips): GOBLIN_STYLE=v2 writes export/GoblinV2.fbx and stops there,
+# since v2 plays the Goblin_* animations already published from v1.
 import bpy, os
 
 ROOT = os.environ.get("GOBLIN_ROOT", "/Users/chinnaphat/Desktop/cedt/roblox/goblin")
@@ -13,6 +15,7 @@ SRC, EXP = "Goblin_Rig", "Goblin_ExportRig"
 # Studio's importer read 1 FBX metre as 1 stud (tested 2026-10-25), so write the file in studs: 1 stud = 0.28 m.
 # Model and animation translations then both arrive at the right size with the importer's defaults.
 STUDS_PER_METRE = 1 / 0.28
+V2 = os.environ.get("GOBLIN_STYLE") == "v2"
 
 
 def fbx(path, objs, anim):
@@ -114,7 +117,10 @@ def run():
         c.mute = True
     for pb in rig.pose.bones:
         pb.location, pb.rotation_quaternion = (0, 0, 0), (1, 0, 0, 0)
-    fbx(os.path.join(ROOT, "export", "Goblin.fbx"), [rig] + meshes(), False)
+    fbx(os.path.join(ROOT, "export", "GoblinV2.fbx" if V2 else "Goblin.fbx"), [rig] + meshes(), False)
+    if V2:
+        print("exported model (v2: no animations)")
+        return
 
     # animations: one file each, armature only
     for c in [c for pb in rig.pose.bones for c in pb.constraints]:

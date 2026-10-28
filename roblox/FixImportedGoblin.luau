@@ -4,6 +4,10 @@
 --     so ears/cloth/sword skin around the wrong pivot. Humanoid rebuilds bones from OriginalPosition at runtime,
 --     so that value is shifted too (it's stored in the part frame for nested bones as well).
 --  2. The Sword and Eyes MeshParts import with no joint and fall off in Play: weld them.
+-- 2026-10-28, goblin v2 (export/GoblinV2.fbx, same rig): the importer had changed. Only Weapon still landed low;
+-- Ear_*/Cloth_* came in right (so step 1 pushed them 3.17 up), and the unweighted VFX_* bones were dropped. After this
+-- script, each v2 bone was set to v1's position relative to the model pivot (VFX bones copied from v1; VFX_Eyes moved
+-- (0, 3.5, -3.5) voxels onto v2's eyes), and OriginalPosition was recomputed. v1 is kept in ServerStorage.Goblin_v1.
 local OFFSET = Vector3.new(0, 3.1696, 0) -- = HumanoidRootPart centre height at import; re-measure if the rig changes
 local m = workspace.Goblin
 for _, b in m:GetDescendants() do
