@@ -269,10 +269,12 @@ do
 			local hit=Workspace:Blockcast(cf,d.size,delta+d.dir*D.Skin,d.ray)
 			local nextPos=d.root.Position+delta
 			if hit or not inside(nextPos,d.center,d.half) then return false end
-			local support=floorAt(nextPos,d)
-			if not support or support.Normal.Y<0.65 then return false end
-			local change=support.Position.Y-d.floorY
-			if change < -D.MaxDrop or change > D.MaxRise then return false end
+			if not d.air then -- a ground dash stops at a ledge; an air dash flies level over it
+				local support=floorAt(nextPos,d)
+				if not support or support.Normal.Y<0.65 then return false end
+				local change=support.Position.Y-d.floorY
+				if change < -D.MaxDrop or change > D.MaxRise then return false end
+			end
 			d.root.CFrame=CFrame.lookAt(nextPos,nextPos+d.face) -- keeps facing: side and back dashes stay sideways/backward
 			d.position=nextPos
 		end
@@ -311,8 +313,10 @@ do
 		ray.CollisionGroup=root.CollisionGroup
 		local footGap=run.hum.HipHeight+root.Size.Y/2
 		if run.hum.RigType==Enum.HumanoidRigType.R6 then footGap+=2 end
+		-- In the air (or just jumped), it's an air dash: once per jump, refreshed on landing (Dash.step)
 		local floor=Workspace:Raycast(root.Position,Vector3.new(0,-footGap-0.35,0),ray)
-		if not floor or floor.Normal.Y<0.65 or math.abs(root.AssemblyLinearVelocity.Y)>3 then return false end
+		local air=not floor or floor.Normal.Y<0.65 or math.abs(root.AssemblyLinearVelocity.Y)>3
+		if air and run.airDash then return false end
 		local size=Vector3.new(math.max(2.4,root.Size.X+0.4),math.max(2,footGap*2-0.6),math.max(2.4,root.Size.Z+0.4))
 		local overlap=OverlapParams.new();overlap.FilterDescendantsInstances=excluded;overlap.RespectCanCollide=true
 		overlap.CollisionGroup=root.CollisionGroup;overlap.MaxParts=1
@@ -329,8 +333,10 @@ do
 		end
 		if Workspace:Blockcast(cf,size,direction.Unit*1.1,ray) then return false end
 		serial+=1
-		local d={root=root,dir=direction.Unit,face=face,ray=ray,size=size,center=center,half=half,
-			area=if run.practice then nil else Workspace:GetAttribute("Arena"),footGap=footGap,floorY=floor.Position.Y,
+		if air then run.airDash={root=root,ray=ray,footGap=footGap} end
+		local d={root=root,dir=direction.Unit,face=face,ray=ray,size=size,center=center,half=half,air=air,
+			area=if run.practice then nil else Workspace:GetAttribute("Arena"),footGap=footGap,
+			floorY=if floor then floor.Position.Y else root.Position.Y,
 			position=root.Position,elapsed=0,started=now,id=serial,rotate=run.hum.AutoRotate}
 		run.dash=d;run.dashReadyAt=now+(if run.practice then 0 else D.Cooldown)
 		root.Anchored=true;root.AssemblyLinearVelocity=Vector3.zero;run.hum.AutoRotate=false
@@ -366,6 +372,11 @@ do
 		if now>=nextScan then scanPractice(now) end
 		for _,set in {runs,practice} do
 			for _,run in set do
+				local a=run.airDash -- landed since the air dash? it's back
+				if a and not run.dash and (not a.root.Parent
+					or Workspace:Raycast(a.root.Position,Vector3.new(0,-a.footGap-0.6,0),a.ray)) then
+					run.airDash=nil
+				end
 				local d=run.dash
 				if not d then continue end
 				if not valid(run) or not d.root.Parent or not d.root.Anchored

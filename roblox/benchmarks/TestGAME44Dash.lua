@@ -70,7 +70,12 @@ local ok,err=xpcall(function()
  advance(.3);check(root.Position.X<base.X+60 and not r.dash,"ledge guard stops before unsupported centre")
  reset(p,r,root,50);arenaHalf=55;check(Dash.request(p,Vector3.xAxis),"boundary approach starts inside arena")
  advance(.3);check(root.Position.X<base.X+53.5 and not r.dash,"arena boundary stops body before leaving");arenaHalf=100
- reset(p,r,root);root.Position+=Vector3.new(0,8,0);check(not Dash.request(p,Vector3.xAxis),"air dash rejected")
+ reset(p,r,root);root.Position+=Vector3.new(0,8,0);local airY=root.Position.Y
+ check(Dash.request(p,Vector3.xAxis),"air dash starts");advance(.24)
+ check(math.abs(root.Position.Y-airY)<.01 and math.abs(root.Position.X-base.X-16)<.025,"air dash flies 16 level")
+ clock+=5;check(not Dash.request(p,Vector3.xAxis),"one air dash per jump")
+ root.Position=base+Vector3.new(0,3,0);advance(.02);clock+=5;root.Position+=Vector3.new(0,8,0)
+ check(Dash.request(p,-Vector3.xAxis),"landing refreshes the air dash");advance(.24)
  reset(p,r,root);root.Anchored=true;check(not Dash.request(p,Vector3.xAxis),"foreign anchored root rejected")
  reset(p,r,root);r.hum.Sit=true;check(not Dash.request(p,Vector3.xAxis),"seated dash rejected");r.hum.Sit=false
  reset(p,r,root);r.cards={};check(not Dash.request(p,Vector3.xAxis),"card chooser cannot dash")
