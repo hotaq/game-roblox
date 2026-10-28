@@ -17,7 +17,15 @@ local RUN_SPEED = 16 -- SwordRun is paced for this WalkSpeed
 local HOLD_TIME = 5 -- seconds standing still with the sword trailing (SwordHold) before planting it
 
 local swords = ReplicatedStorage:WaitForChild("Swords")
+-- The new default set: the owner's Meshy shadow blades (scripts/22_sword_brick.py prepares each GLB), one Sword_PhaseN
+-- per phase as they arrive. Phases it doesn't have yet come from Swords, the old black/red set that stays as a skin.
+local SET = "SwordsShadow"
 local me = Players.LocalPlayer
+
+local function swordModel(name: string): Model
+	local set = ReplicatedStorage:FindFirstChild(SET)
+	return set and set:FindFirstChild(name) or swords[name]
+end
 
 local function swordLevel(player: Player): number?
 	return tonumber(string.match(player:GetAttribute("RunLoadout") or "", "sword=(%d+)"))
@@ -41,7 +49,7 @@ local function hold(player: Player)
 	if not name then
 		return
 	end
-	held = swords[name]:Clone()
+	held = swordModel(name):Clone()
 	held.Name = "HeldSword"
 	held:SetAttribute("Model", name)
 	local weld = Instance.new("Weld")
