@@ -20,47 +20,30 @@ local BOTTOM = -6 -- every ground column reaches down to here
 local function rgb(r, g, b)
 	return Color3.fromRGB(r, g, b)
 end
+-- Flat colours: the fallback for the textures below, and the look of water, bridges and thorns.
 local SHADES = {
-	Grass = { rgb(98, 176, 70), rgb(90, 166, 64), rgb(106, 184, 76) },
-	Jungle = { rgb(62, 128, 56), rgb(56, 118, 52), rgb(68, 136, 60) },
-	Path = { rgb(150, 112, 72), rgb(140, 104, 66), rgb(158, 118, 78) },
-	Plaza = { rgb(176, 168, 148), rgb(160, 152, 134) },
-	Pyramid = { rgb(150, 154, 140), rgb(136, 142, 128) },
-	Stairs = { rgb(176, 170, 152) },
-	Shore = { rgb(214, 196, 150), rgb(204, 186, 140) },
-	Water = { rgb(72, 120, 110) }, -- the river bed, under a see-through water surface
-	Cenote = { rgb(40, 80, 92) },
-	Bridge = { rgb(140, 92, 54), rgb(128, 84, 48) },
-	Thorns = { rgb(92, 58, 72), rgb(84, 52, 66) },
-	Mud = { rgb(96, 70, 46), rgb(88, 64, 42) },
-	Graveyard = { rgb(96, 120, 84), rgb(88, 110, 78) },
-	Spawn = { rgb(176, 168, 148), rgb(166, 158, 140) },
-	Ruin = { rgb(150, 154, 140), rgb(136, 142, 128), rgb(124, 132, 116) },
+	Grass = rgb(98, 176, 70), Jungle = rgb(62, 128, 56), Path = rgb(150, 112, 72), Plaza = rgb(176, 168, 148),
+	Pyramid = rgb(150, 154, 140), Stairs = rgb(176, 170, 152), Shore = rgb(214, 196, 150),
+	Water = rgb(72, 120, 110), -- the river bed, under a see-through water surface
+	Cenote = rgb(40, 80, 92), Bridge = rgb(140, 92, 54), Thorns = rgb(92, 58, 72), Mud = rgb(96, 70, 46),
+	Graveyard = rgb(96, 120, 84), Spawn = rgb(176, 168, 148), Ruin = rgb(150, 154, 140),
+	Mountain = rgb(132, 132, 116), -- rock, capped with a 1-stud layer of grass or moss where it isn't bare
 }
--- Mountain columns: a mosaic of rock, capped with a 1-stud layer of grass or moss where it isn't bare (cliffs, summits).
-local ROCK = { rgb(132, 132, 116), rgb(120, 122, 108), rgb(144, 144, 128), rgb(110, 112, 100), rgb(126, 120, 104) }
-local TOPS = {
-	grass = { rgb(70, 140, 60), rgb(62, 128, 56), rgb(80, 150, 66) },
-	moss = { rgb(108, 138, 84), rgb(96, 126, 76), rgb(118, 146, 92) },
-}
+local TOPS = { grass = rgb(70, 140, 60), moss = rgb(108, 138, 84) }
 -- Map1's own MaterialVariants (Studio's material generator, MaterialService.AssistantMaterials), in the overgrown look
--- of the Meshy props. Each kind mixes the generated options that fit, one per 3-tile patch, so the ground doesn't
--- repeat. A textured part's Color tints its texture, so it becomes a grey brightness (x dim); without the variant the
--- flat colour above stays. Water, bridges and thorns stay flat.
-local GRASS = { "Map1_Grass", "Map1_Grass1", "Map1_Grass2", "Map1_Grass3" } -- the first has yellow flowers
-local LEAVES = { "Map1_JungleFloor", "Map1_JungleFloor1", "Map1_JungleFloor2", "Map1_JungleFloor3" }
-local TEMPLE = { "Map1_TempleStone", "Map1_TempleStone2" }
-local PLAZA = { "Map1_Plaza1", "Map1_Plaza3" }
-local DIRT = { "Map1_DirtPath1", "Map1_DirtPath3" }
+-- of the Meshy props: { variant, tint }. The tint greys the texture (it multiplies). One texture per kind, so merged
+-- ground reads as one continuous surface.
 local TEX = {
-	Mountain = { "Map1_MountainRock", "Map1_MountainRock1", "Map1_MountainRock2" }, Ruin = TEMPLE, Pyramid = TEMPLE,
-	Stairs = TEMPLE, Plaza = PLAZA, Spawn = PLAZA, Shore = { "Map1_Sand1", "Map1_Sand2" }, Grass = GRASS, Jungle = LEAVES,
-	Graveyard = { dim = 0.8, table.unpack(LEAVES) }, Path = DIRT, Mud = { dim = 0.7, table.unpack(DIRT) },
+	Mountain = { "Map1_MountainRock1", 1 }, Ruin = { "Map1_TempleStone2", 1 }, Pyramid = { "Map1_TempleStone2", 1 },
+	Stairs = { "Map1_TempleStone2", 1 }, Plaza = { "Map1_Plaza1", 1 }, Spawn = { "Map1_Plaza1", 1 },
+	Shore = { "Map1_Sand1", 1 }, Grass = { "Map1_Grass1", 1 }, Jungle = { "Map1_JungleFloor2", 1 },
+	Graveyard = { "Map1_JungleFloor2", 0.8 }, Path = { "Map1_DirtPath3", 1 }, Mud = { "Map1_DirtPath3", 0.7 },
+	grass = { "Map1_Grass1", 1 }, moss = { "Map1_JungleFloor2", 0.9 }, -- mountain caps
 }
-local function textured(p: BasePart, options: { string }, pick: number, k: number)
-	local v = game:GetService("MaterialService"):FindFirstChild(options[math.floor(pick * #options) + 1], true) :: MaterialVariant?
+local function textured(p: BasePart, t: { any }?)
+	local v = t and game:GetService("MaterialService"):FindFirstChild(t[1], true) :: MaterialVariant?
 	if v then
-		p.Material, p.MaterialVariant, p.Color = v.BaseMaterial, v.Name, Color3.new(k, k, k)
+		p.Material, p.MaterialVariant, p.Color = v.BaseMaterial, v.Name, Color3.new(t[2], t[2], t[2])
 	end
 end
 local WATER = { Water = { color = rgb(70, 170, 214), top = -0.5 }, Cenote = { color = rgb(52, 150, 200), top = -0.6 } }
@@ -129,7 +112,8 @@ end
 
 local STAGES = {}
 
--- One part per run of tiles along Z with the same kind, height and shade (a 3-tile shade grid keeps runs long).
+-- Equal neighbouring tiles (kind, height, cap) merge into rectangles, greedily, one part each. A texture starts at its
+-- part's corner, so big parts are what keep it running on without a seam at every 6-stud tile.
 function STAGES.ground(map: Model, o: CFrame)
 	-- Old terrain under the map area (it covered the west river and pools); only the map's own box is cleared.
 	workspace.Terrain:FillBlock(o * CFrame.new(0, 25, 0), Vector3.new(2 * HALF + 8, 70, 2 * HALF + 8), Enum.Material.Air)
@@ -148,66 +132,65 @@ function STAGES.ground(map: Model, o: CFrame)
 	local water = Instance.new("Folder")
 	water.Name = "WaterSurface"
 	local n = 2 * HALF // TILE
+	local kinds, hs, tops, keys = {}, {}, {}, {}
 	for ix = 0, n - 1 do
-		local row = Instance.new("Folder") -- parent one row at a time so Studio never freezes
-		local x = -HALF + TILE * (ix + 0.5)
-		local start, key = 0, nil
-		local function flush(iz1: number)
-			if not key then
-				return
-			end
-			local kind, h, shade, top = key.kind, key.h, key.shade, key.top
-			local z0, z1 = -HALF + TILE * start, -HALF + TILE * iz1
-			local b = if top then h - 1 else h -- the column stops under its cap
-			-- Textures start at a part's corner, so equal tiles repeat the same crop: turn each column a random quarter
-			-- (a half for long runs, which aren't square) so the grid breaks up. The footprint stays the same.
-			local turns = if z1 - z0 == TILE then 4 else 2
-			local spin = CFrame.Angles(0, math.floor(hash(ix * 7 + 3, start * 13 + 5) * turns) * 2 * math.pi / turns, 0)
-			local p = part(row, Vector3.new(TILE, b - BOTTOM, z1 - z0), o * CFrame.new(x, (b + BOTTOM) / 2, (z0 + z1) / 2) * spin, shade)
-			p.TopSurface, p.Name = Enum.SurfaceType.Studs, kind
-			local t = TEX[kind]
-			local patch = hash(ix // 3 + 101, start // 3 + 37)
-			if t then
-				textured(p, t, patch, key.k * (t.dim or 1))
-			end
-			if top then
-				local cap = part(row, Vector3.new(TILE, 1, z1 - z0), o * CFrame.new(x, h - 0.5, (z0 + z1) / 2) * spin, top,
-					{ TopSurface = Enum.SurfaceType.Studs, Name = kind })
-				textured(cap, if key.moss then LEAVES else GRASS, patch, 0.95) -- moss: the jungle floor
-			end
-			local w = WATER[kind]
-			if w then -- see-through water over the bed, wading deep
-				part(row, Vector3.new(TILE, 0.4, z1 - z0), o * CFrame.new(x, w.top - 0.2, (z0 + z1) / 2), w.color, {
-					Material = Enum.Material.Glass, Transparency = 0.35, Reflectance = 0.1, CanCollide = false,
-					CanQuery = false, CastShadow = false, Name = "Water",
-				}).Parent = water
-			end
-		end
 		for iz = 0, n - 1 do
-			local z = -HALF + TILE * (iz + 0.5)
+			local x, z, i = -HALF + TILE * (ix + 0.5), -HALF + TILE * (iz + 0.5), ix * n + iz + 1
 			local kind, h = L.at(x, z)
-			local shade, top, k, s -- k: the texture brightness that goes with the shade
-			if kind == "Mountain" then
-				local r = math.floor(hash(ix, iz) * #ROCK) + 1
-				shade, k = ROCK[r], 0.78 + 0.05 * (r - 1)
-				s = surface(x, z, h)
-				top = s and TOPS[s][math.floor(hash(ix // 2, iz // 2) * #TOPS[s]) + 1]
-			else
-				local shades = SHADES[kind] or SHADES.Grass
-				local pick = math.floor(hash(ix // 3, iz // 3) * #shades) + 1
-				shade, k = shades[pick], 0.88 + 0.06 * (pick - 1)
-			end
-			if not key or key.kind ~= kind or key.h ~= h or key.shade ~= shade or key.top ~= top then
-				flush(iz)
-				start, key = iz, { kind = kind, h = h, shade = shade, top = top, k = k, moss = s == "moss" }
+			local top = if kind == "Mountain" then surface(x, z, h) else nil -- "grass" / "moss" / nil = bare rock
+			kinds[i], hs[i], tops[i], keys[i] = kind, h, top, kind .. h .. tostring(top)
+		end
+	end
+	local used = {}
+	for ix = 0, n - 1 do
+		for iz = 0, n - 1 do
+			local i = ix * n + iz + 1
+			if not used[i] then
+				local w, d = 1, 1 -- tiles along z, then along x
+				while iz + w < n and not used[i + w] and keys[i + w] == keys[i] do
+					w += 1
+				end
+				while ix + d < n do
+					local j = (ix + d) * n + iz + 1
+					local fits = true
+					for k = 0, w - 1 do
+						if used[j + k] or keys[j + k] ~= keys[i] then
+							fits = false
+							break
+						end
+					end
+					if not fits then
+						break
+					end
+					d += 1
+				end
+				for a = 0, d - 1 do
+					for b = 0, w - 1 do
+						used[(ix + a) * n + iz + b + 1] = true
+					end
+				end
+				local kind, h, top = kinds[i], hs[i], tops[i]
+				local x, z = -HALF + TILE * (ix + d / 2), -HALF + TILE * (iz + w / 2)
+				local size = Vector3.new(TILE * d, 0, TILE * w)
+				local b = if top then h - 1 else h -- the column stops under its cap
+				local p = part(folder, size + Vector3.new(0, b - BOTTOM, 0), o * CFrame.new(x, (b + BOTTOM) / 2, z), SHADES[kind] or SHADES.Grass)
+				p.TopSurface, p.Name = Enum.SurfaceType.Studs, kind
+				textured(p, TEX[kind])
+				if top then
+					local cap = part(folder, size + Vector3.new(0, 1, 0), o * CFrame.new(x, h - 0.5, z), TOPS[top],
+						{ TopSurface = Enum.SurfaceType.Studs, Name = kind })
+					textured(cap, TEX[top])
+				end
+				local wt = WATER[kind]
+				if wt then -- see-through water over the bed, wading deep
+					part(water, size + Vector3.new(0, 0.4, 0), o * CFrame.new(x, wt.top - 0.2, z), wt.color, {
+						Material = Enum.Material.Glass, Transparency = 0.35, Reflectance = 0.1, CanCollide = false,
+						CanQuery = false, CastShadow = false, Name = "Water",
+					})
+				end
 			end
 		end
-		flush(n)
-		for _, p in row:GetChildren() do
-			p.Parent = folder
-		end
-		row:Destroy()
-		if ix % 4 == 0 then
+		if ix % 10 == 0 then
 			task.wait()
 		end
 	end
