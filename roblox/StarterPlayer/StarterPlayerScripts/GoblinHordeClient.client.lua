@@ -18,6 +18,7 @@ local Shared = ReplicatedStorage:WaitForChild("Goblin")
 local networkObserved = if RunService:IsStudio() and Shared:GetAttribute("GAME24Active")
 	then {deaths=0,hits=0,swings=0,pickups=0} else nil
 local Config = require(Shared:WaitForChild("GoblinConfig"))
+local ground = require(Shared:WaitForChild("MapLayout")).groundAt -- GAME-43: Map1's terraces (0 elsewhere)
 local template = Shared:FindFirstChild("HordeModel") or Shared:WaitForChild("HordeSource")
 template:ScaleTo(Config.Horde.ModelScale) -- in code, not just place content, so an Undo can't bring back the big goblin
 local box, boxSize = template:GetBoundingBox()
@@ -163,7 +164,7 @@ Shared:WaitForChild("HordeSnap").OnClientEvent:Connect(function(b: buffer, mask:
 		end
 		if not e then
 			e = acquire(if (births[slot] or 0) % 2 == 1 then "skeleton" else "goblin") -- GAME-42: odd incarnation
-			e.x, e.z, e.tx, e.tz, e.yaw, e.tyaw = x, z, x, z, 0, 0
+			e.x, e.z, e.tx, e.tz, e.yaw, e.tyaw, e.gy = x, z, x, z, 0, 0, nil
 			e.incarnation = births[slot] or 0
 			live[slot] = e
 		end
@@ -204,7 +205,7 @@ local function dropGem(g: number, x: number, z: number)
 	local p = gems[g] or pooled(gemPool, function()
 		return fxPart(Vector3.one * 0.8, Color3.fromRGB(95, 208, 255))
 	end)
-	p.CFrame = CFrame.new(x, GEM_Y, z) * CFrame.Angles(math.rad(45), 0, math.rad(45))
+	p.CFrame = CFrame.new(x, GEM_Y + ground(x, z), z) * CFrame.Angles(math.rad(45), 0, math.rad(45))
 	gems[g] = p
 end
 
@@ -331,7 +332,7 @@ Shared:WaitForChild("HordeHits").OnClientEvent:Connect(function(b: buffer, ident
 		end)
 		n.label.Text = tostring(value % 32768)
 		n.label.TextTransparency, n.label.TextStrokeTransparency = 0, 0
-		local start = CFrame.new(e.x + math.random() - 0.5, HIP_Y + 2.5, e.z + math.random() - 0.5)
+		local start = CFrame.new(e.x + math.random() - 0.5, HIP_Y + 2.5 + ground(e.x, e.z), e.z + math.random() - 0.5)
 		n.anchor.CFrame = start
 		TweenService:Create(n.anchor, TweenInfo.new(0.6), { CFrame = start + Vector3.new(0, 2.5, 0) }):Play()
 		local fade = TweenService:Create(n.label, TweenInfo.new(0.6, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { TextTransparency = 1, TextStrokeTransparency = 1 })
@@ -475,7 +476,7 @@ swordImpact = function(struck)
 		if not fx then
 			break
 		end
-		fx.at.WorldPosition = Vector3.new(e.x, HIP_Y + 1.5, e.z)
+		fx.at.WorldPosition = Vector3.new(e.x, HIP_Y + 1.5 + ground(e.x, e.z), e.z)
 		fx.flash.Color = ColorSequence.new(Color3.new(1, 1, 1), red)
 		fx.sparks.Color = ColorSequence.new(Color3.fromRGB(255, 230, 200), red)
 		fx.flash:Emit(1)
@@ -912,11 +913,12 @@ Shared:WaitForChild("HordeFx").OnClientEvent:Connect(function(kind: string, ...)
 	elseif kind == "bone" then -- GAME-42: a skeleton's bone, tumbling end over end
 		local x, z, dx, dz, speed, range = ...
 		local p = pooled(bonePool, makeBone)
-		p.CFrame = CFrame.new(x, HIP_Y + 0.6, z)
+		local y = HIP_Y + 0.6 + ground(x, z) -- flies level from the thrower's ground, like the server's bone
+		p.CFrame = CFrame.new(x, y, z)
 		local trail = p:FindFirstChildOfClass("Trail")
 		trail:Clear() -- no streak from where it was parked
 		trail.Enabled, p:FindFirstChildOfClass("ParticleEmitter").Enabled = true, true
-		table.insert(balls, { part = p, pool = bonePool, spin = 0, x = x, z = z, dx = dx, dz = dz, speed = speed, left = range })
+		table.insert(balls, { part = p, pool = bonePool, spin = 0, y = y, x = x, z = z, dx = dx, dz = dz, speed = speed, left = range })
 	end
 end)
 
@@ -1281,10 +1283,10 @@ RunService.RenderStepped:Connect(function(dt)
 			table.remove(balls, k)
 		elseif b.spin then
 			b.spin += dt * 14
-			local at = Vector3.new(b.x, HIP_Y + 0.6, b.z)
+			local at = Vector3.new(b.x, b.y, b.z)
 			b.part.CFrame = CFrame.lookAt(at, at + Vector3.new(b.dx, 0, b.dz)) * CFrame.Angles(b.spin, 0, 0)
 		else
-			b.part.CFrame = CFrame.new(b.x, HIP_Y, b.z)
+			b.part.CFrame = CFrame.new(b.x, HIP_Y + ground(b.x, b.z), b.z)
 		end
 	end
 	for _, player in Players:GetPlayers() do
@@ -1314,7 +1316,9 @@ RunService.RenderStepped:Connect(function(dt)
 		e.z += (e.tz - e.z) * a
 		e.yaw += ((e.tyaw - e.yaw + math.pi) % (math.pi * 2) - math.pi) * a -- shortest way round
 		table.insert(parts, e.root)
-		table.insert(cframes, CFrame.new(e.x, HIP_Y, e.z) * CFrame.Angles(0, e.yaw, 0))
+		local gy = ground(e.x, e.z) -- GAME-43: walk up terraces and stairs, eased so a ledge isn't a pop
+		e.gy = if e.gy then e.gy + (gy - e.gy) * a else gy
+		table.insert(cframes, CFrame.new(e.x, HIP_Y + e.gy, e.z) * CFrame.Angles(0, e.yaw, 0))
 	end
 	Workspace:BulkMoveTo(parts, cframes, Enum.BulkMoveMode.FireCFrameChanged)
 end)

@@ -23,6 +23,9 @@ local Shared = ReplicatedStorage:WaitForChild("Goblin")
 local Config = require(Shared:WaitForChild("GoblinConfig"))
 local H, R, W, P = Config.Horde, Config.Run, Config.Weapons, Config.Passives
 local SK = Config.Skeleton
+local MapLayout = require(Shared:WaitForChild("MapLayout")) -- GAME-43: Map1's ground heights and hazards
+-- A player stands about this high above the ground (HumanoidRootPart); melee and bones only reach across a small step.
+local ROOT_Y, REACH_Y = 3, 4.5
 
 -- Fallback client model for when Goblin.HordeModel is missing: GoblinAI's stripped template, with an
 -- AnimationController instead of a Humanoid and no collisions.
@@ -237,6 +240,14 @@ local function gainXP(run, n: number)
 	publish(run)
 end
 
+-- WalkSpeed = base x the Speed passive x the ground's slow (GAME-43 mud/water); speedApplied keeps restore ownership.
+local function applyRunSpeed(run)
+	local want = run.baseWalkSpeed * (1 + math.min(run.bonus.speed or 0, 0.75)) * (run.groundSlow or 1)
+	if run.hum.WalkSpeed ~= want then
+		run.hum.WalkSpeed = want
+		run.speedApplied = run.hum.WalkSpeed -- retain engine float precision for the ownership check on restore
+	end
+end
 local function restoreRunSpeed(run)
 	if run.speedApplied and run.hum.WalkSpeed==run.speedApplied then run.hum.WalkSpeed=run.baseWalkSpeed end
 	run.speedApplied=nil
@@ -319,8 +330,7 @@ pickCard.OnServerEvent:Connect(function(player, index, offerId)
 		run.passives[c.id] = c.level
 		run.bonus[c.id] = (run.bonus[c.id] or 0)+Config.passiveAmount(c.id,c.rarity)
 		if c.id=="speed" then
-			run.hum.WalkSpeed=run.baseWalkSpeed*(1+math.min(run.bonus.speed,.75))
-			run.speedApplied=run.hum.WalkSpeed -- retain engine float precision for the ownership check on restore
+			applyRunSpeed(run)
 		end
 	else
 		run.hum.Health = math.min(run.hum.MaxHealth, run.hum.Health + R.Heal)
@@ -935,7 +945,7 @@ local function moveBones(dt: number)
 		local done = b.left <= 0
 		for _, t in targets do
 			local p = t.root.Position
-			if not done and (p.X - b.x) ^ 2 + (p.Z - b.z) ^ 2 < r2 then
+			if not done and (p.X - b.x) ^ 2 + (p.Z - b.z) ^ 2 < r2 and math.abs(p.Y - ROOT_Y - b.y) < REACH_Y then
 				done = true
 				if now - (lastHit[t.hum] or 0) > H.IFrames then
 					lastHit[t.hum] = now
@@ -989,6 +999,25 @@ local function step(dt: number)
 		end
 	end
 
+	-- GAME-43 ground hazards for players: thorns hurt (feet on the ground only, so jumping over is safe), mud and water
+	-- slow through the run's WalkSpeed.
+	for _, t in targets do
+		local run = t.run
+		if run then
+			local p = t.root.Position
+			local hz = MapLayout.hazardAt(p.X, p.Z)
+			local slow = if hz and hz.slow then hz.slow else 1
+			if (run.groundSlow or 1) ~= slow then
+				run.groundSlow = slow
+				applyRunSpeed(run)
+			end
+			if hz and hz.damage and now >= (run.nextThorn or 0) and p.Y - ROOT_Y - MapLayout.groundAt(p.X, p.Z) < 1.5 then
+				run.nextThorn = now + hz.every
+				t.hum:TakeDamage(hz.damage)
+			end
+		end
+	end
+
 	table.clear(grid)
 	for i = 1, top do
 		if not alive[i] then
@@ -1030,7 +1059,7 @@ local function step(dt: number)
 					local d = math.max(math.sqrt(best), 0.01)
 					local p = bt.root.Position
 					local dx, dz = (p.X - x) / d, (p.Z - z) / d
-					table.insert(bones, { x = x, z = z, dx = dx, dz = dz, left = SK.BoneRange })
+					table.insert(bones, { x = x, z = z, y = MapLayout.groundAt(x, z), dx = dx, dz = dz, left = SK.BoneRange })
 					fx:FireAllClients("bone", x, z, dx, dz, SK.BoneSpeed, SK.BoneRange)
 				end
 			elseif not throwAt[i] and not swinging and not stunned and bt and best < SK.ThrowRange ^ 2
@@ -1043,11 +1072,13 @@ local function step(dt: number)
 			swinging = true -- stands still for the wind-up; no club swing meanwhile
 		elseif swinging and now - swingAt[i] >= H.AttackWindup then
 			swingAt[i], nextSwing[i], swinging = nil, now + H.AttackCooldown, false
-			if bt and best < reach2 and now - (lastHit[bt.hum] or 0) > H.IFrames then
+			if bt and best < reach2 and now - (lastHit[bt.hum] or 0) > H.IFrames
+				and math.abs(bt.root.Position.Y - ROOT_Y - MapLayout.groundAt(x, z)) < REACH_Y then -- GAME-43: not up a ledge
 				lastHit[bt.hum] = now
 				bt.hum:TakeDamage(H.ContactDamage)
 			end
-		elseif not swinging and not stunned and bt and best < contact2 and now >= (nextSwing[i] or 0) then
+		elseif not swinging and not stunned and bt and best < contact2 and now >= (nextSwing[i] or 0)
+			and math.abs(bt.root.Position.Y - ROOT_Y - MapLayout.groundAt(x, z)) < REACH_Y then
 			swingAt[i], swinging = now, true
 			table.insert(swings, i)
 		end
@@ -1055,7 +1086,9 @@ local function step(dt: number)
 		if bt and best > 0.25 and not swinging and not stunned then
 			local d = math.sqrt(best)
 			local p = bt.root.Position
+			local ground = MapLayout.hazardAt(x, z) -- GAME-43: mud and water slow goblins too
 			local speed = (if now < slowUntil[i] then H.Speed * H.Slow else H.Speed) * (if skel[i] then SK.Speed else 1)
+				* (if ground and ground.slow then ground.slow else 1)
 			vx, vz = (p.X - x) / d * speed, (p.Z - z) / d * speed
 		end
 		local cx, cz = x // CELL, z // CELL

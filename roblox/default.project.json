@@ -20,6 +20,9 @@
         },
         "GoblinSounds": {
           "$path": "ReplicatedStorage/Goblin/GoblinSounds.lua"
+        },
+        "MapLayout": {
+          "$path": "ReplicatedStorage/Goblin/MapLayout.lua"
         }
       },
       "SwordAnims": {
