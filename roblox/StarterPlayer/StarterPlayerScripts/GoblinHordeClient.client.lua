@@ -2,7 +2,7 @@
 -- Draws the GoblinHorde goblins: each snapshot gives {x, z} per slot; every frame the pooled client-only models ease
 -- toward their latest position and face the nearest player (also while knocked back); all roots move in one
 -- BulkMoveTo. Each model runs its own Run loop and plays Attack1 when the server says it swings; a death plays the
--- Death clip in place (off the slot, which the server may refill at once), then the model goes back to the pool.
+-- shortened Death fall in place (off the slot, which the server may refill at once), then returns to the pool.
 -- The model is Goblin.HordeModel, the single-mesh goblin (BuildHordeModel.luau); without it, the 17-part
 -- Goblin.HordeSource is used as-is.
 -- Also draws the run's effects: XP gems where goblins die (fly to whoever picks them up), floating damage numbers for
@@ -18,7 +18,6 @@ local Shared = ReplicatedStorage:WaitForChild("Goblin")
 local networkObserved = if RunService:IsStudio() and Shared:GetAttribute("GAME24Active")
 	then {deaths=0,hits=0,swings=0,pickups=0} else nil
 local Config = require(Shared:WaitForChild("GoblinConfig"))
-local AnimData = require(Shared:WaitForChild("GoblinAnimData"))
 local template = Shared:FindFirstChild("HordeModel") or Shared:WaitForChild("HordeSource")
 local HIP_Y = template:GetPivot().Position.Y
 local HIDDEN = CFrame.new(0, -1000, 0)
@@ -42,14 +41,17 @@ local function acquire()
 	local e = table.remove(pool)
 	if not e then
 		local m = template:Clone()
+		local fadeParts = {}
 		for _, part in m:GetDescendants() do -- client-only: the player must never stand on or bump into one
 			if part:IsA("BasePart") then
 				part.CanCollide, part.CanTouch = false, false
+				table.insert(fadeParts, part)
 			end
 		end
 		m.Parent = folder
 		local animator = m:FindFirstChildOfClass("AnimationController"):FindFirstChildOfClass("Animator")
 		e = { root = m:FindFirstChild("HumanoidRootPart"), run = animator:LoadAnimation(RUN), death = animator:LoadAnimation(DEATH), swing = animator:LoadAnimation(SWING), flinch = animator:LoadAnimation(FLINCH) }
+		e.fadeParts = fadeParts
 		e.run.Looped = true
 		e.run.Priority = Enum.AnimationPriority.Movement
 		e.death.Priority, e.swing.Priority, e.flinch.Priority = Enum.AnimationPriority.Action, Enum.AnimationPriority.Action, Enum.AnimationPriority.Action2
@@ -65,8 +67,37 @@ local function recycle(e)
 	e.swing:Stop(0)
 	e.flinch:Stop(0)
 	e.root.CFrame = HIDDEN
+	for _, part in e.fadeParts do part.LocalTransparencyModifier = 0 end
 	table.insert(pool, e)
 end
+
+-- Keep the authored fall (BodyFall at 1.1 s), skip the long hold/dissolve tail.
+-- A bounded queue replaces one delayed callback per kill. Retire the oldest corpse
+-- on overflow; no callback can later recycle a model that has already been reused.
+local deathLength, DEATH_SPEED, DEATH_FADE, MAX_CORPSES = 0.6, 2.5, 0.15, 64
+local corpses = {}
+local function advanceDeaths(now)
+	for i = #corpses, 1, -1 do
+		local e = corpses[i]
+		local left = e.deathUntil - now
+		if left <= 0 then
+			table.remove(corpses, i)
+			recycle(e)
+		elseif left < DEATH_FADE then
+			for _, part in e.fadeParts do part.LocalTransparencyModifier = 1 - left / DEATH_FADE end
+		end
+	end
+end
+local function beginDeath(e, now)
+	if #corpses >= MAX_CORPSES then recycle(table.remove(corpses, 1)) end
+	e.run:Stop(0)
+	e.swing:Stop(0)
+	e.flinch:Stop(0) -- Action2 must not mask the fall after the killing hit.
+	e.death:Play(0.04, 1, DEATH_SPEED)
+	e.deathUntil = now + deathLength
+	table.insert(corpses, e)
+end
+RunService.Heartbeat:Connect(function() advanceDeaths(os.clock()) end)
 
 local function free(slot: number)
 	local e = live[slot]
@@ -168,7 +199,6 @@ Shared:WaitForChild("HordeGemState").OnClientEvent:Connect(function(added: buffe
 	end
 end)
 
-local deathLength = AnimData.Death.length
 Shared:WaitForChild("HordeDied").OnClientEvent:Connect(function(b: buffer, versioned: boolean?)
 	local firstGem = if versioned then 0 else buffer.readu16(b, 0)
 	local stride = if versioned then 6 else 2
@@ -179,10 +209,7 @@ Shared:WaitForChild("HordeDied").OnClientEvent:Connect(function(b: buffer, versi
 			if networkObserved then networkObserved.deaths+=1 end
 			if not versioned then dropGem((firstGem + o / 2 - 1) % 65536, e.x, e.z) end
 			live[slot] = nil -- stays where it fell: only live models get moved
-			e.run:Stop(0.1)
-			e.swing:Stop(0.1)
-			e.death:Play(0.1)
-			task.delay(deathLength, recycle, e)
+			beginDeath(e, os.clock())
 		end
 	end
 end)

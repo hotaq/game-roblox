@@ -21,7 +21,8 @@ local function free(slot) if live[slot] then recycle(live[slot]);live[slot]=nil 
 local AnimData={Death={length=2}}
 local task={delay=function() end}
 local function dropGem() legacyGems+=1 end
-]=]..span(clientSource,"local deathLength =",'Shared:WaitForChild("HordeSwing")')..[=[
+local function beginDeath(e) e.death:Play() end -- lifecycle is checked by TestGAME11Death
+]=]..span(clientSource,'Shared:WaitForChild("HordeDied")','Shared:WaitForChild("HordeSwing")')..[=[
 local checks={}
 local function check(v,label) assert(v,label);table.insert(checks,label) end
 local function world(n)
