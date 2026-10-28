@@ -2,7 +2,7 @@
 MeshPart per colour and each gets a plain Plastic colour (the owner's art direction is untextured studded plastic).
 
   python3 -I 26_plasticify_glb.py clusters textured.glb [k]            # texture colour clusters, to pick ANCHORS
-  python3 -I 26_plasticify_glb.py convert textured.glb out.glb preview.png [geometry.glb]
+  python3 -I 26_plasticify_glb.py convert textured.glb out.glb preview.png [geometry.glb|-] [anchor set]
   python3 -I 26_plasticify_glb.py stone untextured.glb out.glb preview.png  # a stone building with no texture
   python3 -I 26_plasticify_glb.py heights model.glb width tile [base] [hex]  # top height per tile, Roblox studs
 
@@ -20,15 +20,24 @@ import io, json, struct, sys
 import numpy as np
 from PIL import Image, ImageDraw
 
-ANCHORS = [  # texture colour -> palette name
-    ((162, 158, 143), "Bone"), ((144, 143, 123), "Bone"),
-    ((71, 93, 16), "Green"), ((79, 90, 44), "DarkGreen"), ((113, 119, 78), "DarkGreen"),
-    ((81, 55, 26), "Brown"), ((58, 56, 54), "Ink"),
-    ((241, 105, 205), "Pink"), ((242, 144, 56), "Orange"), ((165, 117, 221), "Purple"),
-]
+ANCHOR_SETS = {  # per model: texture colour (from `clusters`) -> palette name
+    "skull": [  # Overgrown Skull Shrine
+        ((162, 158, 143), "Bone"), ((144, 143, 123), "Bone"),
+        ((71, 93, 16), "Green"), ((79, 90, 44), "DarkGreen"), ((113, 119, 78), "DarkGreen"),
+        ((81, 55, 26), "Brown"), ((58, 56, 54), "Ink"),
+        ((241, 105, 205), "Pink"), ((242, 144, 56), "Orange"), ((165, 117, 221), "Purple"),
+    ],
+    "totem": [  # Vinebound Tower
+        ((131, 132, 134), "Stone"), ((114, 131, 114), "Stone"), ((98, 189, 150), "Jade"),
+        ((48, 107, 37), "DarkGreen"), ((60, 111, 50), "DarkGreen"), ((82, 128, 73), "Green"),
+        ((100, 135, 58), "Moss"), ((83, 109, 34), "Moss"),
+    ],
+}
+ANCHORS = ANCHOR_SETS["skull"]
 PLASTIC = {"Bone": (226, 218, 196), "Green": (75, 151, 75), "DarkGreen": (45, 110, 55), "Brown": (110, 68, 40),
            "Ink": (30, 32, 36), "Pink": (235, 110, 190), "Orange": (245, 145, 45), "Purple": (150, 100, 215),
-           "Stone": (150, 154, 140), "Step": (176, 170, 152), "Moss": (80, 150, 66)}  # Map1Builder's STONE / stairs
+           "Stone": (150, 154, 140), "Step": (176, 170, 152), "Moss": (80, 150, 66),  # Map1Builder's STONE / stairs
+           "Jade": (60, 176, 120)}  # Map1Builder's JADE
 NAMES = list(PLASTIC)
 COMP = {5120: np.int8, 5121: np.uint8, 5122: np.int16, 5123: np.uint16, 5125: np.uint32, 5126: np.float32}
 NUM = {"SCALAR": 1, "VEC2": 2, "VEC3": 3, "VEC4": 4}
@@ -250,7 +259,9 @@ elif __name__ == "__main__":
             print(f"rgb {tuple(int(c) for c in centres[i])}: {(cl == i).sum()} triangles")
     else:
         out, png = sys.argv[3], sys.argv[4]
-        if len(sys.argv) > 5:  # untextured twin: its geometry, the textured model's colours
+        if len(sys.argv) > 6:
+            ANCHORS = ANCHOR_SETS[sys.argv[6]]
+        if len(sys.argv) > 5 and sys.argv[5] != "-":  # untextured twin: its geometry, the textured model's colours
             pos, tris = read_glb(sys.argv[5])[:2]
             cols = tcols[nearest(tpos[ttris].mean(1), pos[tris].mean(1))]
         else:
