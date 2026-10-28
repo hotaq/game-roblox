@@ -4,7 +4,7 @@
 -- goblins walk on. Trees and ruins come from the ServerStorage.Map1Kit templates (scripts/14_voxel_trees.py,
 -- 15_maya_ruins.py); the Meshy props from Map1Kit when present: Prop_Totem (asset 80849974035661, 20 studs tall,
 -- pivot at its bottom centre), Prop_TempleGate (asset 137670247217292, 34 wide, opening along Z, ~10-stud walkable
--- gap), Prop_JadeHead, Prop_SkullRock. Missing ones fall back to the part-built versions here; graves, thorns and
+-- gap), Prop_SkullShrine (asset 123252779732487, 40 wide, on the E hill), Prop_JadeHead, Prop_SkullRock. Missing ones fall back to the part-built versions here; graves, thorns and
 -- bridges are built from parts.
 -- Deterministic (fixed seeds). Usage from the command bar / MCP:
 --   require(game.ServerScriptService.Map1Builder).build()                      -- everything, at (1000, 0, 0)
@@ -45,6 +45,8 @@ local TOPS = {
 }
 local WATER = { Water = { color = rgb(70, 170, 214), top = -0.5 }, Cenote = { color = rgb(52, 150, 200), top = -0.6 } }
 local STONE, STONE_DK, JADE, BONE = rgb(150, 154, 140), rgb(108, 112, 102), rgb(60, 176, 120), rgb(238, 228, 198)
+-- The giant skull shrine on the E hill's summit (ground 10..18 there): sunk to y 12, no trees within `clear`.
+local SHRINE = { x = 235, y = 12, z = 70, clear = 24 }
 
 local function hash(a: number, b: number): number -- deterministic 0..1 noise for shades and jitter
 	local n = bit32.bxor(a * 73856093 % 4294967296, b * 19349663 % 4294967296)
@@ -273,6 +275,8 @@ function STAGES.landmarks(map: Model, o: CFrame)
 	-- Meshy props (when imported into Map1Kit): the jade head watches the plaza from the north, the skull marks the graveyard
 	place(f, "Prop_JadeHead", on(o, -34, -138) * yaw(160))
 	place(f, "Prop_SkullRock", on(o, L.GRAVEYARD.x, L.GRAVEYARD.z) * yaw(-30))
+	local shrine = (o * CFrame.new(SHRINE.x, SHRINE.y, SHRINE.z)).Position
+	place(f, "Prop_SkullShrine", CFrame.lookAt(shrine, o.Position + Vector3.new(0, SHRINE.y, 0))) -- stares at the plaza
 	-- the NE mesa's waterfall into the cenote
 	local C = L.CENOTE
 	local fall = part(f, Vector3.new(10, 22, 2), o * CFrame.new(C.x + 12, 8, C.z - 22) * yaw(-35), rgb(120, 200, 240), {
@@ -373,7 +377,8 @@ function STAGES.forest(map: Model, o: CFrame)
 			local grove = kind == "Grass" and hash(math.floor(x / 48), math.floor(z / 48)) < 0.12
 			local s = kind == "Mountain" and surface(L.TILE * (math.floor(x / L.TILE) + 0.5), L.TILE * (math.floor(z / L.TILE) + 0.5), h)
 			local mountain = rng:NextNumber() < (if s == "grass" then 0.2 elseif s == "moss" then 0.06 else 0) -- the rock shows
-			if kind == "Jungle" or grove or mountain then
+			local shrine = (x - SHRINE.x) ^ 2 + (z - SHRINE.z) ^ 2 < SHRINE.clear ^ 2
+			if (kind == "Jungle" or grove or mountain) and not shrine then
 				local r = rng:NextNumber()
 				local name = r < 0.4 and "Tree_Oak" or r < 0.7 and "Tree_Pine" or r < 0.85 and "Tree_Birch" or "Tree_Bush"
 				place(f, name, on(o, x, z) * yaw(90 * rng:NextInteger(0, 3)), rng:NextNumber(0.95, 1.25))
