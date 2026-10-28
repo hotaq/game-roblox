@@ -20,24 +20,30 @@ local BOTTOM = -6 -- every ground column reaches down to here
 local function rgb(r, g, b)
 	return Color3.fromRGB(r, g, b)
 end
--- Flat colours: the fallback for the textures below, and the look of water, bridges and thorns.
+-- Flat ground (height 0) is Terrain, not parts: terrain blends neighbouring materials into each other, where two parts
+-- always meet with a hard edge. Its textures are Map1 variants set as MaterialService overrides of these base
+-- materials (place-wide: the lobby Baseplate's grass too). Part-built kinds get terrain under them as well, so the
+-- terrain beside them doesn't dip at their edges; the river stays a part bed under see-through water.
+local TERRAIN = {
+	Grass = Enum.Material.Grass, Jungle = Enum.Material.LeafyGrass, Graveyard = Enum.Material.LeafyGrass,
+	Path = Enum.Material.Ground, Mud = Enum.Material.Mud, Thorns = Enum.Material.Mud, Plaza = Enum.Material.Cobblestone,
+	Spawn = Enum.Material.Cobblestone, Shore = Enum.Material.Sand,
+}
+local UNDER = { Mountain = Enum.Material.Grass, Ruin = Enum.Material.Grass, Pyramid = Enum.Material.Cobblestone, Stairs = Enum.Material.Cobblestone }
+local OVERRIDES = { Grass = "Map1_Grass1", LeafyGrass = "Map1_JungleFloor2", Ground = "Map1_DirtPath3", Cobblestone = "Map1_Plaza1", Sand = "Map1_Sand1" }
+-- Part colours: the fallback for the textures below, and the look of water and bridges.
 local SHADES = {
-	Grass = rgb(98, 176, 70), Jungle = rgb(62, 128, 56), Path = rgb(150, 112, 72), Plaza = rgb(176, 168, 148),
-	Pyramid = rgb(150, 154, 140), Stairs = rgb(176, 170, 152), Shore = rgb(214, 196, 150),
+	Pyramid = rgb(150, 154, 140), Stairs = rgb(176, 170, 152), Ruin = rgb(150, 154, 140),
 	Water = rgb(72, 120, 110), -- the river bed, under a see-through water surface
-	Cenote = rgb(40, 80, 92), Bridge = rgb(140, 92, 54), Thorns = rgb(92, 58, 72), Mud = rgb(96, 70, 46),
-	Graveyard = rgb(96, 120, 84), Spawn = rgb(176, 168, 148), Ruin = rgb(150, 154, 140),
+	Cenote = rgb(40, 80, 92), Bridge = rgb(140, 92, 54),
 	Mountain = rgb(132, 132, 116), -- rock, capped with a 1-stud layer of grass or moss where it isn't bare
 }
 local TOPS = { grass = rgb(70, 140, 60), moss = rgb(108, 138, 84) }
 -- Map1's own MaterialVariants (Studio's material generator, MaterialService.AssistantMaterials), in the overgrown look
--- of the Meshy props: { variant, tint }. The tint greys the texture (it multiplies). One texture per kind, so merged
--- ground reads as one continuous surface.
+-- of the Meshy props: { variant, tint }. The tint greys the texture (it multiplies).
 local TEX = {
 	Mountain = { "Map1_MountainRock1", 1 }, Ruin = { "Map1_TempleStone2", 1 }, Pyramid = { "Map1_TempleStone2", 1 },
-	Stairs = { "Map1_TempleStone2", 1 }, Plaza = { "Map1_Plaza1", 1 }, Spawn = { "Map1_Plaza1", 1 },
-	Shore = { "Map1_Sand1", 1 }, Grass = { "Map1_Grass1", 1 }, Jungle = { "Map1_JungleFloor2", 1 },
-	Graveyard = { "Map1_JungleFloor2", 0.8 }, Path = { "Map1_DirtPath3", 1 }, Mud = { "Map1_DirtPath3", 0.7 },
+	Stairs = { "Map1_TempleStone2", 1 },
 	grass = { "Map1_Grass1", 1 }, moss = { "Map1_Grass1", 0.72 }, -- mountain caps (leaves streak on a 1-stud side)
 }
 local function textured(p: BasePart, t: { any }?)
@@ -130,6 +136,14 @@ function STAGES.ground(map: Model, o: CFrame)
 			plate.Position = Vector3.new((xmin + edge) / 2, plate.Position.Y, plate.Position.Z)
 		end
 	end
+	local MaterialService = game:GetService("MaterialService")
+	for base, variant in OVERRIDES do
+		local v = MaterialService:FindFirstChild(variant, true) :: MaterialVariant?
+		if v then
+			v.StudsPerTile = TILE -- same scale as on the parts (Map1_Grass1 is on both)
+			MaterialService:SetBaseMaterialOverride(Enum.Material[base], variant)
+		end
+	end
 	local folder = Instance.new("Folder")
 	folder.Name = "Ground"
 	local water = Instance.new("Folder")
@@ -175,14 +189,16 @@ function STAGES.ground(map: Model, o: CFrame)
 				local kind, h, top = kinds[i], hs[i], tops[i]
 				local x, z = -HALF + TILE * (ix + d / 2), -HALF + TILE * (iz + w / 2)
 				local size = Vector3.new(TILE * d, 0, TILE * w)
-				local b = if top then h - 1 else h -- the column stops under its cap
-				local p = part(folder, size + Vector3.new(0, b - BOTTOM, 0), o * CFrame.new(x, (b + BOTTOM) / 2, z), SHADES[kind] or SHADES.Grass)
-				p.TopSurface, p.Name = Enum.SurfaceType.Studs, kind
-				textured(p, TEX[kind])
-				if top then
-					local cap = part(folder, size + Vector3.new(0, 1, 0), o * CFrame.new(x, h - 0.5, z), TOPS[top],
-						{ TopSurface = Enum.SurfaceType.Studs, Name = kind })
-					textured(cap, TEX[top])
+				if not TERRAIN[kind] then
+					local b = if top then h - 1 else h -- the column stops under its cap
+					local p = part(folder, size + Vector3.new(0, b - BOTTOM, 0), o * CFrame.new(x, (b + BOTTOM) / 2, z), SHADES[kind])
+					p.TopSurface, p.Name = Enum.SurfaceType.Studs, kind
+					textured(p, TEX[kind])
+					if top then
+						local cap = part(folder, size + Vector3.new(0, 1, 0), o * CFrame.new(x, h - 0.5, z), TOPS[top],
+							{ TopSurface = Enum.SurfaceType.Studs, Name = kind })
+						textured(cap, TEX[top])
+					end
 				end
 				local wt = WATER[kind]
 				if wt then -- see-through water over the bed, wading deep
@@ -197,6 +213,34 @@ function STAGES.ground(map: Model, o: CFrame)
 			task.wait()
 		end
 	end
+	-- The terrain, voxel by voxel (4 studs, which 6-stud tiles don't divide into): a column is solid from -8 to 0 when
+	-- any corner of it is on land, so it reaches every tile edge; the material is the centre's when that's land. Smooth
+	-- terrain draws a full top voxel's surface 2 studs above it (measured), so the top layer (-4..0) is half full: that
+	-- puts the surface on 0, the height the horde walks at. FillBlock can't: 6-stud tiles leave uneven partial voxels.
+	local V = 4
+	local nv = 2 * HALF // V
+	local materials, occupancy = table.create(nv), table.create(nv)
+	for vx = 0, nv - 1 do
+		local mx, ox = { table.create(nv), table.create(nv) }, { table.create(nv), table.create(nv) }
+		for vz = 0, nv - 1 do
+			local x0, z0 = -HALF + V * vx, -HALF + V * vz
+			local m = Enum.Material.Air
+			for _, c in { Vector2.new(2, 2), Vector2.new(0.5, 0.5), Vector2.new(3.5, 0.5), Vector2.new(0.5, 3.5), Vector2.new(3.5, 3.5) } do
+				local kind = L.at(x0 + c.X, z0 + c.Y)
+				local g = TERRAIN[kind] or UNDER[kind]
+				if g then
+					m = g
+					break
+				end
+			end
+			for y = 1, 2 do
+				mx[y][vz + 1], ox[y][vz + 1] = m, if m == Enum.Material.Air then 0 elseif y == 2 then 0.5 else 1
+			end
+		end
+		materials[vx + 1], occupancy[vx + 1] = mx, ox
+	end
+	local corner = o.Position - Vector3.new(HALF, 8, HALF) -- on the voxel grid: the origin is a multiple of 4
+	workspace.Terrain:WriteVoxels(Region3.new(corner, corner + Vector3.new(2 * HALF, 8, 2 * HALF)), V, materials, occupancy)
 	folder.Parent = map
 	water.Parent = map
 	return #folder:GetChildren()
