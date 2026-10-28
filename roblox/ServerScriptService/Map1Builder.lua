@@ -3,8 +3,9 @@
 -- lives in ReplicatedStorage.Goblin.MapLayout, shared with the horde scripts, so the ground built here is exactly what
 -- goblins walk on. Trees and ruins come from the ServerStorage.Map1Kit templates (scripts/14_voxel_trees.py,
 -- 15_maya_ruins.py); the Meshy props from Map1Kit when present: Prop_Totem (asset 80849974035661, 20 studs tall,
--- pivot at its bottom centre), Prop_JadeHead, Prop_SkullRock. Missing ones fall back to the part-built versions here;
--- the temple gate, graves, thorns and bridges are built from parts.
+-- pivot at its bottom centre), Prop_TempleGate (asset 137670247217292, 34 wide, opening along Z, ~10-stud walkable
+-- gap), Prop_JadeHead, Prop_SkullRock. Missing ones fall back to the part-built versions here; graves, thorns and
+-- bridges are built from parts.
 -- Deterministic (fixed seeds). Usage from the command bar / MCP:
 --   require(game.ServerScriptService.Map1Builder).build()                      -- everything, at (1000, 0, 0)
 --   require(game.ServerScriptService.Map1Builder).build(nil, { "props" })      -- only some stages
@@ -258,8 +259,12 @@ function STAGES.landmarks(map: Model, o: CFrame)
 			end
 		end
 	end
-	gate(f, on(o, 0, 175))
-	gate(f, on(o, 0, -175))
+	for _, z in { 175, -175 } do
+		local cf = on(o, 0, z)
+		if not place(f, "Prop_TempleGate", cf) then
+			gate(f, cf)
+		end
+	end
 	-- W ruin platforms and the lookout stones
 	for i, p in L.PLATFORMS do
 		place(f, if i == 1 then "Ruin_Wall" else "Ruin_PillarBroken", on(o, p.x, p.z - p.hz + 3))
