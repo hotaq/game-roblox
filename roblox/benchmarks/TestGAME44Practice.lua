@@ -1,9 +1,12 @@
--- TestGAME44Practice.lua: the dash practice field (Workspace.DashZone from BuildDashZone.luau), production Dash block,
--- real field collision; fake clock, players and remotes. Command bar (Edit):
---   loadstring(<this file>)()(GoblinConfig.Source, GoblinHorde.Source) -> {ok, error, checks}
-return function(configSource, serverSource)
-	local first = assert(serverSource:find("-- GAME-44 Dash server BEGIN", 1, true))
-	local block = serverSource:sub(first, assert(serverSource:find("-- GAME-44 Dash server END", first, true)) - 1)
+-- TestGAME44Practice.lua: the dash practice field (Workspace.DashZone from BuildDashZone.luau): the production Dash
+-- server block grants the dashes, GoblinRunUI's Dash mover moves a real part across the real field; fake clock, players
+-- and remotes. Command bar (Edit):
+--   loadstring(<this file>)()(GoblinConfig.Source, GoblinHorde.Source, GoblinRunUI.Source) -> {ok, error, checks}
+return function(configSource, serverSource, uiSource)
+	local function span(source, a, b)
+		local first = assert(source:find(a, 1, true))
+		return source:sub(first, assert(source:find(b, first, true)) - 1)
+	end
 	local source = "local Config=(function()\n" .. configSource .. "\nend)()\n" .. [=[
 local realWorld=workspace
 local field=assert(realWorld:FindFirstChild("DashZone"),"build DashZone first")
@@ -20,7 +23,10 @@ local event={OnServerEvent={Connect=function()end},FireAllClients=function(_,...
 local function remote()return event end
 local RunService={Heartbeat={Connect=function()end}}
 local function arena()return Vector3.new(400,0,0),58 end
-]=] .. block .. [=[
+]=] .. span(serverSource, "-- GAME-44 Dash server BEGIN", "-- GAME-44 Dash server END")
+		.. "\ndo\nlocal Workspace=realWorld\n" .. span(uiSource, "-- GAME-44 Dash mover BEGIN", "-- GAME-44 Dash mover END")
+		.. "\n_G.GAME44Mover=DashMover\nend\n" .. [=[
+local DashMover=_G.GAME44Mover;_G.GAME44Mover=nil
 local checks={};local function check(v,label)assert(v,label);table.insert(checks,label)end
 local f=Instance.new("Folder");f.Name="GAME44Practice";f.Parent=realWorld
 local c=Instance.new("Model");c.Parent=f
@@ -30,6 +36,12 @@ local p={Parent=Players,Character=c,attrs={}};function p:SetAttribute(k,v)self.a
 function p:GetAttribute(k)return self.attrs[k]end
 table.insert(Players.list,p)
 local function advance(t)local n=math.ceil(t/.01);for _=1,n do clock+=t/n;Dash.step(t/n)end end
+local function fly()
+ local s=packets[#packets];assert(s[1]=="start")
+ local m=DashMover.start(root,h,s[4],s[6],s[7],{c})
+ local frames=0;repeat frames+=1 until not DashMover.step(m,1/60) or frames>60
+ DashMover.stop(m)
+end
 local ok,err=xpcall(function()
  root.Anchored=false;root.Position=center+Vector3.new(0,3.05,0)
  check(not Dash.request(p,Vector3.xAxis),"no dash before the field notices you")
@@ -38,7 +50,8 @@ local ok,err=xpcall(function()
  for k=1,3 do
   clock+=.13 -- past the request throttle only: no cooldown between dashes
   check(Dash.request(p,if k%2==1 then Vector3.xAxis else -Vector3.xAxis,Vector3.new(0,0,-1)),"practice dash "..k.." starts at once")
-  advance(.24);check(not root.Anchored and not p.attrs.RunDashing,"practice dash "..k.." releases the root")
+  check(packets[#packets][7].half==field:GetAttribute("Size")/2-2,"practice dash "..k.." is bounded by the field")
+  fly();advance(.24);check(not p.attrs.RunDashing,"practice dash "..k.." window ends")
  end
  check(math.abs(root.Position.X-(x0+16))<.05,"three dashes: +16, -16, +16")
  check(root.CFrame.LookVector:Dot(Vector3.new(0,0,-1))>.999,"sidesteps keep the facing")

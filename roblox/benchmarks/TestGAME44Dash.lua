@@ -1,9 +1,11 @@
--- Exact production dash + pause lifecycle, real Workspace collision and Humanoids.
--- Fake clock/player/remotes only; does not claim client/network acceptance. No Source writes.
-return function(configSource,serverSource)
-	local function span(a,b)
-		local first=assert(serverSource:find(a,1,true))
-		return serverSource:sub(first,assert(serverSource:find(b,first+#a,true))-1)
+-- Exact production dash: the server's gates and window (GoblinHorde "GAME-44 Dash server" block, fake clock / players /
+-- remotes, real Workspace collision and Humanoids) and the client mover that moves the root (GoblinRunUI "GAME-44 Dash
+-- mover" block, on a real part). Does not claim client/network acceptance. No Source writes. Command bar (Edit):
+--   loadstring(<this file>)()(GoblinConfig.Source, GoblinHorde.Source, GoblinRunUI.Source) -> {ok, error, checks}
+return function(configSource,serverSource,uiSource)
+	local function span(source,a,b)
+		local first=assert(source:find(a,1,true))
+		return source:sub(first,assert(source:find(b,first+#a,true))-1)
 	end
 	local source="local Config=(function()\n"..configSource.."\nend)()\n"..[=[
 local realWorld=workspace
@@ -22,8 +24,10 @@ local function remote()return event end
 local RunService={Heartbeat={Connect=function()end}}
 local arenaHalf=100
 local function arena()return base,arenaHalf end
-]=]..span("-- GAME-44 Dash server BEGIN","-- GAME-44 Dash server END")
-	..span("local function pauseRun(","local function offer(")..[=[
+]=]..span(serverSource,"-- GAME-44 Dash server BEGIN","-- GAME-44 Dash server END")
+	..span(serverSource,"local function pauseRun(","local function offer(")
+	.."\ndo\nlocal Workspace=realWorld\n"..span(uiSource,"-- GAME-44 Dash mover BEGIN","-- GAME-44 Dash mover END").."\n_G.GAME44Mover=DashMover\nend\n"..[=[
+local DashMover=_G.GAME44Mover;_G.GAME44Mover=nil
 local checks={};local function check(v,label)assert(v,label);table.insert(checks,label)end
 local function make(x)
  local c=Instance.new("Model");c.Parent=f
@@ -39,41 +43,38 @@ local function reset(p,r,root,x)
  Dash.cancel(r);clock+=5;r.cards=nil;r.pausedAt=nil;r.hum.Health=100;p.Parent=Players;p.Character=r.hum.Parent;runs[p]=r
  root.Anchored=false;root.Position=base+Vector3.new(x or 0,3,0);root.AssemblyLinearVelocity=Vector3.zero
 end
+local function last(kind)for k=#packets,1,-1 do if packets[k][1]==kind then return packets[k] end end end
+-- What the dasher's client does with a start packet: run the real mover until it stops, 60 frames a second.
+local function fly(root,h)
+ local s=last("start");local m=DashMover.start(root,h,s[4],s[6],s[7],{root.Parent})
+ local frames=0;repeat frames+=1 until not DashMover.step(m,1/60) or frames>60
+ local during=h.AutoRotate;DashMover.stop(m);return during
+end
 local ok,err=xpcall(function()
  local p,r,root=make()
+ -- server: gates and the dash window
  check(not Dash.request(p,"bad"),"invalid payload rejected")
  clock+=.2;check(not Dash.request(p,Vector3.new(0/0,0,0)),"NaN rejected")
  clock+=.2;check(not Dash.request(p,Vector3.new(math.huge,0,0)),"infinite direction rejected")
  clock+=.2;check(not Dash.request(p,Vector3.zero),"zero direction rejected")
  reset(p,r,root);check(Dash.request(p,Vector3.xAxis),"grounded active run starts")
- local shield=r.dash.shield;check(root.Anchored and not r.hum.AutoRotate and p.attrs.RunDashing,"movement lease and replicated state acquired")
+ local s=last("start");local shield=r.dash.shield
+ check(p.attrs.RunDashing and not root.Anchored,"state acquired; the root stays with its client (not anchored)")
+ check(typeof(s[7])=="table" and s[7].air==false and s[7].half==arenaHalf and typeof(s[7].size)=="Vector3","start carries the path rules")
  r.hum:TakeDamage(10);check(r.hum.Health==100,"engine shield prevents damage")
  check(not Dash.request(p,Vector3.xAxis),"repeat request throttled")
  advance(.19);check(shield.Parent==nil and r.dash~=nil,"shield expires before dash finishes")
  r.hum:TakeDamage(10);check(r.hum.Health==90,"damage resumes after shield window")
- advance(.04);check(not r.dash and not root.Anchored and r.hum.AutoRotate and not p.attrs.RunDashing,"normal finish releases root and state")
- check(math.abs(root.Position.X-base.X-16)<.025,"distance exactly16stud on clear level ground")
+ advance(.04);check(not r.dash and not p.attrs.RunDashing and last("stop")[4]==false,"window ends after Duration; stop is not early")
  check(not Dash.request(p,Vector3.xAxis),"server cooldown prevents early repeat")
- reset(p,r,root);local wall=Instance.new("Part");wall.Size=Vector3.new(.1,8,20);wall.Position=base+Vector3.new(6,4,0);wall.Anchored=true;wall.Parent=f
- check(Dash.request(p,Vector3.xAxis),"dash toward distant thin wall starts")
- advance(.3);check(root.Position.X<base.X+4.8 and not r.dash,"body sweep stops before thin wall")
- reset(p,r,root,6);check(not Dash.request(p,Vector3.xAxis),"initial wall overlap rejected")
+ reset(p,r,root,6);local wall=Instance.new("Part");wall.Size=Vector3.new(.1,8,20);wall.Position=base+Vector3.new(6,4,0);wall.Anchored=true;wall.Parent=f
+ check(not Dash.request(p,Vector3.xAxis),"initial wall overlap rejected")
+ reset(p,r,root,4.4);check(not Dash.request(p,Vector3.xAxis),"wall right ahead rejected")
  wall:Destroy()
- local kit=game.ServerStorage:FindFirstChild("Map1Kit");local template=kit and kit:FindFirstChild("Prop_TempleGate")
- if template then
-  local gate=template:Clone();gate.Parent=f;gate:PivotTo(CFrame.new(base))
-  reset(p,r,root);check(Dash.request(p,Vector3.zAxis),"real Map1 mesh gate hole permits dash despite bounding overlap")
-  advance(.3);check(root.Position.Z>base.Z+15.9,"dash crosses actual temple gate collision opening")
-  gate:Destroy()
- end
- reset(p,r,root,54);check(Dash.request(p,Vector3.xAxis),"near ledge starts")
- advance(.3);check(root.Position.X<base.X+60 and not r.dash,"ledge guard stops before unsupported centre")
- reset(p,r,root,50);arenaHalf=55;check(Dash.request(p,Vector3.xAxis),"boundary approach starts inside arena")
- advance(.3);check(root.Position.X<base.X+53.5 and not r.dash,"arena boundary stops body before leaving");arenaHalf=100
- reset(p,r,root);root.Position+=Vector3.new(0,8,0);local airY=root.Position.Y
- check(Dash.request(p,Vector3.xAxis),"air dash starts");advance(.24)
- check(math.abs(root.Position.Y-airY)<.01 and math.abs(root.Position.X-base.X-16)<.025,"air dash flies 16 level")
- clock+=5;check(not Dash.request(p,Vector3.xAxis),"one air dash per jump")
+ reset(p,r,root,99.5);check(not Dash.request(p,Vector3.xAxis),"start outside the arena bounds rejected")
+ reset(p,r,root);root.Position+=Vector3.new(0,8,0)
+ check(Dash.request(p,Vector3.xAxis) and last("start")[7].air==true,"air dash starts")
+ advance(.24);clock+=5;check(not Dash.request(p,Vector3.xAxis),"one air dash per jump")
  root.Position=base+Vector3.new(0,3,0);advance(.02);clock+=5;root.Position+=Vector3.new(0,8,0)
  check(Dash.request(p,-Vector3.xAxis),"landing refreshes the air dash");advance(.24)
  reset(p,r,root);root.Anchored=true;check(not Dash.request(p,Vector3.xAxis),"foreign anchored root rejected")
@@ -81,28 +82,42 @@ local ok,err=xpcall(function()
  reset(p,r,root);r.cards={};check(not Dash.request(p,Vector3.xAxis),"card chooser cannot dash")
  reset(p,r,root);check(Dash.request(p,Vector3.xAxis),"pause transition starts")
  local old=r.dash.shield;pauseRun(r,clock)
- check(not r.dash and old.Parent==nil and root.Anchored and r.pauseAnchored==false,"card pause cancels dash before acquiring root")
+ check(not r.dash and old.Parent==nil and last("stop")[4]==true and root.Anchored,"card pause ends the dash early, then anchors")
  resumeRun(r,clock+.1);check(not root.Anchored and not r.pauseShield,"resume restores unanchored root, no shield leak")
  reset(p,r,root);Dash.request(p,Vector3.xAxis);area="Other";advance(.01)
- check(not r.dash and not root.Anchored,"arena change cancels immediately");area="Test"
+ check(not r.dash and last("stop")[4]==true,"arena change cancels early");area="Test"
  reset(p,r,root);Dash.request(p,Vector3.xAxis);p.Character=Instance.new("Model");p.Character.Parent=f;advance(.01)
- check(not r.dash and not root.Anchored,"character replacement cancels old lease")
+ check(not r.dash,"character replacement cancels")
  reset(p,r,root);Dash.request(p,Vector3.xAxis);p.Parent=nil;advance(.01)
- check(not r.dash and not root.Anchored,"disconnect invalidates active dash")
+ check(not r.dash,"disconnect invalidates active dash")
  reset(p,r,root);Dash.request(p,Vector3.xAxis);r.hum.Health=0;advance(.01)
- check(not r.dash and not root.Anchored,"death cancels and removes shield")
+ check(not r.dash,"death cancels and removes shield")
  reset(p,r,root);Dash.request(p,Vector3.xAxis);local foreign=Instance.new("ForceField");foreign.Name="OtherShield";foreign.Parent=p.Character
  Dash.cancel(r);Dash.cancel(r);check(foreign.Parent==p.Character,"idempotent cleanup preserves unrelated shield");foreign:Destroy()
- reset(p,r,root);Dash.request(p,Vector3.xAxis);root.Anchored=false;root.AssemblyLinearVelocity=Vector3.new(0,12,0)
- Dash.cancel(r);check(root.AssemblyLinearVelocity.Y==12,"cleanup preserves velocity after another mover releases root")
- reset(p,r,root);check(Dash.request(p,Vector3.xAxis,Vector3.new(0,0,-1)),"sidestep with a facing starts");advance(.24)
- check(math.abs(root.Position.X-base.X-16)<.025 and root.CFrame.LookVector:Dot(Vector3.new(0,0,-1))>.999,"sidestep moves 16 along dir, body keeps facing")
- reset(p,r,root);check(Dash.request(p,Vector3.xAxis,Vector3.new(0/0,0,0)),"invalid facing falls back to dir");advance(.24)
- check(root.CFrame.LookVector:Dot(Vector3.xAxis)>.999,"fallback faces the dash direction")
+ reset(p,r,root);check(Dash.request(p,Vector3.xAxis,Vector3.new(0,0,-1)) and last("start")[6]:Dot(Vector3.new(0,0,-1))>.999,"start carries the facing")
+ reset(p,r,root);check(Dash.request(p,Vector3.xAxis,Vector3.new(0/0,0,0)) and last("start")[6]:Dot(Vector3.xAxis)>.999,"invalid facing falls back to dir")
  for _=1,50 do reset(p,r,root);assert(Dash.request(p,Vector3.xAxis));advance(.24)end
  local shields=0;for _,v in f:GetDescendants() do if v:IsA("ForceField")then shields+=1 end end
  check(shields==0 and not r.dash,"50 repeated dashes leave zero shields/state")
- check(#packets>0 and packets[1][1]=="start" and packets[2][1]=="stop","bounded start/stop effect protocol")
+ -- client mover: what actually moves the root
+ reset(p,r,root);Dash.request(p,Vector3.xAxis,Vector3.new(0,0,-1));local during=fly(root,r.hum)
+ check(math.abs(root.Position.X-base.X-16)<.05 and math.abs(root.Position.Y-base.Y-3)<.01,"mover: 16 studs on clear level ground")
+ check(root.CFrame.LookVector:Dot(Vector3.new(0,0,-1))>.999 and during==false and r.hum.AutoRotate,"mover: keeps facing, AutoRotate off while dashing")
+ reset(p,r,root);wall=Instance.new("Part");wall.Size=Vector3.new(.1,8,20);wall.Position=base+Vector3.new(6,4,0);wall.Anchored=true;wall.Parent=f
+ Dash.request(p,Vector3.xAxis);fly(root,r.hum);check(root.Position.X<base.X+4.8,"mover: body sweep stops before a thin wall");wall:Destroy()
+ local kit=game.ServerStorage:FindFirstChild("Map1Kit");local template=kit and kit:FindFirstChild("Prop_TempleGate")
+ if template then
+  local gate=template:Clone();gate.Parent=f;gate:PivotTo(CFrame.new(base))
+  reset(p,r,root);check(Dash.request(p,Vector3.zAxis),"real Map1 mesh gate hole permits dash despite bounding overlap")
+  fly(root,r.hum);check(root.Position.Z>base.Z+15.9,"mover: crosses the temple gate's collision opening")
+  gate:Destroy()
+ end
+ reset(p,r,root,54);Dash.request(p,Vector3.xAxis);fly(root,r.hum)
+ check(root.Position.X<base.X+60,"mover: a ground dash stops at the ledge")
+ reset(p,r,root,54);root.Position+=Vector3.new(0,8,0);r.airDash=nil;Dash.request(p,Vector3.xAxis);local y=root.Position.Y;fly(root,r.hum)
+ check(root.Position.X>base.X+69.9 and math.abs(root.Position.Y-y)<.01,"mover: an air dash flies level over the ledge")
+ reset(p,r,root,50);arenaHalf=55;r.airDash=nil;Dash.request(p,Vector3.xAxis);fly(root,r.hum)
+ check(root.Position.X<base.X+53.5,"mover: the arena boundary stops the body");arenaHalf=100
 end,debug.traceback)
 for _,r in runs do Dash.cancel(r)end
 f:Destroy()

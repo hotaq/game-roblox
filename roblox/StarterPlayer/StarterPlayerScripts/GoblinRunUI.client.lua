@@ -687,6 +687,62 @@ gui.Parent = player:WaitForChild("PlayerGui")
 feet.Parent = player.PlayerGui
 refreshHUD()
 
+-- GAME-44 Dash mover BEGIN. The dash moves on this client: it owns its character's physics, so a root the server
+-- anchored and moved snapped to the server's lagging copy (a warp in the air) and got cut short. The server still decides
+-- whether a dash starts (state, cooldown, the path ahead) and sends the path's rules; here the root follows them from
+-- a tracked position by CFrame: a body sweep stops it at walls, a ground dash stops at a ledge (an air dash flies level
+-- over it), and it stays inside the arena / practice field. Self-contained so tests can run it on a real part.
+local DashMover = {}
+do
+	local D = Config.Dash
+	local function inside(p, center, half)
+		return math.abs(p.X - center.X) <= half - 1.5 and math.abs(p.Z - center.Z) <= half - 1.5
+	end
+	-- path: {center, half, air, floorY, footGap, size} from the server's start event; exclude: what the sweep ignores.
+	function DashMover.start(root, hum, dir, face, path, exclude)
+		local ray = RaycastParams.new()
+		ray.FilterDescendantsInstances, ray.RespectCanCollide, ray.CollisionGroup = exclude, true, root.CollisionGroup
+		local m = { root = root, hum = hum, dir = dir, face = face, path = path, ray = ray, pos = root.Position,
+			elapsed = 0, rotate = hum.AutoRotate }
+		hum.AutoRotate = false
+		return m
+	end
+	local function move(m, distance)
+		local p = m.path
+		local count = math.max(1, math.ceil(distance))
+		for _ = 1, count do
+			local delta = m.dir * (distance / count)
+			if Workspace:Blockcast(CFrame.lookAt(m.pos, m.pos + m.dir), p.size, delta + m.dir * D.Skin, m.ray)
+				or not inside(m.pos + delta, p.center, p.half) then
+				return false
+			end
+			local nextPos = m.pos + delta
+			if not p.air then
+				local support = Workspace:Raycast(nextPos, Vector3.new(0, -p.footGap - D.MaxDrop - 0.2, 0), m.ray)
+				if not support or support.Normal.Y < 0.65 then return false end
+				local change = support.Position.Y - p.floorY
+				if change < -D.MaxDrop or change > D.MaxRise then return false end
+			end
+			m.pos = nextPos
+		end
+		return true
+	end
+	-- One frame: false once the dash is over (distance covered, or blocked).
+	function DashMover.step(m, dt)
+		if not m.root.Parent then return false end
+		local amount = math.min(math.max(dt, 0), D.Duration - m.elapsed)
+		m.elapsed += amount
+		local clear = move(m, D.Distance * amount / D.Duration)
+		m.root.CFrame = CFrame.lookAt(m.pos, m.pos + m.face) -- keeps facing: side and back dashes stay sideways/backward
+		m.root.AssemblyLinearVelocity = Vector3.zero -- the walk input and gravity don't add to the path
+		return clear and m.elapsed < D.Duration
+	end
+	function DashMover.stop(m)
+		if m.hum.Parent and m.hum.AutoRotate == false then m.hum.AutoRotate = m.rotate end
+	end
+end
+-- GAME-44 Dash mover END.
+
 -- GAME-44 Dash UI BEGIN. Its own screen scale keeps it above the touch jump control and out of the card layout.
 do
 	local input=game:GetService("UserInputService")
@@ -744,5 +800,27 @@ do
 	end
 	RunService.Heartbeat:Connect(updateDash)
 	updateDash()
+	-- our own dash, once the server starts it; a stop only ends it here when the server cut it short (pause, death)
+	local moving
+	local function finish()
+		if moving then DashMover.stop(moving);moving=nil end
+	end
+	dashEvent.OnClientEvent:Connect(function(action,who,id,dir,_,face,path)
+		if who~=player then return end
+		if action=="start" and typeof(path)=="table" then
+			finish()
+			local c=player.Character;local h=c and c:FindFirstChildOfClass("Humanoid");local root=c and c:FindFirstChild("HumanoidRootPart")
+			if not h or not root then return end
+			local exclude={}
+			for _,p in game:GetService("Players"):GetPlayers() do if p.Character then table.insert(exclude,p.Character) end end
+			for _,n in {"Goblins","Horde"} do local f=Workspace:FindFirstChild(n);if f then table.insert(exclude,f) end end
+			moving=DashMover.start(root,h,dir,face or dir,path,exclude);moving.id=id
+		elseif action=="stop" and dir==true and moving and moving.id==id then -- a stop's 4th value: `early`
+			finish()
+		end
+	end)
+	RunService.Heartbeat:Connect(function(dt)
+		if moving and not DashMover.step(moving,dt) then finish() end
+	end)
 end
 -- GAME-44 Dash UI END.

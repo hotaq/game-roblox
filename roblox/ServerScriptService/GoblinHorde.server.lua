@@ -243,42 +243,17 @@ do
 		return (runs[run.player]==run or practice[run.player]==run) and run.player.Parent==Players
 			and run.player.Character==run.hum.Parent and run.hum.Health>0 and not run.cards and not run.pausedAt and not run.hum.Sit
 	end
-	function Dash.cancel(run)
+	-- The dash itself moves on the dasher's client (GoblinRunUI's Dash mover: it owns the character's physics, so a root
+	-- anchored and moved here snapped to this lagging copy and got cut short in the air). The server decides whether it
+	-- starts, owns its window (shield, cooldown, state) and sends the path's rules. finished: it ran its full Duration;
+	-- otherwise the stop tells the client to end it early (pause, death, arena change).
+	function Dash.cancel(run, finished)
 		local d=run.dash
 		if not d then return end
 		run.dash=nil
 		if d.shield then d.shield:Destroy() end
-		if d.root.Parent then
-			if d.root.Anchored then -- only release our still-held lease; preserve another mover's later velocity
-				d.root.Anchored=false;d.root.AssemblyLinearVelocity=Vector3.zero
-			end
-		end
-		if run.hum.Parent and run.hum.AutoRotate==false then run.hum.AutoRotate=d.rotate end
 		run.player:SetAttribute("RunDashing",nil)
-		event:FireAllClients("stop",run.player,d.id)
-	end
-	local function floorAt(p, d)
-		return Workspace:Raycast(p,Vector3.new(0,-d.footGap-D.MaxDrop-0.2,0),d.ray)
-	end
-	local function move(d, distance)
-		-- Short substeps also see narrow gaps/ledges; the body sweep sees thin walls between frames.
-		local count=math.max(1,math.ceil(distance))
-		for _=1,count do
-			local delta=d.dir*(distance/count)
-			local cf=CFrame.lookAt(d.root.Position,d.root.Position+d.dir)
-			local hit=Workspace:Blockcast(cf,d.size,delta+d.dir*D.Skin,d.ray)
-			local nextPos=d.root.Position+delta
-			if hit or not inside(nextPos,d.center,d.half) then return false end
-			if not d.air then -- a ground dash stops at a ledge; an air dash flies level over it
-				local support=floorAt(nextPos,d)
-				if not support or support.Normal.Y<0.65 then return false end
-				local change=support.Position.Y-d.floorY
-				if change < -D.MaxDrop or change > D.MaxRise then return false end
-			end
-			d.root.CFrame=CFrame.lookAt(nextPos,nextPos+d.face) -- keeps facing: side and back dashes stay sideways/backward
-			d.position=nextPos
-		end
-		return true
+		event:FireAllClients("stop",run.player,d.id,not finished)
 	end
 	local function flat(v)
 		if typeof(v)~="Vector3" then return nil end
@@ -334,15 +309,13 @@ do
 		if Workspace:Blockcast(cf,size,direction.Unit*1.1,ray) then return false end
 		serial+=1
 		if air then run.airDash={root=root,ray=ray,footGap=footGap} end
-		local d={root=root,dir=direction.Unit,face=face,ray=ray,size=size,center=center,half=half,air=air,
-			area=if run.practice then nil else Workspace:GetAttribute("Arena"),footGap=footGap,
-			floorY=if floor then floor.Position.Y else root.Position.Y,
-			position=root.Position,elapsed=0,started=now,id=serial,rotate=run.hum.AutoRotate}
+		local d={root=root,dir=direction.Unit,face=face,area=if run.practice then nil else Workspace:GetAttribute("Arena"),
+			started=now,id=serial}
 		run.dash=d;run.dashReadyAt=now+(if run.practice then 0 else D.Cooldown)
-		root.Anchored=true;root.AssemblyLinearVelocity=Vector3.zero;run.hum.AutoRotate=false
 		local shield=Instance.new("ForceField");shield.Name="RunDashShield";shield.Visible=false;shield.Parent=run.hum.Parent;d.shield=shield
 		player:SetAttribute("RunDashReadyAt",run.dashReadyAt);player:SetAttribute("RunDashing",true)
-		event:FireAllClients("start",player,d.id,d.dir,now,d.face)
+		local path={center=center,half=half,air=air,floorY=if floor then floor.Position.Y else root.Position.Y,footGap=footGap,size=size}
+		event:FireAllClients("start",player,d.id,d.dir,now,d.face,path)
 		return true
 	end
 	local function scanPractice(now) -- who stands in the field with no run (four times a second)
@@ -379,15 +352,11 @@ do
 				end
 				local d=run.dash
 				if not d then continue end
-				if not valid(run) or not d.root.Parent or not d.root.Anchored
-					or (not run.practice and Workspace:GetAttribute("Arena")~=d.area) or (d.root.Position-d.position).Magnitude>2 then
+				if not valid(run) or not d.root.Parent or (not run.practice and Workspace:GetAttribute("Arena")~=d.area) then
 					Dash.cancel(run);continue
 				end
 				if now-d.started>=D.ShieldTime and d.shield then d.shield:Destroy();d.shield=nil end
-				local amount=math.min(math.max(dt,0),D.Duration-d.elapsed)
-				d.elapsed+=amount
-				local clear=move(d,D.Distance*amount/D.Duration)
-				if not clear or d.elapsed>=D.Duration or now-d.started>D.Duration+0.1 then Dash.cancel(run) end
+				if now-d.started>=D.Duration then Dash.cancel(run,true) end
 			end
 		end
 	end
@@ -401,7 +370,7 @@ local offerSerial=0
 -- original root state and destroy only our own shield on resume/death/leave.
 local function pauseRun(run, now)
 	if run.pausedAt then return end
-	Dash.cancel(run) -- release the dash root before the card pause takes its own lease
+	Dash.cancel(run) -- end the dash (its client stops moving) before the card pause anchors the root
 	run.pausedAt = now
 	local root = run.hum.Parent and run.hum.Parent:FindFirstChild("HumanoidRootPart")
 	if root then
