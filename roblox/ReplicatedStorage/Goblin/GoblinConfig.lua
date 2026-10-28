@@ -127,15 +127,17 @@ Config.Horde = {
 	ViewLeave = 224, -- keep existing neighbours a little farther to prevent boundary flicker
 }
 
--- The jungle skeleton (GAME-42): mixed into the horde, keeps its distance and throws bones (BoneThrow) instead of
--- swinging. Same slots, health and push-apart as a goblin.
+-- The jungle skeleton (GAME-42): mixed into the horde. It walks up like a goblin (a bit slower) and swings its club up
+-- close, and from mid range it stops for a short wind-up and throws a bone (BoneThrow). Same slots, health, push-apart
+-- and melee as a goblin.
 Config.Skeleton = {
 	From = 60, -- seconds into the longest run before skeletons spawn ...
 	Share = 1 / 8, -- ... then this share of new spawns are skeletons
 	Speed = 0.75, -- x Horde.Speed
-	Keep = 20, -- stops walking this close to a player ...
-	ThrowRange = 25, -- ... and throws when one is this close
-	ThrowEvery = 4, -- seconds between throws, per skeleton
+	MinThrow = 8, -- throws only from this far ... (clients pick throw vs club by distance: keep a gap over ContactRange)
+	ThrowRange = 25, -- ... to this far
+	ThrowEvery = 4, -- seconds between throws, per skeleton, +-ThrowJitter so a group doesn't throw in unison
+	ThrowJitter = 0.25,
 	ThrowWindup = 0.5, -- BoneThrow's Throw marker: the bone leaves the hand this long after the wind-up starts
 	BoneSpeed = 30, -- studs per second, straight at where the player stood at release (dodgeable)
 	BoneRange = 32, -- studs before it drops

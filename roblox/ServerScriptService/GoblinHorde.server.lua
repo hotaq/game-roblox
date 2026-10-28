@@ -1022,9 +1022,10 @@ local function step(dt: number)
 		-- Swing: start one when close, land it after the wind-up if the player didn't step away. Swinging = standing.
 		local swinging = swingAt[i] ~= nil
 		local stunned = now < stunUntil[i]
-		if skel[i] then -- GAME-42: keep the distance, wind up, then throw a bone at where the player stands now
+		if skel[i] then -- GAME-42: from mid range a skeleton stands for a short wind-up, then throws at where you are
 			if throwAt[i] and now - throwAt[i] >= SK.ThrowWindup then
-				throwAt[i], nextThrow[i] = nil, now + SK.ThrowEvery
+				throwAt[i] = nil
+				nextThrow[i] = now + SK.ThrowEvery * (1 + SK.ThrowJitter * rng:NextNumber(-1, 1))
 				if bt then
 					local d = math.max(math.sqrt(best), 0.01)
 					local p = bt.root.Position
@@ -1032,11 +1033,14 @@ local function step(dt: number)
 					table.insert(bones, { x = x, z = z, dx = dx, dz = dz, left = SK.BoneRange })
 					fx:FireAllClients("bone", x, z, dx, dz, SK.BoneSpeed, SK.BoneRange)
 				end
-			elseif not throwAt[i] and not stunned and bt and best < SK.ThrowRange ^ 2 and now >= nextThrow[i] then
+			elseif not throwAt[i] and not swinging and not stunned and bt and best < SK.ThrowRange ^ 2
+				and best > SK.MinThrow ^ 2 and now >= nextThrow[i] then
 				throwAt[i] = now
-				table.insert(swings, i) -- clients play BoneThrow for a skeleton's swing
+				table.insert(swings, i) -- clients play BoneThrow for a skeleton's swing from range
 			end
-			swinging = throwAt[i] ~= nil or (bt ~= nil and best < SK.Keep ^ 2) -- stands while throwing or close enough
+		end
+		if throwAt[i] then
+			swinging = true -- stands still for the wind-up; no club swing meanwhile
 		elseif swinging and now - swingAt[i] >= H.AttackWindup then
 			swingAt[i], nextSwing[i], swinging = nil, now + H.AttackCooldown, false
 			if bt and best < reach2 and now - (lastHit[bt.hum] or 0) > H.IFrames then

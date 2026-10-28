@@ -39,7 +39,8 @@ local function animation(name: string): Animation
 	return a
 end
 local RUN, DEATH, SWING, FLINCH = animation("Run"), animation("Death"), animation("Attack1"), animation("HitFront")
--- A skeleton's "swing" is its BoneThrow. Until that's published, Studio registers the KeyframeSequence Rojo syncs.
+-- A skeleton's throw track. Until BoneThrow is published, Studio registers the KeyframeSequence Rojo syncs.
+local SKELETON_MELEE = (Config.Horde.ContactRange + Config.Skeleton.MinThrow) / 2 -- closer swing packet = club swing
 local THROW = animation("BoneThrow")
 if THROW.AnimationId == "" then
 	local anims = ReplicatedStorage:FindFirstChild("SkeletonAnims")
@@ -67,7 +68,7 @@ local function acquire(kind: string)
 		end
 		m.Parent = folder
 		local animator = m:FindFirstChildOfClass("AnimationController"):FindFirstChildOfClass("Animator")
-		e = { kind = kind, root = m:FindFirstChild("HumanoidRootPart"), run = animator:LoadAnimation(RUN), death = animator:LoadAnimation(DEATH), swing = animator:LoadAnimation(if kind == "skeleton" then THROW else SWING), flinch = animator:LoadAnimation(FLINCH) }
+		e = { kind = kind, root = m:FindFirstChild("HumanoidRootPart"), run = animator:LoadAnimation(RUN), death = animator:LoadAnimation(DEATH), swing = animator:LoadAnimation(SWING), throw = if kind == "skeleton" then animator:LoadAnimation(THROW) else nil, flinch = animator:LoadAnimation(FLINCH) }
 		e.fadeParts = fadeParts
 		e.run.Looped = true
 		e.run.Priority = Enum.AnimationPriority.Movement
@@ -82,6 +83,7 @@ local function recycle(e)
 	e.run:Stop(0)
 	e.death:Stop(0)
 	e.swing:Stop(0)
+	if e.throw then e.throw:Stop(0) end
 	e.flinch:Stop(0)
 	e.root.CFrame = HIDDEN
 	for _, part in e.fadeParts do part.LocalTransparencyModifier = 0 end
@@ -109,6 +111,7 @@ local function beginDeath(e, now)
 	if #corpses >= MAX_CORPSES then recycle(table.remove(corpses, 1)) end
 	e.run:Stop(0)
 	e.swing:Stop(0)
+	if e.throw then e.throw:Stop(0) end
 	e.flinch:Stop(0) -- Action2 must not mask the fall after the killing hit.
 	e.death:Play(0.04, 1, DEATH_SPEED)
 	e.deathUntil = now + deathLength
@@ -236,7 +239,16 @@ Shared:WaitForChild("HordeSwing").OnClientEvent:Connect(function(b: buffer, iden
 		local e = live[buffer.readu16(b, o)]
 		if e and (not identities or e.incarnation==buffer.readu32(identities,o*2)) then
 			if networkObserved then networkObserved.swings+=1 end
-			e.swing:Play(0.05) -- the server lands the hit at AttackWindup (a skeleton's bone at its Throw marker)
+			local track = e.swing -- the server lands the hit at AttackWindup
+			if e.throw then -- GAME-42: a skeleton swings its club up close and throws from range (bone at the Throw marker)
+				local near = math.huge
+				for _, pl in Players:GetPlayers() do
+					local r = pl.Character and pl.Character:FindFirstChild("HumanoidRootPart")
+					if r then near = math.min(near, (r.Position.X - e.x) ^ 2 + (r.Position.Z - e.z) ^ 2) end
+				end
+				if near > SKELETON_MELEE ^ 2 then track = e.throw end
+			end
+			track:Play(0.05)
 		end
 	end
 end)
@@ -341,6 +353,37 @@ end)
 local SWEEP, CLOSE = 0.12, 0.1
 local sweepPool, balls, ballPool = {}, {}, {}
 local bonePool = {} -- GAME-42: thrown bones share the fireball mover
+-- A simple block-built bone: a shaft with two square knobs at each end (welded to the anchored shaft, so moving the
+-- shaft moves them), a short jungle-green trail and a few green motes; the motes also puff where it lands.
+local BONE_COLOR, BONE_GLOW = Color3.fromRGB(238, 228, 198), Color3.fromRGB(110, 255, 120)
+local function makeBone(): BasePart
+	local shaft = fxPart(Vector3.new(0.3, 0.3, 1.5), BONE_COLOR)
+	shaft.Material = Enum.Material.SmoothPlastic
+	for _, z in { -0.72, 0.72 } do
+		for _, x in { -0.17, 0.17 } do
+			local knob = fxPart(Vector3.new(0.4, 0.4, 0.4), BONE_COLOR)
+			knob.Material, knob.Anchored, knob.Massless = Enum.Material.SmoothPlastic, false, true
+			knob.CFrame = shaft.CFrame * CFrame.new(x, 0, z)
+			local w = Instance.new("WeldConstraint")
+			w.Part0, w.Part1, w.Parent = shaft, knob, knob
+		end
+	end
+	local a0, a1 = Instance.new("Attachment"), Instance.new("Attachment")
+	a0.Position, a1.Position = Vector3.new(0, 0, -0.7), Vector3.new(0, 0, 0.7)
+	a0.Parent, a1.Parent = shaft, shaft
+	local trail = Instance.new("Trail")
+	trail.Attachment0, trail.Attachment1, trail.Enabled = a0, a1, false
+	trail.Lifetime, trail.LightEmission, trail.FaceCamera = 0.18, 0.6, true
+	trail.Color = ColorSequence.new(BONE_GLOW, BONE_COLOR)
+	trail.Transparency = NumberSequence.new(0.45, 1)
+	trail.Parent = shaft
+	local motes = Instance.new("ParticleEmitter")
+	motes.Enabled, motes.Rate, motes.Lifetime, motes.Speed = false, 18, NumberRange.new(0.3, 0.5), NumberRange.new(0.5, 1.5)
+	motes.SpreadAngle, motes.LightEmission, motes.Color = Vector2.new(180, 180), 1, ColorSequence.new(BONE_GLOW)
+	motes.Size = NumberSequence.new(0.25, 0)
+	motes.Parent = shaft
+	return shaft
+end
 local swingSide = {} -- Player -> 1 / -1, flipped every slash
 local function keys(...)
 	local k = {}
@@ -868,11 +911,11 @@ Shared:WaitForChild("HordeFx").OnClientEvent:Connect(function(kind: string, ...)
 		table.insert(balls, { part = p, x = x, z = z, dx = dx, dz = dz, speed = speed, left = range })
 	elseif kind == "bone" then -- GAME-42: a skeleton's bone, tumbling end over end
 		local x, z, dx, dz, speed, range = ...
-		local p = pooled(bonePool, function()
-			local b = fxPart(Vector3.new(0.45, 0.45, 1.8), Color3.fromRGB(238, 228, 198))
-			b.Material = Enum.Material.SmoothPlastic
-			return b
-		end)
+		local p = pooled(bonePool, makeBone)
+		p.CFrame = CFrame.new(x, HIP_Y + 0.6, z)
+		local trail = p:FindFirstChildOfClass("Trail")
+		trail:Clear() -- no streak from where it was parked
+		trail.Enabled, p:FindFirstChildOfClass("ParticleEmitter").Enabled = true, true
 		table.insert(balls, { part = p, pool = bonePool, spin = 0, x = x, z = z, dx = dx, dz = dz, speed = speed, left = range })
 	end
 end)
@@ -1228,6 +1271,11 @@ RunService.RenderStepped:Connect(function(dt)
 		b.z += b.dz * step
 		b.left -= step
 		if b.left <= 0 then
+			if b.spin then -- a bone: puff where it lands, then park it with its trail and motes off
+				local motes = b.part:FindFirstChildOfClass("ParticleEmitter")
+				motes:Emit(8)
+				motes.Enabled, b.part:FindFirstChildOfClass("Trail").Enabled = false, false
+			end
 			b.part.CFrame = HIDDEN
 			table.insert(b.pool or ballPool, b.part)
 			table.remove(balls, k)
