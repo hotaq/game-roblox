@@ -613,6 +613,7 @@ local function eliteFinish(state,phase)
 		end
 	end
 	state.awarded=#recipients;table.clear(state.roster)
+	for _,hud in state.hud do hud.gui:Destroy() end;table.clear(state.hud)
 	Shared:SetAttribute("EliteTrialState",phase)
 	local api,actor=state.api,state.model;state.model=nil
 	if phase=="defeated" then task.delay(1,function()api:Invoke("destroy",actor)end)
@@ -638,7 +639,16 @@ local function eliteSpawn(manual)
 	p=Vector3.new(p.X,MapLayout.groundAt(p.X,p.Z)+4,p.Z)
 	local health=Config.EliteTrial.Health*(1+Config.EliteTrial.TeamHealth*(#members-1))
 	local actor=api:Invoke("spawn",CFrame.lookAt(p,Vector3.new(first.X,p.Y,first.Z)),{health=health,members=members,center=center,half=half+2,manual=manual})
-	local state={id=eliteSerial,phase="active",elapsed=0,roster=roster,model=actor,api=api,arena=Workspace:GetAttribute("Arena"),awarded=0}
+	local state={id=eliteSerial,phase="active",elapsed=0,roster=roster,model=actor,api=api,arena=Workspace:GetAttribute("Arena"),awarded=0,hud={}}
+	for player in roster do
+		local gui=Instance.new("ScreenGui");gui.Name="EliteTrialUI";gui.ResetOnSpawn=false;gui.IgnoreGuiInset=true;gui.DisplayOrder=-1
+		local label=Instance.new("TextLabel");label.AnchorPoint=Vector2.new(.5,0);label.Position=UDim2.new(.5,0,0,120)
+		label.Size=UDim2.new(.8,0,0,52);label.BackgroundColor3=Color3.fromRGB(35,29,25);label.BackgroundTransparency=.15;label.BorderSizePixel=0
+		local limit=Instance.new("UISizeConstraint");limit.MaxSize=Vector2.new(400,52);limit.Parent=label
+		label.TextColor3=Color3.fromRGB(255,226,145);label.TextStrokeTransparency=0;label.Font=Enum.Font.Arcade;label.TextSize=14
+		label.Text="OPTIONAL ELITE | TEAM UPGRADE\nDODGE THE HEAVY SWING";label.Parent=gui;gui.Parent=player:FindFirstChildOfClass("PlayerGui")
+		state.hud[player]={gui=gui,label=label}
+	end
 	eliteState=state;generation[-1]=eliteSerial;alive[-1]=true
 	px[-1],pz[-1],hp[-1]=p.X,p.Z,health
 	Shared:SetAttribute("EliteTrialState","active")
@@ -649,6 +659,7 @@ eliteDamage=function(dmg,run,weapon,fromX,fromZ,stuns)
 	if not state or state.phase~="active" or not state.model or not state.roster[run.player]
 		or state.roster[run.player]~=run or not objectiveEligible(run.player,run) or run.cards then return end
 	local actual=state.api:Invoke("damage",state.model,{amount=dmg,stuns=stuns,from=Vector3.new(fromX,0,fromZ)}) or 0
+	if state~=eliteState or state.phase~="active" or runs[run.player]~=run then return end
 	run.damage[weapon]=(run.damage[weapon]or 0)+actual
 	local hum=state.model and state.model:FindFirstChildOfClass("Humanoid")
 	if hum then hp[-1]=hum.Health;if hum.Health<=0 then run.kills+=1;eliteFinish(state,"defeated")end end
@@ -674,6 +685,11 @@ local function eliteTick(dt)
 	if not center or math.abs(root.Position.X-center.X)>half+8 or math.abs(root.Position.Z-center.Z)>half+8 then eliteFinish(state,"cancelled");return end
 	px[-1],pz[-1]=root.Position.X,root.Position.Z
 	if active then state.elapsed+=dt end
+	for p,hud in state.hud do
+		local r=state.roster[p]
+		if not r or runs[p]~=r or r.hum.Health<=0 or p.Parent~=Players then hud.gui:Destroy();state.hud[p]=nil
+		else hud.label.Text=("OPTIONAL ELITE | TEAM UPGRADE\nDODGE THE HEAVY SWING | %ds LEFT"):format(math.max(0,math.ceil(Config.EliteTrial.Window-state.elapsed))) end
+	end
 	if state.elapsed>=Config.EliteTrial.Window then eliteFinish(state,"expired") end
 end
 -- END GAME-28 encounter
@@ -2593,6 +2609,7 @@ if eliteTestArgs then
 			eh.MaxHealth=10000;eh.Health=10000;hp[-1]=10000
 			for _,id in W.Order do
 				ra.weapons={[id]=3};ra.wOrder={id};ra.cd={};ra.damage={};ra.rocks=nil
+				root.CFrame=CFrame.new(center+Vector3.new(0,4,if id=="rocks"then -7 else -5))
 				table.clear(axes);table.clear(shots);table.clear(totems);eliteTick(0)
 				fireWeapons(ra,root,0)
 				for _=1,60 do moveShots(1/30);moveAxes(1/30);moveTotems(1/30);if id=="rocks"then fireWeapons(ra,root,1/30)end end
