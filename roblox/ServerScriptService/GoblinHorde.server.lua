@@ -2473,8 +2473,8 @@ if polishTestArgs then
 				startRun(p,p.Character:FindFirstChildOfClass("Humanoid"));return runs[p],root
 			end
 			if report.mode=="balance"then
-				if polishTestArgs.baseline then R.XPFirst,R.XPGrowth,R.StartAlive,R.AlivePerMinute,R.HealthPerMinute=5,1.22,25,45,.4 end
-				if polishTestArgs.candidate then R.XPFirst,R.XPGrowth,R.StartAlive,R.AlivePerMinute,R.HealthPerMinute=12,1.3,20,35,.3 end
+				if polishTestArgs.baseline then R.XPFirst,R.XPGrowth,R.StartAlive,R.AlivePerMinute,R.HealthPerMinute=5,1.22,25,45,.4;H.ContactDamage=6 end
+				if polishTestArgs.candidate then R.XPFirst,R.XPGrowth,R.StartAlive,R.AlivePerMinute,R.HealthPerMinute=12,1.3,20,35,.3;H.ContactDamage=6 end
 				if polishTestArgs.candidate2 then R.XPFirst,R.XPGrowth,R.StartAlive,R.AlivePerMinute,R.HealthPerMinute=16,1.4,20,35,.3;H.ContactDamage=5 end
 				local p=list[1];local r,root=prepare(p,0);r.hum.MaxHealth=10000;r.hum.Health=10000
 				local healthScript=p.Character:FindFirstChild("Health");if healthScript and healthScript:IsA("Script")then healthScript.Enabled=false end
