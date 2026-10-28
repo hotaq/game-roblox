@@ -5,7 +5,7 @@
 -- Local coordinates: (0, 0) = the map centre, north = -Z, 600 x 600 studs. The ground is 6-stud tiles and every tile
 -- has one kind and one height, so heightAt is exact (it samples the tile's centre).
 --
---   centre      stone plaza, stepped pyramid (5 tiers x 5 studs) with 3-stud stairs down its south face
+--   centre      stone plaza, the Maya pyramid (tiers at 5 / 15 / 25, temple on top, stairs up every face)
 --   ring        a river (2 studs deep: wading slows) around the plaza, a bridge on each side
 --   NW          the big mountain: ridged rocky summits up to ~64 studs, climbed by jumping ledge to ledge
 --   NE          a mesa (4 wandering tiers of 6 studs) with a waterfall into a deep cenote
@@ -22,8 +22,21 @@ local STEP = 2
 Layout.TILE, Layout.HALF = TILE, HALF
 
 local PLAZA = 60
-local PYRAMID = { x = 0, z = -8, half = 30, tiers = 5, step = 5 } -- top is a 12 x 12 platform at 25 studs
-local STAIRS = { half = 6, z0 = -2, z1 = 46 } -- 12 wide, from the top edge out over the plaza; 3-stud steps
+local PYRAMID = { x = 0, z = 0, half = 30, top = 37 } -- Map1Kit.Prop_Pyramid (Meshy temple ruin), 60 wide, ~37 tall
+-- Its highest surface per 6-stud tile (rows = x, columns = z, both -27..27), baked from the mesh with
+-- `scripts/26_plasticify_glb.py heights <generate.glb> 60 6`. The horde walks these; players collide with the mesh.
+local PYRAMID_TILES = {
+	{ 0, 0, 0, 0, 2, 2, 0, 0, 0, 0 },
+	{ 0, 5, 5, 5, 10, 10, 5, 5, 5, 0 },
+	{ 0, 5, 15, 15, 17, 17, 15, 15, 5, 0 },
+	{ 0, 5, 15, 25, 25, 25, 25, 15, 5, 0 },
+	{ 3, 10, 17, 25, 36, 36, 25, 17, 10, 3 },
+	{ 3, 10, 17, 25, 35, 36, 25, 17, 10, 3 },
+	{ 0, 5, 15, 25, 25, 25, 25, 15, 5, 0 },
+	{ 0, 5, 15, 15, 17, 17, 15, 15, 5, 0 },
+	{ 0, 4, 5, 5, 10, 10, 5, 5, 5, 0 },
+	{ 0, 0, 0, 0, 3, 3, 0, 0, 0, 0 },
+}
 local RIVER = { half = 100, radius = 32, width = 10, depth = -2 }
 local BRIDGE = 9 -- half-width of the four bridges
 local CENOTE = { x = 125, z = -110, rx = 22, rz = 18, depth = -4 }
@@ -52,7 +65,7 @@ local MUD = { { x = 60, z = 195, rx = 26, rz = 16 }, { x = -215, z = -50, rx = 1
 local JUNGLE = 66 -- trees grow within this far of the border (and on the mountains)
 
 Layout.SPAWN, Layout.PYRAMID, Layout.CENOTE, Layout.GRAVEYARD, Layout.PILLARS = SPAWN, PYRAMID, CENOTE, GRAVEYARD, PILLARS
-Layout.PLATFORMS, Layout.MOUNTAINS, Layout.RIVER, Layout.BRIDGE, Layout.STAIRS = PLATFORMS, MOUNTAINS, RIVER, BRIDGE, STAIRS
+Layout.PLATFORMS, Layout.MOUNTAINS, Layout.RIVER, Layout.BRIDGE = PLATFORMS, MOUNTAINS, RIVER, BRIDGE
 Layout.FALLS = MOUNTAINS[4]
 
 local function ellipse(x: number, z: number, e, grow: number?): number -- < 1 inside
@@ -73,16 +86,9 @@ local function inAny(x: number, z: number, list): boolean
 end
 
 local function pyramidHeight(x: number, z: number): number?
-	local dx, dz = math.abs(x - PYRAMID.x), z - PYRAMID.z
-	local ring = math.max(dx, math.abs(dz))
-	local tier = if ring <= PYRAMID.half
-		then math.min(PYRAMID.tiers, math.floor((PYRAMID.half - ring) / TILE) + 1) * PYRAMID.step
-		else nil
-	if dx <= STAIRS.half and z >= STAIRS.z0 + PYRAMID.z and z <= STAIRS.z1 + PYRAMID.z then
-		local row = math.floor((STAIRS.z1 + PYRAMID.z - z) / TILE) -- 0 at the bottom step
-		return math.max(math.min(3 * (row + 1), PYRAMID.tiers * PYRAMID.step), tier or 0) -- never below the tier it crosses
-	end
-	return tier
+	local row = PYRAMID_TILES[math.floor((x - PYRAMID.x + PYRAMID.half) / TILE) + 1]
+	local h = row and row[math.floor((z - PYRAMID.z + PYRAMID.half) / TILE) + 1]
+	return if h and h > 0 then h else nil
 end
 
 local function rand(ix: number, iz: number, seed: number): number -- 0..1 per lattice point
@@ -157,8 +163,7 @@ end
 -- Graveyard / Spawn / Path / Ruin / Mountain / Jungle / Grass.
 local function kindAt(x: number, z: number): string
 	if pyramidHeight(x, z) then
-		local dx, dz = math.abs(x - PYRAMID.x), z - PYRAMID.z
-		return if dx <= STAIRS.half and dz >= STAIRS.z0 then "Stairs" else "Pyramid"
+		return "Pyramid"
 	end
 	if math.abs(x) <= PLAZA and math.abs(z) <= PLAZA then
 		return "Plaza"
@@ -205,7 +210,7 @@ local function kindAt(x: number, z: number): string
 end
 
 local function heightOf(kind: string, cx: number, cz: number): number
-	if kind == "Pyramid" or kind == "Stairs" then
+	if kind == "Pyramid" then
 		return pyramidHeight(cx, cz) :: number
 	elseif kind == "Water" then
 		return RIVER.depth

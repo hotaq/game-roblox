@@ -5,7 +5,8 @@
 -- 15_maya_ruins.py); the Meshy props from Map1Kit when present: Prop_Totem (asset 80849974035661, 20 studs tall,
 -- pivot at its bottom centre), Prop_TempleGate (asset 137670247217292, 34 wide, opening along Z, ~10-stud walkable
 -- gap), Prop_SkullShrine (asset 113206205477662: 8 plastic MeshParts, one per colour, from
--- scripts/26_plasticify_glb.py, plus 2 neon jade eyes; 40 wide, on the E hill), Prop_JadeHead, Prop_SkullRock.
+-- scripts/26_plasticify_glb.py, plus 2 neon jade eyes; 40 wide, on the E hill), Prop_Pyramid (Meshy temple ruin
+-- through 26_plasticify_glb.py stone: Stone/Step/Moss MeshParts, 60 wide, bottom-centre pivot), Prop_JadeHead, Prop_SkullRock.
 -- Missing ones fall back to the part-built versions here; graves, thorns and bridges are built from parts.
 -- Deterministic (fixed seeds). Usage from the command bar / MCP:
 --   require(game.ServerScriptService.Map1Builder).build()                      -- everything, at (1000, 0, 0)
@@ -129,6 +130,7 @@ function STAGES.ground(map: Folder, o: CFrame)
 	local water = Instance.new("Folder")
 	water.Name = "WaterSurface"
 	local n = 2 * HALF // TILE
+	local pyramidMesh = ServerStorage.Map1Kit:FindFirstChild("Prop_Pyramid") ~= nil -- the mesh is the pyramid; plaza under it
 	for ix = 0, n - 1 do
 		local row = Instance.new("Folder") -- parent one row at a time so Studio never freezes
 		local x = -HALF + TILE * (ix + 0.5)
@@ -159,6 +161,9 @@ function STAGES.ground(map: Folder, o: CFrame)
 		for iz = 0, n - 1 do
 			local z = -HALF + TILE * (iz + 0.5)
 			local kind, h = L.at(x, z)
+			if kind == "Pyramid" and pyramidMesh then
+				kind, h = "Plaza", 0
+			end
 			local shade, top
 			if kind == "Mountain" then
 				shade = ROCK[math.floor(hash(ix, iz) * #ROCK) + 1]
@@ -239,17 +244,19 @@ function STAGES.landmarks(map: Folder, o: CFrame)
 	local f = Instance.new("Folder")
 	f.Name = "Landmarks"
 	f.Parent = map
-	-- pyramid crown: a glowing jade block and two braziers on the top platform
+	-- The pyramid (Meshy temple ruin, bottom-centre pivot, 60 wide; without it the ground stage stacks its baked tile
+	-- heights), a glowing jade crown and two braziers on the temple roof, and stelae at the foot of the south stairs.
 	local P = L.PYRAMID
-	local top = o * CFrame.new(P.x, P.tiers * P.step, P.z)
-	part(f, Vector3.new(8, 5, 8), top * CFrame.new(0, 2.5, -2), JADE, { Material = Enum.Material.Neon, Name = "JadeCrown" })
+	place(f, "Prop_Pyramid", o * CFrame.new(P.x, 0, P.z))
+	local top = o * CFrame.new(P.x, P.top, P.z)
+	part(f, Vector3.new(6, 4, 6), top * CFrame.new(0, 2, 0), JADE, { Material = Enum.Material.Neon, Name = "JadeCrown" })
 	for _, sx in { -4.5, 4.5 } do
-		local b = part(f, Vector3.new(2, 3, 2), top * CFrame.new(sx, 1.5, 4.5), STONE_DK, { Name = "Brazier" })
+		local b = part(f, Vector3.new(2, 3, 2), top * CFrame.new(sx, 1.5, 4), STONE_DK, { Name = "Brazier" })
 		local fire = Instance.new("Fire")
 		fire.Size, fire.Heat, fire.Parent = 4, 6, b
 	end
-	place(f, "Ruin_Stela", on(o, P.x - 12, P.z + L.STAIRS.z1 - 2) * yaw(180)) -- flanking the foot of the stairs
-	place(f, "Ruin_Stela", on(o, P.x + 12, P.z + L.STAIRS.z1 - 2) * yaw(180))
+	place(f, "Ruin_Stela", on(o, P.x - 11, P.z + P.half + 4) * yaw(180))
+	place(f, "Ruin_Stela", on(o, P.x + 11, P.z + P.half + 4) * yaw(180))
 	-- totems at both ends of every bridge, gates where the south and north spokes leave the path loop
 	local R = L.RIVER
 	for _, d in { Vector3.new(1, 0, 0), Vector3.new(-1, 0, 0), Vector3.new(0, 0, 1), Vector3.new(0, 0, -1) } do

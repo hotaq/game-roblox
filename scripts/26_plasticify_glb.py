@@ -3,6 +3,12 @@ MeshPart per colour and each gets a plain Plastic colour (the owner's art direct
 
   python3 -I 26_plasticify_glb.py clusters textured.glb [k]            # texture colour clusters, to pick ANCHORS
   python3 -I 26_plasticify_glb.py convert textured.glb out.glb preview.png [geometry.glb]
+  python3 -I 26_plasticify_glb.py stone untextured.glb out.glb preview.png  # a stone building with no texture
+  python3 -I 26_plasticify_glb.py heights model.glb width tile           # top height per tile, Roblox studs
+
+`stone` colours by geometry: lighter steps up the middle of each face, green moss on the upward faces of about half the
+blocks below the top, stone elsewhere. `heights` scales the model to `width` studs and prints the highest surface at
+each tile centre (in the orientation Roblox imports it: glTF +Z ends up on Roblox -Z), for MapLayout.
 
 `convert` samples each triangle's texture colour, snaps it to the nearest ANCHORS colour, then makes any connected piece
 that is 70%+ one colour all that colour (a brick is one colour). With geometry.glb (Meshy's untextured "generate"
@@ -21,7 +27,8 @@ ANCHORS = [  # texture colour -> palette name
     ((241, 105, 205), "Pink"), ((242, 144, 56), "Orange"), ((165, 117, 221), "Purple"),
 ]
 PLASTIC = {"Bone": (226, 218, 196), "Green": (75, 151, 75), "DarkGreen": (45, 110, 55), "Brown": (110, 68, 40),
-           "Ink": (30, 32, 36), "Pink": (235, 110, 190), "Orange": (245, 145, 45), "Purple": (150, 100, 215)}
+           "Ink": (30, 32, 36), "Pink": (235, 110, 190), "Orange": (245, 145, 45), "Purple": (150, 100, 215),
+           "Stone": (150, 154, 140), "Step": (176, 170, 152), "Moss": (80, 150, 66)}  # Map1Builder's STONE / stairs
 NAMES = list(PLASTIC)
 COMP = {5120: np.int8, 5121: np.uint8, 5122: np.int16, 5123: np.uint16, 5125: np.uint32, 5126: np.float32}
 NUM = {"SCALAR": 1, "VEC2": 2, "VEC3": 3, "VEC4": 4}
@@ -163,6 +170,49 @@ def preview(path, pos, tris, cls, size=900):
     img.save(path)
 
 
+def stone_classes(pos, tris):
+    v = pos[tris]
+    c = v.mean(1)
+    fn = np.cross(v[:, 1] - v[:, 0], v[:, 2] - v[:, 0])
+    ny = fn[:, 1] / (np.linalg.norm(fn, axis=1) + 1e-12)
+    lo, hi = pos.min(0), pos.max(0)
+    t = (c[:, 1] - lo[1]) / (hi[1] - lo[1])
+    width = max(hi[0] - lo[0], hi[2] - lo[2])
+    mid = (lo + hi) / 2
+    steps = ((np.abs(c[:, 0] - mid[0]) < 0.09 * width) | (np.abs(c[:, 2] - mid[2]) < 0.09 * width)) & (t < 0.7)
+    lab = islands(pos, tris)
+    mossy = ((lab * 0.6180339887) % 1) < 0.55  # about half the blocks, fixed per block
+    cls = np.full(len(tris), NAMES.index("Stone"))
+    cls[steps] = NAMES.index("Step")
+    cls[(ny > 0.7) & ~steps & (t < 0.72) & mossy] = NAMES.index("Moss")
+    return cls
+
+
+def heights(pos, tris, width, tile):
+    """Highest surface at every tile centre once scaled to `width` studs (bottom at 0), as Roblox imports it."""
+    lo, hi = pos.min(0), pos.max(0)
+    k = width / max(hi[0] - lo[0], hi[2] - lo[2])
+    p = (pos - [(lo[0] + hi[0]) / 2, lo[1], (lo[2] + hi[2]) / 2]) * k
+    p[:, 0], p[:, 2] = -p[:, 0], -p[:, 2]  # Roblox's import turns the model half way round
+    v = p[tris]
+    half = width / 2
+    centres = np.arange(-half + tile / 2, half, tile)
+    out = np.zeros((len(centres), len(centres)))
+    a, b, c = v[:, 0], v[:, 1], v[:, 2]
+    for i, x in enumerate(centres):
+        for j, z in enumerate(centres):
+            # barycentric test of (x, z) against every triangle's xz projection
+            d = (b[:, 2] - c[:, 2]) * (a[:, 0] - c[:, 0]) + (c[:, 0] - b[:, 0]) * (a[:, 2] - c[:, 2])
+            with np.errstate(divide="ignore", invalid="ignore"):
+                w1 = ((b[:, 2] - c[:, 2]) * (x - c[:, 0]) + (c[:, 0] - b[:, 0]) * (z - c[:, 2])) / d
+                w2 = ((c[:, 2] - a[:, 2]) * (x - c[:, 0]) + (a[:, 0] - c[:, 0]) * (z - c[:, 2])) / d
+            w3 = 1 - w1 - w2
+            inside = (w1 >= 0) & (w2 >= 0) & (w3 >= 0) & (np.abs(d) > 1e-12)
+            if inside.any():
+                out[i, j] = (w1 * a[:, 1] + w2 * b[:, 1] + w3 * c[:, 1])[inside].max()
+    return centres, out
+
+
 def kmeans(x, k, iters=30, seed=1):
     c = x[np.random.default_rng(seed).choice(len(x), k, replace=False)]
     for _ in range(iters):
@@ -171,7 +221,19 @@ def kmeans(x, k, iters=30, seed=1):
     return c, lab
 
 
-if __name__ == "__main__":
+if __name__ == "__main__" and sys.argv[1] in ("stone", "heights"):
+    pos, tris = read_glb(sys.argv[2])[:2]
+    if sys.argv[1] == "stone":
+        cls = stone_classes(pos, tris)
+        names = write_glb(sys.argv[3], pos, tris, cls)
+        print("meshes:", ", ".join(f"{n} {(cls == NAMES.index(n)).sum()}" for n in names))
+        preview(sys.argv[4], pos, tris, cls)
+    else:
+        centres, h = heights(pos, tris, float(sys.argv[3]), float(sys.argv[4]))
+        print("-- tile centres", centres.tolist(), "rows = x, columns = z")
+        for row in h:
+            print("{ " + ", ".join(str(int(round(v))) for v in row) + " },")
+elif __name__ == "__main__":
     mode, textured = sys.argv[1], sys.argv[2]
     tpos, ttris, tuv, timg = read_glb(textured)
     assert tuv is not None and timg is not None, "the first GLB needs uvs and a base colour texture"
