@@ -1,8 +1,9 @@
 -- GoblinRunUI (LocalScript, StarterPlayer.StarterPlayerScripts)
 -- The run's three screens in the Megabonk-style look (UI mockup board "HUD v2"): pixel font (Arcade), white text with
 -- a dark outline straight on the game, no heavy boxes, everything at the edges so the horde stays in view.
---   HUD      top-left: kills, gems, HP bar, 2x2 weapons with LV; top centre: run clock; top right: LV + thin XP bar;
---            bottom centre: passives; a small HP bar under your feet. Shown while the player has a run (RunLevel
+--   HUD      (UI-kit look, GAME-40) top-left: kills, gems, HP pill with a heart badge, a row of weapon slots with LV;
+--            top centre: run clock; bottom centre: XP pill with a level badge, passives above it; a small HP bar
+--            under your feet. Shown while the player has a run (RunLevel
 --            attribute, set by GoblinHorde). Top-left sits below Roblox's own menu buttons (IgnoreGuiInset off).
 --   Level up 3 cards from Goblin.RunLevelUp, outlined in their rarity colour; tap one, then Take it! (two taps so a
 --            stray tap can't pick); Reroll.
@@ -48,7 +49,7 @@ end
 -- Outlined text: white (or given colour) with a thick dark edge, readable on any part of the map.
 local function text(props, outline: number?)
 	props.BackgroundTransparency = props.BackgroundTransparency or 1
-	props.FontFace = FONT
+	props.FontFace = props.FontFace or FONT
 	props.TextColor3 = props.TextColor3 or WHITE
 	local label = new("TextLabel", props)
 	new("UIStroke", { Thickness = outline or 2, Color = INK, ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual, Parent = label })
@@ -195,21 +196,63 @@ scale.Parent = gui
 
 ---------------------------------------------------------------- HUD
 
--- An item icon: glyph on the item's colour; LV text under it (weapons) or a number in the corner (passives).
-local function icon(size: number, under: boolean)
-	local glyph = new("TextLabel", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, FontFace = FONT, TextSize = size * 0.65, TextColor3 = INK, Text = "" })
-	local tile = new("Frame", { Size = UDim2.fromOffset(size, size), BackgroundColor3 = WHITE }, { corner(6), stroke(2), glyph })
-	local level = if under
-		then text({ Position = UDim2.fromOffset(-6, size + 1), Size = UDim2.fromOffset(size + 12, 12), TextSize = 11, Text = "" })
-		else text({ AnchorPoint = Vector2.new(1, 1), Position = UDim2.new(1, 6, 1, 8), Size = UDim2.fromOffset(16, 14), TextSize = 12, Text = "" })
-	level.Parent = tile
-	level.ZIndex = 4 -- above the art
-	return { tile = tile, glyph = glyph, level = level, prefix = if under then "LV " else "", art = art(tile, { glyph }, tile) }
+-- UI-kit look (owner's reference 2026-10-28, the bright Figma UI v3): chunky rounded pieces with a thick ink outline,
+-- glossy plastic fills, FredokaOne. Level up and Results keep the older look until the rest of GAME-40.
+local KIT_FONT = Font.fromEnum(Enum.Font.FredokaOne)
+local KIT_INK = Color3.fromRGB(20, 17, 43)
+local KIT_RED = Color3.fromRGB(255, 59, 78)
+local KIT_CYAN = Color3.fromRGB(32, 201, 230)
+local KIT_YELLOW = Color3.fromRGB(255, 210, 63)
+local KIT_TRACK = Color3.fromRGB(58, 52, 88)
+local KIT_TILE = Color3.fromRGB(236, 240, 255)
+
+local function kitText(props, outline: number?)
+	props.FontFace = KIT_FONT
+	local label = text(props, outline)
+	label:FindFirstChildOfClass("UIStroke").Color = KIT_INK
+	return label
+end
+local function pill()
+	return new("UICorner", { CornerRadius = UDim.new(0.5, 0) })
+end
+-- Plastic shine: the top half keeps the colour, the bottom half is a shade darker.
+local function gloss()
+	local dark = Color3.fromRGB(205, 205, 215)
+	return new("UIGradient", { Rotation = 90, Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0, WHITE), ColorSequenceKeypoint.new(0.5, WHITE),
+		ColorSequenceKeypoint.new(0.52, dark), ColorSequenceKeypoint.new(1, dark),
+	}) })
+end
+-- A pill bar: dark track, glossy fill, value text on top.
+local function kitBar(width: number, height: number, color: Color3)
+	local fill = new("Frame", { Size = UDim2.fromScale(0, 1), BackgroundColor3 = color, BorderSizePixel = 0 }, { pill(), gloss() })
+	local label = kitText({ Size = UDim2.fromScale(1, 1), Text = "", TextSize = height - 6, ZIndex = 2 })
+	local track = new("Frame", { Size = UDim2.fromOffset(width, height), BackgroundColor3 = KIT_TRACK, BorderSizePixel = 0 }, { pill(), stroke(3, KIT_INK), fill, label })
+	return track, fill, label
+end
+-- A round glossy badge that caps the left end of a bar.
+local function badge(size: number, color: Color3)
+	return new("Frame", { Size = UDim2.fromOffset(size, size), BackgroundColor3 = color, ZIndex = 3 }, { pill(), stroke(3, KIT_INK), gloss() })
 end
 
-local killLabel = text({ Size = UDim2.fromOffset(0, 18), AutomaticSize = Enum.AutomaticSize.X, Text = "0", TextSize = 16, LayoutOrder = 2 })
-local gemLabel = text({ Size = UDim2.fromOffset(0, 18), AutomaticSize = Enum.AutomaticSize.X, Text = "0", TextSize = 16, TextColor3 = Color3.fromRGB(159, 228, 255), LayoutOrder = 4 })
-local stats = new("Frame", { Size = UDim2.fromOffset(180, 18), BackgroundTransparency = 1, LayoutOrder = 1 }, {
+-- An item slot: an empty kit tile (always shown) holding the item's icon tile (glyph on the item's colour until the
+-- sheet loads); LV text under it (weapons) or a number in the corner (passives). Both hide with the icon tile.
+local function icon(size: number, under: boolean)
+	local inner = size - 10
+	local glyph = new("TextLabel", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, FontFace = KIT_FONT, TextSize = inner * 0.6, TextColor3 = KIT_INK, Text = "" })
+	local tile = new("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(inner, inner), BackgroundColor3 = WHITE }, { corner(6), stroke(2, KIT_INK), glyph })
+	local slot = new("Frame", { Size = UDim2.fromOffset(size, size), BackgroundColor3 = KIT_TILE }, { corner(10), stroke(3, KIT_INK), gloss(), tile })
+	local level = if under
+		then kitText({ AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 1, 8), Size = UDim2.fromOffset(size + 12, 14), TextSize = 14, Text = "" })
+		else kitText({ AnchorPoint = Vector2.new(1, 1), Position = UDim2.new(1, 10, 1, 10), Size = UDim2.fromOffset(16, 14), TextSize = 14, Text = "" })
+	level.Parent = tile
+	level.ZIndex = 4 -- above the art
+	return { slot = slot, tile = tile, glyph = glyph, level = level, prefix = if under then "LV " else "", art = art(tile, { glyph }, tile) }
+end
+
+local killLabel = kitText({ Size = UDim2.fromOffset(0, 20), AutomaticSize = Enum.AutomaticSize.X, Text = "0", TextSize = 18, LayoutOrder = 2 })
+local gemLabel = kitText({ Size = UDim2.fromOffset(0, 20), AutomaticSize = Enum.AutomaticSize.X, Text = "0", TextSize = 18, TextColor3 = Color3.fromRGB(159, 228, 255), LayoutOrder = 4 })
+local stats = new("Frame", { Size = UDim2.fromOffset(200, 20), BackgroundTransparency = 1, LayoutOrder = 1 }, {
 	list(Enum.FillDirection.Horizontal, 5),
 	killLabel,
 	gemLabel,
@@ -226,46 +269,55 @@ do
 	local gemHolder = new("Frame", { Size = UDim2.fromOffset(16, 16), BackgroundTransparency = 1, LayoutOrder = 3, Parent = stats }, { diamond })
 	setArt(art(gemHolder, { diamond }), "gem")
 end
-local hpTrack, hpFill = bar(UDim2.fromOffset(168, 14), RED)
-hpTrack.LayoutOrder = 2
-local hpLabel = text({ Size = UDim2.fromScale(1, 1), Text = "100 / 100", TextSize = 11, ZIndex = 2 })
-hpLabel.Parent = hpTrack
+-- HP: red pill bar capped by a white heart badge.
+local hpTrack, hpFill, hpLabel = kitBar(196, 24, KIT_RED)
+hpTrack.Position = UDim2.fromOffset(22, 6)
+local heart = badge(36, WHITE)
+do
+	local plus = kitText({ Size = UDim2.fromScale(1, 1), Text = "+", TextSize = 24, TextColor3 = KIT_RED })
+	local holder = new("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromScale(0.78, 0.78), BackgroundTransparency = 1, Parent = heart }, { plus })
+	setArt(art(holder, { plus }), "heart")
+end
+local hpGroup = new("Frame", { Size = UDim2.fromOffset(220, 36), BackgroundTransparency = 1, LayoutOrder = 2 }, { hpTrack, heart })
 local weaponSlots = {}
-local weaponGrid = new("Frame", { Size = UDim2.fromOffset(92, 100), BackgroundTransparency = 1, LayoutOrder = 3 }, {
-	new("UIGridLayout", { CellSize = UDim2.fromOffset(34, 48), CellPadding = UDim2.fromOffset(12, 2), SortOrder = Enum.SortOrder.LayoutOrder }),
+local weaponRow = new("Frame", { Size = UDim2.fromOffset(R.WeaponSlots * 56 - 8, 70), BackgroundTransparency = 1, LayoutOrder = 3 }, {
+	new("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder }),
 })
 for k = 1, R.WeaponSlots do
-	local s = icon(34, true)
-	-- the grid sizes its children to the 34x48 cell, so the tile sits in a holder with room for the LV line
-	new("Frame", { BackgroundTransparency = 1, LayoutOrder = k, Parent = weaponGrid }, { s.tile })
+	local s = icon(48, true)
+	s.slot.LayoutOrder = k
+	s.slot.Parent = weaponRow
 	weaponSlots[k] = s
 end
-local topLeft = new("Frame", { Position = UDim2.fromOffset(14, 8), Size = UDim2.fromOffset(190, 160), BackgroundTransparency = 1 }, {
+local topLeft = new("Frame", { Position = UDim2.fromOffset(14, 8), Size = UDim2.fromOffset(230, 160), BackgroundTransparency = 1 }, {
 	new("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }),
 	stats,
-	hpTrack,
-	weaponGrid,
+	hpGroup,
+	weaponRow,
 })
 
-local timeLabel = text({ AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 2), Size = UDim2.fromOffset(160, 34), Text = "00:00", TextSize = 32 }, 3)
+local timeLabel = kitText({ AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 2), Size = UDim2.fromOffset(160, 36), Text = "00:00", TextSize = 34 }, 3)
 
-local levelLabel = text({ Size = UDim2.fromOffset(150, 28), Text = "LV 1", TextSize = 28, TextColor3 = GOLD, TextXAlignment = Enum.TextXAlignment.Right }, 3)
-local xpTrack, xpFill = bar(UDim2.fromOffset(150, 8), GEM)
-xpTrack.Position = UDim2.fromOffset(0, 32)
-local topRight = new("Frame", { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -14, 0, 4), Size = UDim2.fromOffset(150, 42), BackgroundTransparency = 1 }, { levelLabel, xpTrack })
+-- XP along the bottom centre: cyan pill bar capped by a yellow level badge; passives sit just above it.
+local xpTrack, xpFill, xpLabel = kitBar(340, 24, KIT_CYAN)
+xpTrack.Position = UDim2.fromOffset(24, 9)
+local levelBadge = badge(42, KIT_YELLOW)
+local levelLabel = kitText({ Size = UDim2.fromScale(1, 1), Text = "1", TextSize = 22 })
+levelLabel.Parent = levelBadge
+local bottomBar = new("Frame", { AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -10), Size = UDim2.fromOffset(364, 42), BackgroundTransparency = 1 }, { xpTrack, levelBadge })
 
 local passiveSlots = {}
-local passiveRow = new("Frame", { AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -14), Size = UDim2.fromOffset(R.PassiveSlots * 38, 30), BackgroundTransparency = 1 }, {
+local passiveRow = new("Frame", { AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -62), Size = UDim2.fromOffset(R.PassiveSlots * 44, 36), BackgroundTransparency = 1 }, {
 	list(Enum.FillDirection.Horizontal, 8, Enum.HorizontalAlignment.Center),
 })
 for k = 1, R.PassiveSlots do
-	local s = icon(30, false)
-	s.tile.LayoutOrder = k
-	s.tile.Parent = passiveRow
+	local s = icon(36, false)
+	s.slot.LayoutOrder = k
+	s.slot.Parent = passiveRow
 	passiveSlots[k] = s
 end
 
-local hud = new("Frame", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Visible = false }, { topLeft, timeLabel, topRight, passiveRow })
+local hud = new("Frame", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Visible = false }, { topLeft, timeLabel, bottomBar, passiveRow })
 hud.Parent = gui
 
 -- Small HP bar under your own feet (Megabonk-style), so your eyes can stay on the fight.
@@ -297,8 +349,10 @@ local function refreshHUD()
 	if not level then
 		return
 	end
-	levelLabel.Text = "LV " .. level
-	xpFill.Size = UDim2.fromScale(math.clamp((player:GetAttribute("RunXP") or 0) / (player:GetAttribute("RunXPNext") or 1), 0, 1), 1)
+	levelLabel.Text = tostring(level)
+	local xp, xpNext = player:GetAttribute("RunXP") or 0, player:GetAttribute("RunXPNext") or 1
+	xpFill.Size = UDim2.fromScale(math.clamp(xp / xpNext, 0, 1), 1)
+	xpLabel.Text = string.format("%d / %d", math.floor(xp), math.floor(xpNext))
 	killLabel.Text = tostring(player:GetAttribute("RunKills") or 0)
 	gemLabel.Text = tostring(player:GetAttribute("RunGems") or 0)
 	local w, p = string.match(player:GetAttribute("RunLoadout") or ";", "^(.-);(.*)$")
