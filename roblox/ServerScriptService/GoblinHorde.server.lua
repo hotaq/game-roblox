@@ -2447,6 +2447,12 @@ if polishTestArgs then
 		table.clear(gems);table.clear(grid);table.clear(shots);table.clear(bones);table.clear(axes);table.clear(totems)
 		for _,r in runs do r.rocks=nil end
 	end
+	local function awaitOffer(p,r)
+		waitFor(function()
+			local state=bridge:InvokeClient(p,"snapshot")
+			return state.offerId==r.offerId and state.attributeOfferId==r.offerId and state.safeText
+		end,"offer delivered to client")
+	end
 	local function enemy(i,x,z)
 		if not alive[i]then count+=1 end;top=math.max(top,i)
 		alive[i],px[i],pz[i],hp[i]=true,x,z,10000
@@ -2507,30 +2513,30 @@ if polishTestArgs then
 			local before=ra.kills;hit(1,20000,ra,"fire",0,0,0,false);check(ra.kills==before and alive[1],"paused damage cannot award a kill")
 			gems[60000]={x=rootA.Position.X,z=rootA.Position.Z};local gemsBefore=ra.gems;step(1/30)
 			check(gems[60000] and ra.gems==gemsBefore,"chooser does not collect gems")
-			report.clientBeforeReroll=bridge:InvokeClient(a,"snapshot")
+			awaitOffer(a,ra);report.clientBeforeReroll=bridge:InvokeClient(a,"snapshot")
 			report.reroll=bridge:InvokeClient(a,"reroll",{offerId=offerId});waitFor(function()return ra.offerId~=offerId end,"reroll")
 			check(ra.pausedAt==pausedAt and ra.cardDeadline==deadline,"reroll keeps same pause and deadline")
 			local current=ra.offerId;bridge:InvokeClient(a,"pick",{index=1,offerId=offerId});task.wait(.2)
 			check(ra.offerId==current and ra.cards,"stale click cannot close replacement offer")
-			bridge:InvokeClient(a,"pick",{index=1});waitFor(function()return not ra.cards end,"manual pick")
+			awaitOffer(a,ra);bridge:InvokeClient(a,"pick",{index=1});waitFor(function()return not ra.cards end,"manual pick")
 			check(not rootA.Anchored and not ra.pauseShield and not a:GetAttribute("RunPausedAt"),"manual pick restores only chooser movement and protection")
 			rootA.Anchored=true
 			check(ra.start>rb.start and rb.start==bStart,"pause time excluded only from chooser clock")
 			step(1/30);check(shot.x~=sx and axe.x~=ax and totem.age>ta,"own projectiles resume after choice")
 			-- Real timeout uses the production 20s window; peers continue receiving steps.
 			clearWorld();override=0;ra.pending=2;offer(ra);local first=ra.offerId;local endAt=ra.cardDeadline
-			local cardsSeen=bridge:InvokeClient(a,"snapshot");check(cardsSeen.safeText and cardsSeen.paused,"UI explains safety and automatic first card")
+			awaitOffer(a,ra);local cardsSeen=bridge:InvokeClient(a,"snapshot");check(cardsSeen.safeText and cardsSeen.paused,"UI explains safety and automatic first card")
 			while Workspace:GetServerTimeNow()<endAt+.1 do step(1/30);task.wait(1/30)end
 			check(ra.pending==1 and ra.offerId~=first and ra.cards,"timeout consumes exactly one pending offer")
 			check(ra.cardDeadline>endAt and ra.pausedAt~=nil,"queued level keeps protection with fresh deadline")
 			local second=ra.offerId;bridge:InvokeClient(a,"pick",{offerId=first,index=1});task.wait(.15)
 			check(ra.offerId==second and ra.pending==1,"late timeout reply does not consume next card")
-			bridge:InvokeClient(a,"pick",{index=1});waitFor(function()return not ra.cards end,"second choice")
+			awaitOffer(a,ra);bridge:InvokeClient(a,"pick",{index=1});waitFor(function()return not ra.cards end,"second choice")
 			task.wait(.2);check(not bridge:InvokeClient(a,"snapshot").paused,"client pause attribute clears")
 			-- Both choose: no gameplay targets; each can resume independently.
 			ra.pending=1;rb.pending=1;offer(ra);offer(rb);step(1/30)
 			check(#targets==0,"both choosing excludes both from gameplay targets")
-			bridge:InvokeClient(a,"pick",{index=1});waitFor(function()return not ra.cards end,"first resumes")
+			awaitOffer(a,ra);bridge:InvokeClient(a,"pick",{index=1});waitFor(function()return not ra.cards end,"first resumes")
 			step(1/30);check(#targets==1 and targets[1].run==ra and rb.cards,"one resumes without waiting for teammate")
 			local rbShield=rb.pauseShield;rb.hum.Health=0;waitFor(function()return not runs[b]end,"death cleanup")
 			check(rbShield.Parent==nil and not b:GetAttribute("RunPausedAt"),"death removes own shield and attributes")
