@@ -2700,6 +2700,14 @@ if eliteTestArgs then
 				return state,actor,er,actor:FindFirstChildOfClass("Humanoid")
 			end
 			local state,actor,er,eh=spawn(true)
+			if eliteTestArgs.review then
+				-- Dedicated, bounded visual review of the real mapped actor/HUD; no acceptance/performance claim.
+				report.review=true;ra.hum.MaxHealth=10000;ra.hum.Health=10000
+				Shared:SetAttribute("GAME28ReviewActive",true)
+				task.wait(90)
+				Shared:SetAttribute("GAME28ReviewActive",nil)
+				return
+			end
 			check(eh.MaxHealth==Config.EliteTrial.Health*(1+.5*(#list-1)),"single elite scales HP only to spawn roster")
 			check(count==0 and top==0 and nearest(root.Position.X,root.Position.Z,1)[1]==-1,"separate target does not inflate horde slots")
 			task.wait(2) -- published animation assets load before timing checks
