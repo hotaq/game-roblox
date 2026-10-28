@@ -4,8 +4,9 @@
 -- goblins walk on. Trees and ruins come from the ServerStorage.Map1Kit templates (scripts/14_voxel_trees.py,
 -- 15_maya_ruins.py); the Meshy props from Map1Kit when present: Prop_Totem (asset 80849974035661, 20 studs tall,
 -- pivot at its bottom centre), Prop_TempleGate (asset 137670247217292, 34 wide, opening along Z, ~10-stud walkable
--- gap), Prop_SkullShrine (asset 123252779732487, 40 wide, on the E hill), Prop_JadeHead, Prop_SkullRock. Missing ones fall back to the part-built versions here; graves, thorns and
--- bridges are built from parts.
+-- gap), Prop_SkullShrine (asset 113206205477662: 8 plastic MeshParts, one per colour, from
+-- scripts/26_plasticify_glb.py, plus 2 neon jade eyes; 40 wide, on the E hill), Prop_JadeHead, Prop_SkullRock.
+-- Missing ones fall back to the part-built versions here; graves, thorns and bridges are built from parts.
 -- Deterministic (fixed seeds). Usage from the command bar / MCP:
 --   require(game.ServerScriptService.Map1Builder).build()                      -- everything, at (1000, 0, 0)
 --   require(game.ServerScriptService.Map1Builder).build(nil, { "props" })      -- only some stages
