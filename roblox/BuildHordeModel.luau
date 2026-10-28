@@ -8,9 +8,12 @@
 -- Re-run after re-importing. Deletes workspace.GoblinHorde when done.
 -- Goblin v2 (export/GoblinV2Horde.fbx, same rig): import it as workspace.GoblinV2Horde instead; it wins when both
 -- are present and keeps the texture the importer uploaded with it.
+-- The jungle skeleton (export/SkeletonHorde.fbx, same rig, GAME-42): import it as workspace.SkeletonHorde; it builds
+-- ReplicatedStorage.Goblin.SkeletonHordeModel and leaves HordeModel alone.
 local AssetService = game:GetService("AssetService")
 local RIGID = { Root = true, HumanoidRootNode = true, LowerTorso = true } -- move with the MeshPart itself: no Bone
-local imported = workspace:FindFirstChild("GoblinV2Horde") or workspace.GoblinHorde
+local imported = workspace:FindFirstChild("SkeletonHorde") or workspace:FindFirstChild("GoblinV2Horde") or workspace.GoblinHorde
+local OUT = if imported.Name == "SkeletonHorde" then "SkeletonHordeModel" else "HordeModel"
 -- v1: the 17-part goblin's ColorMap, since the importer's own re-upload of the pixel atlas looks blurry
 local ATLAS = if imported.Name == "GoblinHorde" then "rbxassetid://125017663072921" else nil
 -- v2 is drawn at 0.7x (4.5 studs, under the player's height; owner: "too big"). The client reads the hip height from
@@ -31,7 +34,7 @@ end
 em:Destroy()
 
 local model = Instance.new("Model")
-model.Name = "HordeModel"
+model.Name = OUT
 local hrp = source.HumanoidRootPart:Clone()
 hrp:ClearAllChildren()
 hrp.Anchored, hrp.Transparency, hrp.CanCollide, hrp.CanTouch = true, 1, false, false
@@ -83,10 +86,10 @@ if SCALE ~= 1 then
 end
 
 local shared = game.ReplicatedStorage.Goblin
-local old = shared:FindFirstChild("HordeModel")
+local old = shared:FindFirstChild(OUT)
 if old then
 	old:Destroy()
 end
 model.Parent = shared
 imported:Destroy()
-return ("HordeModel: mesh %s, texture %s, %d instances"):format(mesh.MeshId, mesh.TextureID, #model:GetDescendants() + 1)
+return (OUT .. ": mesh %s, texture %s, %d instances"):format(mesh.MeshId, mesh.TextureID, #model:GetDescendants() + 1)

@@ -22,6 +22,7 @@ local Workspace = game:GetService("Workspace")
 local Shared = ReplicatedStorage:WaitForChild("Goblin")
 local Config = require(Shared:WaitForChild("GoblinConfig"))
 local H, R, W, P = Config.Horde, Config.Run, Config.Weapons, Config.Passives
+local SK = Config.Skeleton
 
 -- Fallback client model for when Goblin.HordeModel is missing: GoblinAI's stripped template, with an
 -- AnimationController instead of a Humanoid and no collisions.
@@ -59,6 +60,10 @@ local generation = {} -- axe hit identity includes the incarnation of a reused h
 local swingAt, nextSwing = {}, {} -- wind-up start (nil = not swinging) and earliest next swing, per slot
 local kvx, kvz, stunUntil, slowUntil = {}, {}, {}, {} -- knockback velocity (fades), stun and slow end times, per slot
 local swings = {} -- slots that started a swing this step (sent at once, not with the 10 Hz snapshot)
+-- GAME-42 skeletons: a slot's kind rides on its incarnation's parity (odd = skeleton), so clients pick the model without
+-- a protocol change; a skeleton's BoneThrow wind-up goes out as a swing.
+local skel, throwAt, nextThrow = {}, {}, {} -- skeleton slot, its wind-up start (nil = not throwing), next throw time
+local bones = {} -- bones in flight {x, z, dx, dz, left}
 local free, top, count, override = {}, 0, 0, nil :: number?
 local dead, deadFirstGem = {}, 0 -- slots killed since the last send; each dropped gem number deadFirstGem + k - 1
 local gems, nextGem = {}, 0 -- gem number -> {x, z}
@@ -87,7 +92,7 @@ end
 
 -- `run` = the run whose weapon killed it (counts the kill, drops a gem); nil = despawned quietly.
 local function kill(i: number, run)
-	alive[i], swingAt[i] = false, nil
+	alive[i], swingAt[i], throwAt[i], skel[i] = false, nil, nil, false
 	count -= 1
 	table.insert(free, i)
 	if run then
@@ -564,7 +569,7 @@ local function hit(i: number, dmg: number, run, weapon: string, fromX: number, f
 	local now = Workspace:GetServerTimeNow()
 	slowUntil[i] = now + H.SlowTime
 	if stuns then
-		stunUntil[i], swingAt[i] = now + H.Stun, nil
+		stunUntil[i], swingAt[i], throwAt[i] = now + H.Stun, nil, nil
 	end
 	local before = hp[i]
 	hp[i] -= dmg
@@ -920,6 +925,30 @@ local targets = {}
 local lastHit: { [Humanoid]: number } = {}
 local taken = {} -- Player -> gem numbers picked up since the last send
 
+-- GAME-42: bones fly straight; one that passes within BoneRadius of a player hurts them (same i-frames as a swing).
+local function moveBones(dt: number)
+	local r2, travel = SK.BoneRadius * SK.BoneRadius, SK.BoneSpeed * dt
+	local now = Workspace:GetServerTimeNow()
+	for k = #bones, 1, -1 do
+		local b = bones[k]
+		b.x, b.z, b.left = b.x + b.dx * travel, b.z + b.dz * travel, b.left - travel
+		local done = b.left <= 0
+		for _, t in targets do
+			local p = t.root.Position
+			if not done and (p.X - b.x) ^ 2 + (p.Z - b.z) ^ 2 < r2 then
+				done = true
+				if now - (lastHit[t.hum] or 0) > H.IFrames then
+					lastHit[t.hum] = now
+					t.hum:TakeDamage(SK.BoneDamage)
+				end
+			end
+		end
+		if done then
+			table.remove(bones, k)
+		end
+	end
+end
+
 local function step(dt: number)
 	pruneAxes() -- also runs while the existing global card pause is active
 	pruneRocks()
@@ -993,7 +1022,22 @@ local function step(dt: number)
 		-- Swing: start one when close, land it after the wind-up if the player didn't step away. Swinging = standing.
 		local swinging = swingAt[i] ~= nil
 		local stunned = now < stunUntil[i]
-		if swinging and now - swingAt[i] >= H.AttackWindup then
+		if skel[i] then -- GAME-42: keep the distance, wind up, then throw a bone at where the player stands now
+			if throwAt[i] and now - throwAt[i] >= SK.ThrowWindup then
+				throwAt[i], nextThrow[i] = nil, now + SK.ThrowEvery
+				if bt then
+					local d = math.max(math.sqrt(best), 0.01)
+					local p = bt.root.Position
+					local dx, dz = (p.X - x) / d, (p.Z - z) / d
+					table.insert(bones, { x = x, z = z, dx = dx, dz = dz, left = SK.BoneRange })
+					fx:FireAllClients("bone", x, z, dx, dz, SK.BoneSpeed, SK.BoneRange)
+				end
+			elseif not throwAt[i] and not stunned and bt and best < SK.ThrowRange ^ 2 and now >= nextThrow[i] then
+				throwAt[i] = now
+				table.insert(swings, i) -- clients play BoneThrow for a skeleton's swing
+			end
+			swinging = throwAt[i] ~= nil or (bt ~= nil and best < SK.Keep ^ 2) -- stands while throwing or close enough
+		elseif swinging and now - swingAt[i] >= H.AttackWindup then
 			swingAt[i], nextSwing[i], swinging = nil, now + H.AttackCooldown, false
 			if bt and best < reach2 and now - (lastHit[bt.hum] or 0) > H.IFrames then
 				lastHit[bt.hum] = now
@@ -1007,7 +1051,7 @@ local function step(dt: number)
 		if bt and best > 0.25 and not swinging and not stunned then
 			local d = math.sqrt(best)
 			local p = bt.root.Position
-			local speed = if now < slowUntil[i] then H.Speed * H.Slow else H.Speed
+			local speed = (if now < slowUntil[i] then H.Speed * H.Slow else H.Speed) * (if skel[i] then SK.Speed else 1)
 			vx, vz = (p.X - x) / d * speed, (p.Z - z) / d * speed
 		end
 		local cx, cz = x // CELL, z // CELL
@@ -1073,6 +1117,7 @@ local function step(dt: number)
 		end
 	end
 	moveShots(dt)
+	moveBones(dt)
 	moveAxes(dt)
 	moveTotems(dt)
 	for g, gem in gems do
@@ -1115,6 +1160,11 @@ local function step(dt: number)
 			top, count = math.max(top, i), count + 1
 			alive[i], hp[i] = true, health
 			generation[i] = (generation[i] or 0) + 1
+			skel[i] = (longest or 0) >= SK.From and rng:NextNumber() < SK.Share
+			if (generation[i] % 2 == 1) ~= skel[i] then
+				generation[i] += 1 -- odd incarnation = skeleton (GAME-42); still strictly increasing
+			end
+			throwAt[i], nextThrow[i] = nil, now + rng:NextNumber(1, SK.ThrowEvery)
 			kvx[i], kvz[i], stunUntil[i], slowUntil[i] = 0, 0, 0, 0
 			px[i] = math.clamp(t.X + math.cos(a) * r, center.X - half, center.X + half)
 			pz[i] = math.clamp(t.Z + math.sin(a) * r, center.Z - half, center.Z + half)

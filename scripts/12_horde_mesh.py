@@ -6,15 +6,16 @@
 # roblox/BuildHordeModel.luau to turn it into ReplicatedStorage.Goblin.HordeModel. The .blend is not saved.
 # Goblin v2 (24_goblin_v2_model.py): GOBLIN_STYLE=v2 ... -b goblin/blender/goblin_v2.blend --python ...12_horde_mesh.py
 # writes export/GoblinV2Horde.fbx instead, keeps the eyes' own atlas texels and builds the export rig if 05 never ran.
+# The jungle skeleton (25_skeleton_model.py, blender/skeleton.blend): GOBLIN_STYLE=skeleton -> export/SkeletonHorde.fbx.
 import importlib.util
 import os
 
 import bpy
 
 ROOT = os.environ.get("GOBLIN_ROOT", "/Users/chinnaphat/Desktop/cedt/roblox/goblin")
-V2 = os.environ.get("GOBLIN_STYLE") == "v2"
-NAME = "GoblinV2Horde" if V2 else "GoblinHorde"
-EYE_TEXEL = None if V2 else (894, 366)  # v1 atlas pixel (255, 201, 35), counted from the top-left like Roblox
+STYLE = os.environ.get("GOBLIN_STYLE", "v1")
+NAME = {"v2": "GoblinV2Horde", "skeleton": "SkeletonHorde"}.get(STYLE, "GoblinHorde")
+EYE_TEXEL = (894, 366) if STYLE == "v1" else None  # v1 atlas pixel (255, 201, 35), counted from the top-left like Roblox
 
 spec = importlib.util.spec_from_file_location("export05", os.path.join(ROOT, "scripts", "05_export.py"))
 export05 = importlib.util.module_from_spec(spec)

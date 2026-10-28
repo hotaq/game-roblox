@@ -50,6 +50,7 @@ Config.Animations = {
 	Jump = "rbxassetid://129782374599464",
 	Fall = "rbxassetid://95323874284201",
 	Land = "rbxassetid://131102995523441",
+	BoneThrow = "", -- the skeleton's special (ReplicatedStorage.SkeletonAnims.BoneThrow); empty = Studio registers it
 }
 
 Config.VFX = {
@@ -124,6 +125,22 @@ Config.Horde = {
 	SendRate = 10, -- snapshots per second to every client (clients smooth between them)
 	ViewEnter = 192, -- player-centred interest, beyond normal camera/weapon reach
 	ViewLeave = 224, -- keep existing neighbours a little farther to prevent boundary flicker
+}
+
+-- The jungle skeleton (GAME-42): mixed into the horde, keeps its distance and throws bones (BoneThrow) instead of
+-- swinging. Same slots, health and push-apart as a goblin.
+Config.Skeleton = {
+	From = 60, -- seconds into the longest run before skeletons spawn ...
+	Share = 1 / 8, -- ... then this share of new spawns are skeletons
+	Speed = 0.75, -- x Horde.Speed
+	Keep = 20, -- stops walking this close to a player ...
+	ThrowRange = 25, -- ... and throws when one is this close
+	ThrowEvery = 4, -- seconds between throws, per skeleton
+	ThrowWindup = 0.5, -- BoneThrow's Throw marker: the bone leaves the hand this long after the wind-up starts
+	BoneSpeed = 30, -- studs per second, straight at where the player stood at release (dodgeable)
+	BoneRange = 32, -- studs before it drops
+	BoneRadius = 2, -- hits a player this close to the bone
+	BoneDamage = 8,
 }
 
 -- A run (GoblinHorde): starts when a player enters the arena, ends when they die.

@@ -22,6 +22,9 @@ local template = Shared:FindFirstChild("HordeModel") or Shared:WaitForChild("Hor
 template:ScaleTo(Config.Horde.ModelScale) -- in code, not just place content, so an Undo can't bring back the big goblin
 local box, boxSize = template:GetBoundingBox()
 local HIP_Y = template:GetPivot().Position.Y - (box.Position.Y - boxSize.Y / 2) -- pivot height above the feet
+-- GAME-42: the jungle skeleton (same rig and hip height); until Goblin.SkeletonHordeModel exists it borrows the goblin.
+local skeletonTemplate = Shared:FindFirstChild("SkeletonHordeModel") or template
+skeletonTemplate:ScaleTo(Config.Horde.ModelScale)
 local HIDDEN = CFrame.new(0, -1000, 0)
 local NONE = -32768 -- x of a free slot
 local SMOOTH = 12 -- how fast a model catches up with the latest snapshot (1/s)
@@ -36,13 +39,25 @@ local function animation(name: string): Animation
 	return a
 end
 local RUN, DEATH, SWING, FLINCH = animation("Run"), animation("Death"), animation("Attack1"), animation("HitFront")
+-- A skeleton's "swing" is its BoneThrow. Until that's published, Studio registers the KeyframeSequence Rojo syncs.
+local THROW = animation("BoneThrow")
+if THROW.AnimationId == "" then
+	local anims = ReplicatedStorage:FindFirstChild("SkeletonAnims")
+	local ks = anims and anims:FindFirstChild("BoneThrow")
+	if ks and RunService:IsStudio() then
+		THROW.AnimationId = game:GetService("KeyframeSequenceProvider"):RegisterKeyframeSequence(ks)
+	else
+		THROW = SWING
+	end
+end
 
-local pool, live = {}, {} -- live: slot -> entry
+local pool, skeletonPool, live = {}, {}, {} -- live: slot -> entry
 
-local function acquire()
-	local e = table.remove(pool)
+local function acquire(kind: string)
+	local list = if kind == "skeleton" then skeletonPool else pool
+	local e = table.remove(list)
 	if not e then
-		local m = template:Clone()
+		local m = (if kind == "skeleton" then skeletonTemplate else template):Clone()
 		local fadeParts = {}
 		for _, part in m:GetDescendants() do -- client-only: the player must never stand on or bump into one
 			if part:IsA("BasePart") then
@@ -52,7 +67,7 @@ local function acquire()
 		end
 		m.Parent = folder
 		local animator = m:FindFirstChildOfClass("AnimationController"):FindFirstChildOfClass("Animator")
-		e = { root = m:FindFirstChild("HumanoidRootPart"), run = animator:LoadAnimation(RUN), death = animator:LoadAnimation(DEATH), swing = animator:LoadAnimation(SWING), flinch = animator:LoadAnimation(FLINCH) }
+		e = { kind = kind, root = m:FindFirstChild("HumanoidRootPart"), run = animator:LoadAnimation(RUN), death = animator:LoadAnimation(DEATH), swing = animator:LoadAnimation(if kind == "skeleton" then THROW else SWING), flinch = animator:LoadAnimation(FLINCH) }
 		e.fadeParts = fadeParts
 		e.run.Looped = true
 		e.run.Priority = Enum.AnimationPriority.Movement
@@ -70,7 +85,7 @@ local function recycle(e)
 	e.flinch:Stop(0)
 	e.root.CFrame = HIDDEN
 	for _, part in e.fadeParts do part.LocalTransparencyModifier = 0 end
-	table.insert(pool, e)
+	table.insert(if e.kind == "skeleton" then skeletonPool else pool, e)
 end
 
 -- Keep the authored fall (BodyFall at 1.1 s), skip the long hold/dissolve tail.
@@ -144,7 +159,7 @@ Shared:WaitForChild("HordeSnap").OnClientEvent:Connect(function(b: buffer, mask:
 			free(slot); e=nil -- a silently despawned/reused slot must not inherit its old model state
 		end
 		if not e then
-			e = acquire()
+			e = acquire(if (births[slot] or 0) % 2 == 1 then "skeleton" else "goblin") -- GAME-42: odd incarnation
 			e.x, e.z, e.tx, e.tz, e.yaw, e.tyaw = x, z, x, z, 0, 0
 			e.incarnation = births[slot] or 0
 			live[slot] = e
@@ -221,7 +236,7 @@ Shared:WaitForChild("HordeSwing").OnClientEvent:Connect(function(b: buffer, iden
 		local e = live[buffer.readu16(b, o)]
 		if e and (not identities or e.incarnation==buffer.readu32(identities,o*2)) then
 			if networkObserved then networkObserved.swings+=1 end
-			e.swing:Play(0.05) -- the server lands the hit at AttackWindup, around this clip's HitStart
+			e.swing:Play(0.05) -- the server lands the hit at AttackWindup (a skeleton's bone at its Throw marker)
 		end
 	end
 end)
@@ -325,6 +340,7 @@ end)
 -- Fireball: flies straight to its range.
 local SWEEP, CLOSE = 0.12, 0.1
 local sweepPool, balls, ballPool = {}, {}, {}
+local bonePool = {} -- GAME-42: thrown bones share the fireball mover
 local swingSide = {} -- Player -> 1 / -1, flipped every slash
 local function keys(...)
 	local k = {}
@@ -850,6 +866,14 @@ Shared:WaitForChild("HordeFx").OnClientEvent:Connect(function(kind: string, ...)
 			return fxPart(Vector3.one * 1.3, Color3.fromRGB(255, 140, 50), Enum.PartType.Ball)
 		end)
 		table.insert(balls, { part = p, x = x, z = z, dx = dx, dz = dz, speed = speed, left = range })
+	elseif kind == "bone" then -- GAME-42: a skeleton's bone, tumbling end over end
+		local x, z, dx, dz, speed, range = ...
+		local p = pooled(bonePool, function()
+			local b = fxPart(Vector3.new(0.45, 0.45, 1.8), Color3.fromRGB(238, 228, 198))
+			b.Material = Enum.Material.SmoothPlastic
+			return b
+		end)
+		table.insert(balls, { part = p, pool = bonePool, spin = 0, x = x, z = z, dx = dx, dz = dz, speed = speed, left = range })
 	end
 end)
 
@@ -1205,8 +1229,12 @@ RunService.RenderStepped:Connect(function(dt)
 		b.left -= step
 		if b.left <= 0 then
 			b.part.CFrame = HIDDEN
-			table.insert(ballPool, b.part)
+			table.insert(b.pool or ballPool, b.part)
 			table.remove(balls, k)
+		elseif b.spin then
+			b.spin += dt * 14
+			local at = Vector3.new(b.x, HIP_Y + 0.6, b.z)
+			b.part.CFrame = CFrame.lookAt(at, at + Vector3.new(b.dx, 0, b.dz)) * CFrame.Angles(b.spin, 0, 0)
 		else
 			b.part.CFrame = CFrame.new(b.x, HIP_Y, b.z)
 		end
