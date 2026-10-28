@@ -1224,6 +1224,80 @@ local function moveBones(dt: number)
 	end
 end
 
+-- GAME-43: Map1's solid props (tree trunks, totems, the temple gate's legs, the skull shrine, stelae, ruin walls) as
+-- circles the horde slides around instead of walking through. Read from the live map at the first Map1 step (the owner
+-- places trees by hand); bushes and the pyramid (MapLayout heights, climbable) are left out. 16-stud spatial hash.
+local Solid = {}
+do
+	local CELL_S = 16
+	local SHARE = { Prop_Totem = 0.45, Ruin_Stela = 0.45, Prop_SkullShrine = 0.42, Ruin_Wall = 0.4, Ruin_PillarBroken = 0.4,
+		Prop_JadeHead = 0.42, Prop_SkullRock = 0.42 } -- radius as a share of the footprint's short side
+	local cells
+	local function add(x: number, z: number, r: number)
+		for cx = (x - r) // CELL_S, (x + r) // CELL_S do
+			for cz = (z - r) // CELL_S, (z + r) // CELL_S do
+				local k = key(cx, cz)
+				cells[k] = cells[k] or {}
+				table.insert(cells[k], { x, z, r })
+			end
+		end
+	end
+	function Solid.map()
+		if cells then
+			return cells
+		end
+		cells = {}
+		local map = Workspace:FindFirstChild("Map1")
+		local forest, landmarks = map and map:FindFirstChild("Forest"), map and map:FindFirstChild("Landmarks")
+		for _, m in if forest then forest:GetChildren() else {} do
+			if m:IsA("Model") and m.Name ~= "Tree_Bush" then
+				local _, size = m:GetBoundingBox()
+				add(m:GetPivot().X, m:GetPivot().Z, math.min(size.X, size.Z) * 0.12) -- the trunk, not the canopy
+			end
+		end
+		for _, m in if landmarks then landmarks:GetChildren() else {} do
+			if m:IsA("Model") and (SHARE[m.Name] or m.Name == "Prop_TempleGate") then
+				local cf, size = m:GetPivot(), select(2, m:GetBoundingBox())
+				if m.Name == "Prop_TempleGate" then -- the two legs; the arch between them stays open
+					for _, s in { -1, 1 } do
+						local leg = cf * CFrame.new(s * size.X * 0.32, 0, 0)
+						add(leg.X, leg.Z, size.Z * 0.4)
+					end
+				else
+					add(cf.X, cf.Z, math.min(size.X, size.Z) * SHARE[m.Name])
+				end
+			end
+		end
+		return cells
+	end
+	-- Moved from (x0, z0) to (x, z): out of any circle it entered, back onto the rim, keeping the step's motion along the
+	-- rim so it slides round instead of stopping. Head-on there is no along-rim part: even slots go one way, odd the other.
+	function Solid.push(c, x: number, z: number, x0: number, z0: number, slot: number): (number, number)
+		local list = c[key(x // CELL_S, z // CELL_S)]
+		if not list then
+			return x, z
+		end
+		for _, o in list do
+			local ex, ez = x - o[1], z - o[2]
+			local e2 = ex * ex + ez * ez
+			if e2 < o[3] * o[3] and e2 > 1e-6 then
+				local e = math.sqrt(e2)
+				local nx, nz = ex / e, ez / e
+				local mx, mz = x - x0, z - z0
+				local along = mx * nx + mz * nz
+				local tx, tz = mx - along * nx, mz - along * nz
+				local m2 = mx * mx + mz * mz
+				if tx * tx + tz * tz < 0.09 * m2 then
+					local s = (if slot % 2 == 0 then 1 else -1) * math.sqrt(m2)
+					tx, tz = -nz * s, nx * s
+				end
+				x, z = o[1] + nx * o[3] + tx, o[2] + nz * o[3] + tz
+			end
+		end
+		return x, z
+	end
+end
+
 local function step(dt: number)
 	pruneAxes() -- cleanup is independent of each owner's card pause
 	pruneRocks()
@@ -1240,6 +1314,7 @@ local function step(dt: number)
 		if hum.Health <= 0 or not hum:IsDescendantOf(Workspace) then lastHit[hum] = nil end
 	end
 	local center, half = arena()
+	local solid = if Workspace:GetAttribute("Arena") == "Map1" then Solid.map() else nil
 	local now = Workspace:GetServerTimeNow()
 	for player, run in runs do
 		if player.Character ~= run.hum.Parent or run.hum.Health <= 0 then
@@ -1380,6 +1455,9 @@ local function step(dt: number)
 		vx, vz = vx + kvx[i], vz + kvz[i]
 		kvx[i], kvz[i] = kvx[i] * fade, kvz[i] * fade
 		x, z = x + vx * dt, z + vz * dt
+		if solid then -- GAME-43: slide around Map1's trunks and posts
+			x, z = Solid.push(solid, x, z, px[i], pz[i], i)
+		end
 		if center then
 			x, z = math.clamp(x, center.X - half, center.X + half), math.clamp(z, center.Z - half, center.Z + half)
 		end
