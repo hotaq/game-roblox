@@ -38,11 +38,14 @@ local TEX = {
 	Stairs = { "Map1_TempleStone2", 1 }, Plaza = { "Map1_Plaza1", 1 }, Spawn = { "Map1_Plaza1", 1 },
 	Shore = { "Map1_Sand1", 1 }, Grass = { "Map1_Grass1", 1 }, Jungle = { "Map1_JungleFloor2", 1 },
 	Graveyard = { "Map1_JungleFloor2", 0.8 }, Path = { "Map1_DirtPath3", 1 }, Mud = { "Map1_DirtPath3", 0.7 },
-	grass = { "Map1_Grass1", 1 }, moss = { "Map1_JungleFloor2", 0.9 }, -- mountain caps
+	grass = { "Map1_Grass1", 1 }, moss = { "Map1_Grass1", 0.72 }, -- mountain caps (leaves streak on a 1-stud side)
 }
 local function textured(p: BasePart, t: { any }?)
 	local v = t and game:GetService("MaterialService"):FindFirstChild(t[1], true) :: MaterialVariant?
 	if v then
+		-- A texture is laid from its part's corner, so with one repeat per tile every part edge (all on the 6-stud grid,
+		-- columns all start at BOTTOM) lands on a repeat edge and neighbouring parts continue each other seamlessly.
+		v.StudsPerTile = TILE
 		p.Material, p.MaterialVariant, p.Color = v.BaseMaterial, v.Name, Color3.new(t[2], t[2], t[2])
 	end
 end
