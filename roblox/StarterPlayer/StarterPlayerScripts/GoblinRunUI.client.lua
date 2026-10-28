@@ -14,6 +14,7 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
 local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Goblin")
@@ -120,14 +121,51 @@ local function panel(title: string, width: number, body)
 	end
 	return new("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(width, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundColor3 = WHITE }, { corner(16), stroke(4, KIT_INK), header, content })
 end
+-- Kit motion: an overlay fades in and its panel pops with a little overshoot; buttons and cards grow on hover and
+-- squish when pressed (the press also works on touch).
+local QUICK = TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+local function scaleOf(g: GuiObject): UIScale
+	return g:FindFirstChildOfClass("UIScale") or new("UIScale", { Parent = g })
+end
+local function popIn(g: GuiObject, delay: number?, from: number?)
+	local s = scaleOf(g)
+	s.Scale = from or 0.4
+	TweenService:Create(s, TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out, 0, false, delay or 0), { Scale = 1 }):Play()
+end
+local function showOverlay(overlay: GuiObject, body: GuiObject)
+	overlay.BackgroundTransparency = 1
+	overlay.Visible = true
+	TweenService:Create(overlay, TweenInfo.new(0.2), { BackgroundTransparency = 0.35 }):Play()
+	popIn(body)
+end
+local function bouncy(b: GuiButton, hover: number?)
+	local s = scaleOf(b)
+	local function to(v: number)
+		TweenService:Create(s, QUICK, { Scale = v }):Play()
+	end
+	b.MouseEnter:Connect(function()
+		to(hover or 1.06)
+	end)
+	b.MouseLeave:Connect(function()
+		to(1)
+	end)
+	b.MouseButton1Down:Connect(function()
+		to(0.92)
+	end)
+	b.MouseButton1Up:Connect(function()
+		to(hover or 1.06)
+	end)
+end
 -- A kit button: glossy colour pill, thick ink outline, white outlined label (change it through b.Label.Text).
 local function button(label: string, color: Color3, width: number)
-	return new("TextButton", { Size = UDim2.fromOffset(width, 50), BackgroundColor3 = color, AutoButtonColor = true, Text = "" }, {
+	local b = new("TextButton", { Size = UDim2.fromOffset(width, 50), BackgroundColor3 = color, AutoButtonColor = true, Text = "" }, {
 		corner(14),
 		stroke(3, KIT_INK),
 		gloss(),
 		kitText({ Name = "Label", Size = UDim2.fromScale(1, 1), Text = label, TextSize = 22 }),
 	})
+	bouncy(b)
+	return b
 end
 local function info(kind: string, id: string?)
 	if kind == "weapon" then
@@ -368,6 +406,7 @@ local function fillSlots(slots, items: string, defs)
 	end
 end
 
+local shownLevel
 local function refreshHUD()
 	local level = player:GetAttribute("RunLevel")
 	hud.Visible = level ~= nil
@@ -376,6 +415,12 @@ local function refreshHUD()
 		return
 	end
 	levelLabel.Text = tostring(level)
+	if level ~= shownLevel then
+		if shownLevel then
+			popIn(levelBadge, 0, 1.6) -- the badge pulses on a level-up (not when the HUD first shows)
+		end
+		shownLevel = level
+	end
 	local xp, xpNext = player:GetAttribute("RunXP") or 0, player:GetAttribute("RunXPNext") or 1
 	xpFill.Size = UDim2.fromScale(math.clamp(xp / xpNext, 0, 1), 1)
 	xpLabel.Text = string.format("%d / %d", math.floor(xp), math.floor(xpNext))
@@ -424,6 +469,7 @@ levelUp = new("Frame", { Size = UDim2.fromScale(1, 1), BackgroundColor3 = SHADE,
 	}),
 })
 levelUp.Parent = gui
+local levelPanel = levelUp:FindFirstChildOfClass("Frame")
 
 local picked: number? = nil
 local currentOfferId
@@ -502,6 +548,8 @@ local function showCards(cards, rerolls: number, level: number, offerId)
 		end
 		local holder = new("Frame", { Size = UDim2.fromOffset(196, 244), BackgroundTransparency = 1 }, { b })
 		holder.Parent = cardRow
+		popIn(holder, 0.08 + 0.07 * k, 0) -- the cards pop in one after another
+		bouncy(b, 1.04)
 		b.Activated:Connect(function()
 			selectCard(k)
 		end)
@@ -511,7 +559,9 @@ local function showCards(cards, rerolls: number, level: number, offerId)
 	rerollButton.Label.Text = string.format("REROLL (%d)", rerolls)
 	rerollButton.Visible = rerolls > 0
 	selectCard(nil)
-	levelUp.Visible = true
+	if not levelUp.Visible then -- a reroll only re-deals the cards
+		showOverlay(levelUp, levelPanel)
+	end
 end
 
 Shared:WaitForChild("RunLevelUp").OnClientEvent:Connect(showCards)
@@ -563,6 +613,7 @@ local results = new("Frame", { Size = UDim2.fromScale(1, 1), BackgroundColor3 = 
 	}),
 })
 results.Parent = gui
+local resultsPanel = results:FindFirstChildOfClass("Frame")
 
 Shared:WaitForChild("RunOver").OnClientEvent:Connect(function(r)
 	levelUp.Visible = false
@@ -593,7 +644,10 @@ Shared:WaitForChild("RunOver").OnClientEvent:Connect(function(r)
 			kitText({ AnchorPoint = Vector2.new(1, 0), Position = UDim2.fromScale(1, 0), Size = UDim2.fromOffset(60, 22), Text = pct .. "%", TextSize = 16, TextColor3 = KIT_INK, TextXAlignment = Enum.TextXAlignment.Right }, 0),
 		})
 	end
-	results.Visible = true
+	showOverlay(results, resultsPanel)
+	for k, tile in { timeStat, killStat, levelStat } do
+		popIn(tile, 0.1 + 0.07 * k, 0)
+	end
 end)
 againButton.Activated:Connect(function()
 	results.Visible = false
