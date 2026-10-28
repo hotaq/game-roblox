@@ -2468,7 +2468,11 @@ if polishTestArgs then
 			end
 			if report.mode=="balance"then
 				if polishTestArgs.baseline then R.XPFirst,R.XPGrowth,R.StartAlive,R.AlivePerMinute,R.HealthPerMinute=5,1.22,25,45,.4 end
+				if polishTestArgs.candidate then R.XPFirst,R.XPGrowth,R.StartAlive,R.AlivePerMinute,R.HealthPerMinute=12,1.3,20,35,.3 end
 				local p=list[1];local r,root=prepare(p,0);r.hum.MaxHealth=10000;r.hum.Health=10000
+				local healthScript=p.Character:FindFirstChild("Health");if healthScript and healthScript:IsA("Script")then healthScript.Enabled=false end
+				local damageTaken,lastHealth=0,r.hum.Health
+				r.hum.HealthChanged:Connect(function(value)damageTaken+=math.max(0,lastHealth-value);lastHealth=value end)
 				report.tuning={xp=R.XPFirst,growth=R.XPGrowth,alive=R.StartAlive,perMinute=R.AlivePerMinute,hpGrowth=R.HealthPerMinute,contact=H.ContactDamage,bone=SK.BoneDamage}
 				report.note="Scripted circle, anchored route, 10000HP measurement dummy; damage recorded; not human survival/fun evidence"
 				local started=os.clock();local lastLevel=1;local nextSample=10;local lastPick=0
@@ -2478,10 +2482,10 @@ if polishTestArgs then
 					step(1/30)
 					if r.level~=lastLevel then table.insert(report.levels,{level=r.level,wall=t,active=(r.pausedAt or Workspace:GetServerTimeNow())-r.start,kills=r.kills});lastLevel=r.level end
 					if r.cards and os.clock()-lastPick>.8 then bridge:InvokeClient(p,"pick");lastPick=os.clock()end
-					if t>=nextSample then table.insert(report.samples,{seconds=t,level=r.level,kills=r.kills,gems=r.gems,alive=count,damage=10000-r.hum.Health});nextSample+=10 end
+					if t>=nextSample then table.insert(report.samples,{seconds=t,level=r.level,kills=r.kills,gems=r.gems,alive=count,damage=damageTaken});nextSample+=10 end
 					task.wait(1/30)
 				end
-				report.final={level=r.level,kills=r.kills,gems=r.gems,damage=10000-r.hum.Health,alive=count}
+				report.final={level=r.level,kills=r.kills,gems=r.gems,damage=damageTaken,alive=count}
 				check(#errors==0,"balance no server errors");check(#bridge:InvokeClient(p,"snapshot").errors==0,"balance no client errors")
 				endRun(p);clearWorld();return
 			end
