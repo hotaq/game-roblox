@@ -124,6 +124,8 @@ function spawnGoblin(home: CFrame, respawn: boolean, options): Model
 
 	local tracks: { [string]: AnimationTrack } = {}
 	for name, id in Config.Animations do
+		-- The shared registry also contains skeleton-only clips (BoneThrow). This brain uses the goblin manifest.
+		if not AnimData[name] then continue end
 		local a = Instance.new("Animation")
 		a.AnimationId = id
 		local t = animator:LoadAnimation(a)
