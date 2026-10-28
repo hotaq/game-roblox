@@ -12,6 +12,7 @@ local H,R,W,P=Config.Horde,Config.Run,Config.Weapons,Config.Passives
 local Workspace=workspace
 local alive,px,pz,hp,generation={},{},{},{},{}
 local swingAt,nextSwing,kvx,kvz,stunUntil,slowUntil={},{},{},{},{},{}
+local skel,throwAt,nextThrow={},{},{} -- GAME-42 arrays used by the current exact hit/kill spans
 local free,top,count,dead,deadFirstGem,gems,nextGem={},0,0,{},0,{},0
 local deathEvents={}
 local runs={};local rng=Random.new(12)

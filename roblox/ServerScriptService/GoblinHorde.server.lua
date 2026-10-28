@@ -2583,6 +2583,11 @@ if eliteTestArgs then
 			local pauseHealth=eh.Health;ra.pending=1;offer(ra)
 			hit(-1,50,ra,"sword",0,0,0,true);state.api:Invoke("testAttack",actor,a.Character);task.wait(1.5)
 			check(eh.Health==pauseHealth and ra.hum.Health==before-Config.EliteTrial.Damage,"chooser neither attacks nor receives elite damage")
+			local elapsed=state.elapsed;eliteTick(.1)
+			if b then
+				hit(-1,3,runs[b],"sword",0,0,0,false)
+				check(eh.Health==pauseHealth-3 and state.elapsed>elapsed,"teammate can fight while chooser is protected")
+			else check(state.elapsed==elapsed,"all choosing pauses encounter deadline")end
 			chooseCard(a,1,ra.offerId);task.wait(1.2)
 			-- Every real weapon path can resolve the internal target without sending -1 over horde packets.
 			eh.MaxHealth=10000;eh.Health=10000;hp[-1]=10000
@@ -2596,10 +2601,19 @@ if eliteTestArgs then
 			check(not hitLog[a] or #hitLog[a]==0,"negative target never enters u16 hit packets")
 			-- Actual once-only team reward, stale finish and replaced-run eligibility.
 			local rewards=ra.eliteRewards or 0;local old=state
-			hit(-1,20000,ra,"sword",0,0,0,false)
+			local existingOffer
+			if b then ra.pending=1;offer(ra);existingOffer=ra.offerId end
+			hit(-1,20000,if b then runs[b]else ra,"sword",0,0,0,false)
 			check(state.phase=="defeated" and state.awarded==#list and ra.eliteRewards==rewards+1,"completion gives each eligible original member one ordinary card")
+			if b then check(ra.pending==2 and ra.offerId==existingOffer,"reward queues behind chooser's current card")end
 			eliteFinish(old,"defeated");check(ra.eliteRewards==rewards+1,"duplicate completion cannot replay reward")
-			for _,p in list do local r=runs[p];check(r.cards~=nil,"reward opens real card UI for "..p.Name);chooseCard(p,1,r.offerId)end
+			for _,p in list do
+				local r=runs[p];check(r.cards~=nil,"reward creates card offer for "..p.Name)
+				while r.cards do
+					local id=r.offerId;waitFor(function()return bridge:InvokeClient(p,"snapshot").offerId==id end,"reward delivered")
+					bridge:InvokeClient(p,"pick",{offerId=id,index=1});waitFor(function()return r.offerId~=id end,"reward picked")
+				end
+			end
 			task.wait(1.1);check(not actor.Parent and not alive[-1],"death model and weapon proxy retired")
 			state,actor,er,eh=spawn(true)
 			local staleRun=ra;ra,root=prepare(a,0)
@@ -2615,6 +2629,18 @@ if eliteTestArgs then
 			state,actor=spawn(true);Workspace:SetAttribute("Arena","Map1");eliteTick(0)
 			check(state.phase=="cancelled" and not actor.Parent,"arena change cancels elite")
 			Workspace:SetAttribute("Arena","StressZone")
+			if b then
+				-- A real connected late entrant and a death at the reward boundary have no eligibility.
+				endRun(b);state,actor=spawn(true);prepare(b,25)
+				hit(-1,20000,ra,"sword",0,0,0,false)
+				check(state.awarded==1 and not runs[b].eliteRewards,"late entrant receives no retroactive reward")
+				chooseCard(a,1,ra.offerId);task.wait(1.1)
+				state,actor=spawn(true);ra.hum.Health=0;hit(-1,20000,runs[b],"sword",0,0,0,false)
+				check(state.awarded==1,"death at reward boundary excludes dead original member")
+				chooseCard(b,1,runs[b].offerId);task.wait(1.1)
+				-- Request a normal character for the disposable dead participant.
+				a:LoadCharacter();waitFor(function()return a.Character and a.Character:FindFirstChild("HumanoidRootPart") and a.Character:FindFirstChildOfClass("Humanoid").Health>0 end,"respawn")
+			end
 			-- Natural AI + normal sword/ring combat, no direct kill command.
 			for index,p in list do local r=prepare(p,(index-1)*8);r.weapons={sword=3,ring=2};r.wOrder={"sword","ring"};r.next=1e9 end
 			ra=runs[a];root=a.Character.HumanoidRootPart
