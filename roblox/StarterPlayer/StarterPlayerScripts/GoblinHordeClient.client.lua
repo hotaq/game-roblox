@@ -18,29 +18,60 @@ local Shared = ReplicatedStorage:WaitForChild("Goblin")
 local networkObserved = if RunService:IsStudio() and Shared:GetAttribute("GAME24Active")
 	then {deaths=0,hits=0,swings=0,pickups=0} else nil
 local Config = require(Shared:WaitForChild("GoblinConfig"))
--- GAME-44 Dash VFX BEGIN. Independent from horde pools; no textures, lights or camera edits.
+-- GAME-44 Dash VFX BEGIN. Independent from horde pools; no textures or lights. White anime dash after the owner's
+-- reference clip: a spiky starburst where it starts, speed lines and shockwave rings along it, a smaller burst where it
+-- lands. The body leans forward (local Root C0, every client) and the dasher's own camera kicks its FOV a little.
 do
 	local D=Config.Dash
-	local jade=Color3.fromRGB(94,255,189)
-	local gold=Color3.fromRGB(255,220,112)
+	local PlayersService=game:GetService("Players")
+	local WHITE=Color3.new(1,1,1)
+	local LEAN=CFrame.Angles(-math.rad(24),0,0)
 	local active={}
+	local function unlean(e)
+		if e.joint then
+			if e.joint.Parent then e.joint.C0=e.c0 end
+			e.joint=nil
+		end
+		if e.att then
+			if e.att.Parent then e.att.CFrame=e.c0 end
+			e.att=nil
+		end
+	end
 	local function clear(e)
 		for _,a in e.attachments do a:Destroy() end
+		unlean(e)
+		if e.fov and e.camera then e.camera.FieldOfView=e.fov end
 		e.folder:Destroy()
 	end
-	local function block(e,cf,size,color,life,velocity,alpha)
-		local p=Instance.new("Part");p.Name="DashFleck";p.Size=size;p.CFrame=cf
-		p.Color=color;p.Material=Enum.Material.Neon;p.Transparency=alpha or 0.2
+	-- One fading white piece: drifts at `velocity`, or (ring) sits on a circle that widens from r0 to r1.
+	local function block(e,cf,size,life,velocity,alpha,class,ring)
+		local p=Instance.new(class or "Part");p.Name="DashFleck";p.Size=size;p.CFrame=cf
+		p.Color=WHITE;p.Material=Enum.Material.Neon;p.Transparency=alpha or 0.2
 		p.Anchored=true;p.CanCollide=false;p.CanTouch=false;p.CanQuery=false;p.CastShadow=false;p.Parent=e.folder
-		table.insert(e.bits,{p=p,cf=cf,life=life,born=os.clock(),velocity=velocity or Vector3.zero,alpha=p.Transparency,size=size})
+		if class=="Part" and size.X==size.Y and size.Y==size.Z then p.Shape=Enum.PartType.Ball end
+		table.insert(e.bits,{p=p,cf=cf,life=life,born=os.clock(),velocity=velocity or Vector3.zero,alpha=p.Transparency,size=size,ring=ring})
 	end
-	local function ghost(e)
-		local n=0
-		for _,p in e.character:GetChildren() do
-			if p:IsA("BasePart") and p~=e.root and p.Transparency<1 then
-				block(e,p.CFrame,p.Size*0.94,jade,0.22,Vector3.zero,0.75)
-				n+=1;if n>=10 then break end
-			end
+	-- Anime impact star: wedge spikes radiating in the plane that faces the camera, a bright core, flying outward.
+	local function burst(e,pos,n,len,life)
+		local camera=Workspace.CurrentCamera
+		local face=CFrame.lookAt(pos,if camera then camera.CFrame.Position else pos+Vector3.zAxis)
+		local toCam=face.LookVector
+		for i=1,n do
+			local a=(i+math.random()*0.6)*math.pi*2/n
+			local out=face:VectorToWorldSpace(Vector3.new(math.cos(a),math.sin(a),0))
+			local l=len*(0.5+0.5*math.random())
+			local at=pos+out*(0.7+l/2)
+			-- a WedgePart's triangle is in its YZ plane with the point at its front (-Z): X to the camera, point outward
+			block(e,CFrame.fromMatrix(at,toCam,toCam:Cross(out),-out),Vector3.new(0.05,0.55,l),life,out*16,0.05,"WedgePart")
+		end
+		block(e,CFrame.new(pos),Vector3.one*2.2,life*0.7,nil,0.15,"Part")
+	end
+	local function ring(e,pos,r0,r1,life)
+		local centre=CFrame.lookAt(pos,pos+e.dir)
+		for k=1,14 do
+			local angle=k*math.pi*2/14
+			block(e,centre*CFrame.Angles(0,0,angle)*CFrame.new(0,r0,0),Vector3.new(2*math.pi*r0/14*1.08,0.12,0.22),life,nil,0.3,
+				"Part",{centre=centre,angle=angle,r0=r0,r1=r1,n=14})
 		end
 	end
 	local function begin(player,id,dir,started)
@@ -52,27 +83,26 @@ do
 		if #active>=D.MaxEffects then clear(table.remove(active,1)) end
 		local f=Instance.new("Folder");f.Name="RunDashVFX";f.Parent=Workspace
 		local e={player=player,id=id,character=character,root=root,folder=f,attachments={},trails={},bits={},
-			born=os.clock(),nextGhost=0,ghosts=0,dir=dir,stopped=false}
+			born=os.clock(),nextLine=0,nextRing=0.09,ghosts=0,dir=dir,stopped=false,landed=false}
 		table.insert(active,e)
-		-- Two long tapered jade ribbons and a narrow gold centre; their tails dissolve within 140ms.
-		for i=-1,1 do
-			local a=Instance.new("Attachment");a.Position=Vector3.new(i*0.8,0.5,0);a.Parent=root
-			local b=Instance.new("Attachment");b.Position=Vector3.new(i*0.8,-0.5,0);b.Parent=root
+		for i=-1,1,2 do -- two thin white streaks off the shoulders
+			local a=Instance.new("Attachment");a.Position=Vector3.new(i*0.9,0.8,0);a.Parent=root
+			local b=Instance.new("Attachment");b.Position=Vector3.new(i*0.9,0.6,0);b.Parent=root
 			table.insert(e.attachments,a);table.insert(e.attachments,b)
-			local t=Instance.new("Trail");t.Attachment0=a;t.Attachment1=b;t.FaceCamera=true
-			t.Color=ColorSequence.new(if i==0 then gold else jade);t.LightEmission=0.7;t.Lifetime=0.14
-			t.MinLength=0.08;t.WidthScale=NumberSequence.new({NumberSequenceKeypoint.new(0,if i==0 then 0.2 else 0.65),NumberSequenceKeypoint.new(1,0)})
-			t.Transparency=NumberSequence.new({NumberSequenceKeypoint.new(0,0.35),NumberSequenceKeypoint.new(1,1)})
+			local t=Instance.new("Trail");t.Attachment0=a;t.Attachment1=b;t.FaceCamera=true;t.Color=ColorSequence.new(WHITE)
+			t.LightEmission=1;t.Lifetime=0.14;t.MinLength=0.05
+			t.Transparency=NumberSequence.new({NumberSequenceKeypoint.new(0,0.2),NumberSequenceKeypoint.new(1,1)})
 			t.Parent=f;table.insert(e.trails,t)
 		end
-		local frame=CFrame.lookAt(root.Position,root.Position+dir)
-		for i=1,10 do
-			local theta=i*math.pi*2/10
-			local offset=Vector3.new(math.cos(theta)*0.9,math.sin(theta)*1.4,0.5)
-			local speed=frame:VectorToWorldSpace(Vector3.new(math.cos(theta)*4,math.sin(theta)*4,8))
-			local s=if i%3==0 then 0.24 else 0.12
-			block(e,frame*CFrame.new(offset)*CFrame.Angles(0,0,theta),Vector3.new(s,s,s*2),if i%3==0 then gold else jade,0.3,speed)
+		burst(e,root.Position,12,4.2,0.14)
+		ring(e,root.Position,1.4,3.4,0.3)
+		-- R15 Root: a Motor6D (lean its C0) or, on upgraded avatar joints, an AnimationConstraint (lean its Attachment0)
+		local lower=character:FindFirstChild("LowerTorso");local joint=lower and lower:FindFirstChild("Root")
+		if joint and joint:IsA("Motor6D") then e.joint,e.c0=joint,joint.C0;joint.C0=joint.C0*LEAN
+		elseif joint and joint:IsA("AnimationConstraint") and joint.Attachment0 then
+			e.att,e.c0=joint.Attachment0,joint.Attachment0.CFrame;e.att.CFrame=e.c0*LEAN
 		end
+		if player==PlayersService.LocalPlayer then e.camera,e.fov=camera,camera.FieldOfView end
 	end
 	-- Function boundary is also used by the disposable visual regression; no Script.Source assignment.
 	local function update()
@@ -82,19 +112,43 @@ do
 			if not e.root.Parent or e.player.Character~=e.character then e.stopped=true end
 			if age>=D.Duration or e.stopped then
 				for _,t in e.trails do t.Enabled=false end
-			else
-				if age>=e.nextGhost and e.ghosts<3 then
-					ghost(e);e.ghosts+=1;e.nextGhost=age+0.065
-					local cf=CFrame.lookAt(e.root.Position,e.root.Position+e.dir)
-					for side=-1,1,2 do
-						block(e,cf*CFrame.new(side*1.3,-0.9,1.2),Vector3.new(0.08,0.08,2.4),gold,0.16,-e.dir*3,0.3)
+				if not e.landed then
+					e.landed=true;unlean(e)
+					if e.root.Parent then
+						local p=e.root.Position+e.dir
+						burst(e,p,8,2.6,0.12);ring(e,p,1.2,3.6,0.28)
 					end
 				end
+			else
+				local cf=CFrame.lookAt(e.root.Position,e.root.Position+e.dir) -- +Z is behind
+				if age>=e.nextLine then -- speed lines streaming off behind the body
+					e.nextLine=age+0.03
+					for _=1,3 do
+						local a,r,len=math.random()*math.pi*2,1+math.random()*1.4,3+math.random()*5
+						block(e,cf*CFrame.new(math.cos(a)*r,math.sin(a)*r*1.3+0.3,len/2+math.random()*2),
+							Vector3.new(0.07,0.07,len),0.18,-e.dir*6,0.15)
+					end
+				end
+				if age>=e.nextRing then e.nextRing=age+0.09;ring(e,e.root.Position,1.2,3,0.26) end
+			end
+			if e.fov then -- quick kick out, slower settle back
+				local k=if age<0.06 then age/0.06 else math.max(0,1-(age-0.06)/0.3)
+				e.camera.FieldOfView=e.fov+6*k
 			end
 			for k=#e.bits,1,-1 do
 				local b=e.bits[k];local t=math.clamp((now-b.born)/b.life,0,1)
 				if t>=1 then b.p:Destroy();table.remove(e.bits,k)
-				else b.p.Transparency=b.alpha+(1-b.alpha)*t;b.p.CFrame=b.cf+b.velocity*(now-b.born) end
+				else
+					b.p.Transparency=b.alpha+(1-b.alpha)*t*t
+					local g=b.ring
+					if g then
+						local r=g.r0+(g.r1-g.r0)*(1-(1-t)^2)
+						b.p.Size=Vector3.new(2*math.pi*r/g.n*1.08,b.size.Y,b.size.Z)
+						b.p.CFrame=g.centre*CFrame.Angles(0,0,g.angle)*CFrame.new(0,r,0)
+					else
+						b.p.CFrame=b.cf+b.velocity*(now-b.born)
+					end
+				end
 			end
 			if age>D.Duration+0.4 then clear(e);table.remove(active,i) end
 		end
