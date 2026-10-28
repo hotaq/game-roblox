@@ -65,12 +65,9 @@ Config.VFX = {
 
 -- Server brain (ServerScriptService.GoblinAI). Distances in studs, times in seconds.
 Config.AI = {
-	SpawnPoints = { -- ground positions in the camp clearing (FlatGround)
-		Vector3.new(-12, 0, -16),
-		Vector3.new(12, 0, -16),
-		Vector3.new(-6, 0, -28),
-		Vector3.new(8, 0, -28),
-	},
+	-- Ground positions for the standing humanoid goblins. Empty since 2026-10-28: the owner wants the camp clear at game
+	-- start. The old four were (-12, 0, -16), (12, 0, -16), (-6, 0, -28), (8, 0, -28) in the camp clearing (FlatGround).
+	SpawnPoints = {},
 	RespawnTime = 10,
 	MaxHealth = 100,
 	WalkSpeed = 8, -- patrol
