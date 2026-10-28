@@ -43,6 +43,20 @@ local TOPS = {
 	grass = { rgb(70, 140, 60), rgb(62, 128, 56), rgb(80, 150, 66) },
 	moss = { rgb(108, 138, 84), rgb(96, 126, 76), rgb(118, 146, 92) },
 }
+-- Pixel textures (MaterialService.Voxel_*, scripts/10_voxel_textures.py): the mossy-stone look of the Meshy props.
+-- A textured part's Color tints its texture, so it becomes a grey brightness (x dim); without the variant the flat
+-- colour above stays. Water, bridges and thorns stay flat.
+local TEX = {
+	Mountain = { "mossy_stone", 1 }, Ruin = { "mossy_stone", 1 }, Pyramid = { "mossy_stone", 1 }, Stairs = { "mossy_stone", 1 },
+	Plaza = { "ruin_brick", 1 }, Spawn = { "ruin_brick", 1 }, Shore = { "ruin_brick", 1 },
+	Grass = { "grass", 1 }, Jungle = { "grass", 0.8 }, Graveyard = { "grass", 0.75 }, Path = { "dirt", 1 }, Mud = { "dirt", 0.75 },
+}
+local function textured(p: BasePart, tex: string, k: number)
+	local v = game:GetService("MaterialService"):FindFirstChild("Voxel_" .. tex) :: MaterialVariant?
+	if v then
+		p.Material, p.MaterialVariant, p.Color = v.BaseMaterial, v.Name, Color3.new(k, k, k)
+	end
+end
 local WATER = { Water = { color = rgb(70, 170, 214), top = -0.5 }, Cenote = { color = rgb(52, 150, 200), top = -0.6 } }
 local STONE, STONE_DK, JADE, BONE = rgb(150, 154, 140), rgb(108, 112, 102), rgb(60, 176, 120), rgb(238, 228, 198)
 -- The giant skull shrine on the E hill's summit (ground 10..18 there): sunk to y 12, no trees within `clear`.
@@ -141,9 +155,14 @@ function STAGES.ground(map: Model, o: CFrame)
 			local b = if top then h - 1 else h -- the column stops under its cap
 			local p = part(row, Vector3.new(TILE, b - BOTTOM, z1 - z0), o * CFrame.new(x, (b + BOTTOM) / 2, (z0 + z1) / 2), shade)
 			p.TopSurface, p.Name = Enum.SurfaceType.Studs, kind
+			local t = TEX[kind]
+			if t then
+				textured(p, t[1], key.k * t[2])
+			end
 			if top then
-				part(row, Vector3.new(TILE, 1, z1 - z0), o * CFrame.new(x, h - 0.5, (z0 + z1) / 2), top,
+				local cap = part(row, Vector3.new(TILE, 1, z1 - z0), o * CFrame.new(x, h - 0.5, (z0 + z1) / 2), top,
 					{ TopSurface = Enum.SurfaceType.Studs, Name = kind })
+				textured(cap, "grass", if key.moss then 0.72 else 0.9) -- moss is the darker green
 			end
 			local w = WATER[kind]
 			if w then -- see-through water over the bed, wading deep
@@ -156,18 +175,20 @@ function STAGES.ground(map: Model, o: CFrame)
 		for iz = 0, n - 1 do
 			local z = -HALF + TILE * (iz + 0.5)
 			local kind, h = L.at(x, z)
-			local shade, top
+			local shade, top, k, s -- k: the texture brightness that goes with the shade
 			if kind == "Mountain" then
-				shade = ROCK[math.floor(hash(ix, iz) * #ROCK) + 1]
-				local s = surface(x, z, h)
+				local r = math.floor(hash(ix, iz) * #ROCK) + 1
+				shade, k = ROCK[r], 0.78 + 0.05 * (r - 1)
+				s = surface(x, z, h)
 				top = s and TOPS[s][math.floor(hash(ix // 2, iz // 2) * #TOPS[s]) + 1]
 			else
 				local shades = SHADES[kind] or SHADES.Grass
-				shade = shades[math.floor(hash(ix // 3, iz // 3) * #shades) + 1]
+				local pick = math.floor(hash(ix // 3, iz // 3) * #shades) + 1
+				shade, k = shades[pick], 0.88 + 0.06 * (pick - 1)
 			end
 			if not key or key.kind ~= kind or key.h ~= h or key.shade ~= shade or key.top ~= top then
 				flush(iz)
-				start, key = iz, { kind = kind, h = h, shade = shade, top = top }
+				start, key = iz, { kind = kind, h = h, shade = shade, top = top, k = k, moss = s == "moss" }
 			end
 		end
 		flush(n)
