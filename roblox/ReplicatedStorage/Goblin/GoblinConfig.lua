@@ -103,6 +103,7 @@ Config.AI = {
 
 -- Horde goblins (ServerScriptService.GoblinHorde): data-only on the server, drawn by GoblinHordeClient.
 Config.Horde = {
+	ModelScale = 0.7, -- horde goblin size (1 = the 6.4-stud model); applied to the HordeModel template on the client
 	Speed = 12,
 	Spacing = 2.6, -- goblins push apart when closer than this
 	Push = 6, -- how hard they push apart

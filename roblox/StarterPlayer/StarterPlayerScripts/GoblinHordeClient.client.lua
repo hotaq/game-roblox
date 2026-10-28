@@ -19,7 +19,9 @@ local networkObserved = if RunService:IsStudio() and Shared:GetAttribute("GAME24
 	then {deaths=0,hits=0,swings=0,pickups=0} else nil
 local Config = require(Shared:WaitForChild("GoblinConfig"))
 local template = Shared:FindFirstChild("HordeModel") or Shared:WaitForChild("HordeSource")
-local HIP_Y = template:GetPivot().Position.Y
+template:ScaleTo(Config.Horde.ModelScale) -- in code, not just place content, so an Undo can't bring back the big goblin
+local box, boxSize = template:GetBoundingBox()
+local HIP_Y = template:GetPivot().Position.Y - (box.Position.Y - boxSize.Y / 2) -- pivot height above the feet
 local HIDDEN = CFrame.new(0, -1000, 0)
 local NONE = -32768 -- x of a free slot
 local SMOOTH = 12 -- how fast a model catches up with the latest snapshot (1/s)
