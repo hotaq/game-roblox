@@ -111,7 +111,7 @@ end
 local STAGES = {}
 
 -- One part per run of tiles along Z with the same kind, height and shade (a 3-tile shade grid keeps runs long).
-function STAGES.ground(map: Model, o: CFrame)
+function STAGES.ground(map: Folder, o: CFrame)
 	-- Old terrain under the map area (it covered the west river and pools); only the map's own box is cleared.
 	workspace.Terrain:FillBlock(o * CFrame.new(0, 25, 0), Vector3.new(2 * HALF + 8, 70, 2 * HALF + 8), Enum.Material.Air)
 	-- The lobby Baseplate (top at y = -0.2) reached under the map's west half and hid the river; trim it to end
@@ -141,16 +141,18 @@ function STAGES.ground(map: Model, o: CFrame)
 			local z0, z1 = -HALF + TILE * start, -HALF + TILE * iz1
 			local b = if top then h - 1 else h -- the column stops under its cap
 			local p = part(row, Vector3.new(TILE, b - BOTTOM, z1 - z0), o * CFrame.new(x, (b + BOTTOM) / 2, (z0 + z1) / 2), shade)
-			p.TopSurface, p.Name = Enum.SurfaceType.Studs, kind
+			-- Locked: Studio clicks pass through to the trees and props, and the ground (= MapLayout's heights, which the
+			-- horde walks on) can't be dragged by accident.
+			p.TopSurface, p.Name, p.Locked = Enum.SurfaceType.Studs, kind, true
 			if top then
 				part(row, Vector3.new(TILE, 1, z1 - z0), o * CFrame.new(x, h - 0.5, (z0 + z1) / 2), top,
-					{ TopSurface = Enum.SurfaceType.Studs, Name = kind })
+					{ TopSurface = Enum.SurfaceType.Studs, Name = kind, Locked = true })
 			end
 			local w = WATER[kind]
 			if w then -- see-through water over the bed, wading deep
 				part(row, Vector3.new(TILE, 0.4, z1 - z0), o * CFrame.new(x, w.top - 0.2, (z0 + z1) / 2), w.color, {
 					Material = Enum.Material.Glass, Transparency = 0.35, Reflectance = 0.1, CanCollide = false,
-					CanQuery = false, CastShadow = false, Name = "Water",
+					CanQuery = false, CastShadow = false, Name = "Water", Locked = true,
 				}).Parent = water
 			end
 		end
@@ -233,7 +235,7 @@ local function gate(parent: Instance, cf: CFrame)
 	return m
 end
 
-function STAGES.landmarks(map: Model, o: CFrame)
+function STAGES.landmarks(map: Folder, o: CFrame)
 	local f = Instance.new("Folder")
 	f.Name = "Landmarks"
 	f.Parent = map
@@ -305,7 +307,7 @@ function STAGES.landmarks(map: Model, o: CFrame)
 	return #f:GetDescendants()
 end
 
-function STAGES.graveyard(map: Model, o: CFrame)
+function STAGES.graveyard(map: Folder, o: CFrame)
 	local f = Instance.new("Folder")
 	f.Name = "Graveyard"
 	f.Parent = map
@@ -333,7 +335,7 @@ function STAGES.graveyard(map: Model, o: CFrame)
 end
 
 -- Thorn patches: clusters of dark spiky bushes so the hazard reads from afar.
-function STAGES.hazards(map: Model, o: CFrame)
+function STAGES.hazards(map: Folder, o: CFrame)
 	local f = Instance.new("Folder")
 	f.Name = "Hazards"
 	f.Parent = map
@@ -355,7 +357,7 @@ function STAGES.hazards(map: Model, o: CFrame)
 	return #f:GetChildren()
 end
 
-function STAGES.bridges(map: Model, o: CFrame)
+function STAGES.bridges(map: Folder, o: CFrame)
 	local f = Instance.new("Folder")
 	f.Name = "Bridges"
 	f.Parent = map
@@ -398,7 +400,7 @@ end
 
 -- Jungle: giant canopy trees, 2.4-3.6x the ~20-stud templates (50-80 studs), so they tower over a 5-stud player and
 -- shade the floor, with bushes under them.
-function STAGES.forest(map: Model, o: CFrame)
+function STAGES.forest(map: Folder, o: CFrame)
 	local f = Instance.new("Folder")
 	f.Name = "Forest"
 	f.Parent = map
@@ -433,7 +435,7 @@ end
 
 -- Floor clutter so the ground isn't bare: grass tufts, flowers, ferns, pebbles, mushrooms. Small plastic bits with no
 -- collision, queries or shadows; denser in the jungle. ponytail: ~1 part per 30 sq studs; cut the odds if FPS suffers.
-function STAGES.decor(map: Model, o: CFrame)
+function STAGES.decor(map: Folder, o: CFrame)
 	local f = Instance.new("Folder")
 	f.Name = "Decor"
 	local rng = Random.new(19)
@@ -488,7 +490,7 @@ end
 
 -- Fake contact shadows under trees (real shadows are off at low graphics quality). Each disc lives inside its tree, so
 -- moving, scaling or duplicating a tree by hand carries its shadow along.
-function STAGES.shadows(map: Model, o: CFrame)
+function STAGES.shadows(map: Folder, o: CFrame)
 	for _, m in (map:FindFirstChild("Forest") :: Folder):GetChildren() do
 		local old = m:FindFirstChild("Shadow")
 		if old then
@@ -505,14 +507,14 @@ function STAGES.shadows(map: Model, o: CFrame)
 end
 
 -- Invisible walls on the four sides, and the (disabled) spawn pad in the south clearing.
-function STAGES.edge(map: Model, o: CFrame)
+function STAGES.edge(map: Folder, o: CFrame)
 	local f = Instance.new("Folder")
 	f.Name = "Edge"
 	f.Parent = map
 	for i, side in { Vector3.new(1, 0, 0), Vector3.new(-1, 0, 0), Vector3.new(0, 0, 1), Vector3.new(0, 0, -1) } do
 		part(f, if side.X ~= 0 then Vector3.new(2, 160, 2 * HALF + 4) else Vector3.new(2 * HALF + 4, 160, 2),
 			o * CFrame.new(side * (HALF + 1) + Vector3.new(0, 70, 0)), Color3.new(), {
-				Name = "Wall" .. i, Transparency = 1, CanQuery = false, CastShadow = false,
+				Name = "Wall" .. i, Transparency = 1, CanQuery = false, CastShadow = false, Locked = true,
 			})
 	end
 	local S = L.SPAWN
@@ -530,13 +532,15 @@ local ORDER = { "ground", "landmarks", "graveyard", "hazards", "bridges", "fores
 -- owner placed things in it by hand) is skipped by a full build; only naming its stage rebuilds it.
 function Builder.build(origin: Vector3?, stages: { string }?)
 	local o = CFrame.new(origin or Vector3.new(1000, 0, 0))
-	local map = workspace:FindFirstChild("Map1") :: Model?
+	-- A Folder, not a Model: Studio selects the outermost Model on click, so a Model map made every click pick the whole
+	-- map instead of the tree or part under the cursor.
+	local map = workspace:FindFirstChild("Map1") :: Folder?
 	if not map then
-		map = Instance.new("Model")
+		map = Instance.new("Folder")
 		map.Name = "Map1"
 		map.Parent = workspace
 	end
-	local model = map :: Model
+	local model = map :: Folder
 	-- Arena attributes read by GoblinHorde's arena() and MapLayout's world helpers: the Map1Pad sends runs here.
 	model:SetAttribute("Center", o.Position)
 	model:SetAttribute("Size", 2 * HALF)
