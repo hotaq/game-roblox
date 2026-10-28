@@ -146,6 +146,14 @@ Config.Skeleton = {
 }
 
 -- A run (GoblinHorde): starts when a player enters the arena, ends when they die.
+-- GAME-28 evaluated prototype; never enabled in published servers.
+Config.EliteTrial = {
+	Enabled = false, Trigger = 90, Window = 60,
+	Health = 300, TeamHealth = 0.5, Scale = 1.25,
+	Speed = 10, Damage = 18, Reach = 9, Width = 8,
+	LockAt = 0.35, Recovery = 1, Stun = 0.6, StunCooldown = 3,
+}
+
 Config.Run = {
 	StartAlive = 20, -- horde size at 0:00 ...
 	AlivePerMinute = 35, -- ... growing this much per minute of the longest running run

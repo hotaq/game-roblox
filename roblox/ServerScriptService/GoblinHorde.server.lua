@@ -78,6 +78,7 @@ local networkMode, networkSample = "nearby", nil -- broadcast is available only 
 local rng = Random.new()
 local NONE = -32768 -- x of a free slot in a snapshot
 local runs = {} -- Player -> run state
+local eliteDamage -- -1 is an internal weapon target, never serialized as a horde slot
 local axes, axeSerial, axesDirty = {}, 0, false
 local totems, totemSerial, totemsDirty = {}, 0, false
 local function clearRunTotems(player)
@@ -133,6 +134,7 @@ local function key(cx: number, cz: number): number
 end
 local function around(x: number, z: number, r: number, fn: (number) -> ())
 	local r2 = r * r
+	if alive[-1] and (px[-1]-x)^2+(pz[-1]-z)^2<=r2 then fn(-1) end
 	for cx = (x - r) // CELL, (x + r) // CELL do
 		for cz = (z - r) // CELL, (z + r) // CELL do
 			local c = grid[key(cx, cz)]
@@ -594,6 +596,88 @@ local function objectiveTick(dt,paused)
 end
 -- END GAME-29 objective prototype
 
+-- GAME-28 opt-in encounter. A separate Humanoid uses GoblinAI; slot -1 only
+-- adapts existing weapon queries, so neither horde counts nor packets change.
+local eliteEnabled=RunService:IsStudio() and Config.EliteTrial.Enabled
+local eliteState,eliteSerial=nil,0
+local function eliteFinish(state,phase)
+	if state~=eliteState or state.phase~="active" then return end
+	state.phase=phase;alive[-1]=nil
+	local recipients={}
+	if phase=="defeated" then
+		for player,run in state.roster do
+			if objectiveEligible(player,run) and run.eliteRewardId~=state.id then
+				run.eliteRewardId=state.id;run.eliteRewards=(run.eliteRewards or 0)+1
+				run.pending+=1;table.insert(recipients,run)
+			end
+		end
+	end
+	state.awarded=#recipients;table.clear(state.roster)
+	Shared:SetAttribute("EliteTrialState",phase)
+	local api,actor=state.api,state.model;state.model=nil
+	if phase=="defeated" then task.delay(1,function()api:Invoke("destroy",actor)end)
+	else api:Invoke("destroy",actor) end
+	for _,run in recipients do if not run.cards then offer(run) end end
+end
+local function eliteReset()
+	if eliteState then eliteFinish(eliteState,"cancelled") end
+	eliteState=nil;alive[-1],hp[-1],px[-1],pz[-1]=nil,nil,nil,nil
+	Shared:SetAttribute("EliteTrialState",nil)
+end
+local function eliteSpawn(manual)
+	if eliteState then return nil end
+	local center,half=arena();if not center then return nil end
+	local roster,members,first={},{},nil
+	for player,run in runs do
+		if objectiveEligible(player,run) then roster[player]=run;table.insert(members,player.Character);first=first or player.Character.HumanoidRootPart.Position end
+	end
+	if #members==0 then return nil end
+	local api=ServerStorage:FindFirstChild("GoblinEliteControl");if not api then return nil end
+	eliteSerial+=1
+	local p=Vector3.new(math.clamp(first.X+24,center.X-half+5,center.X+half-5),0,math.clamp(first.Z,center.Z-half+5,center.Z+half-5))
+	p=Vector3.new(p.X,MapLayout.groundAt(p.X,p.Z)+4,p.Z)
+	local health=Config.EliteTrial.Health*(1+Config.EliteTrial.TeamHealth*(#members-1))
+	local actor=api:Invoke("spawn",CFrame.lookAt(p,Vector3.new(first.X,p.Y,first.Z)),{health=health,members=members,center=center,half=half+2,manual=manual})
+	local state={id=eliteSerial,phase="active",elapsed=0,roster=roster,model=actor,api=api,arena=Workspace:GetAttribute("Arena"),awarded=0}
+	eliteState=state;generation[-1]=eliteSerial;alive[-1]=true
+	px[-1],pz[-1],hp[-1]=p.X,p.Z,health
+	Shared:SetAttribute("EliteTrialState","active")
+	return state
+end
+eliteDamage=function(dmg,run,weapon,fromX,fromZ,stuns)
+	local state=eliteState
+	if not state or state.phase~="active" or not state.model or not state.roster[run.player]
+		or state.roster[run.player]~=run or not objectiveEligible(run.player,run) or run.cards then return end
+	local actual=state.api:Invoke("damage",state.model,{amount=dmg,stuns=stuns,from=Vector3.new(fromX,0,fromZ)}) or 0
+	run.damage[weapon]=(run.damage[weapon]or 0)+actual
+	local hum=state.model and state.model:FindFirstChildOfClass("Humanoid")
+	if hum then hp[-1]=hum.Health;if hum.Health<=0 then run.kills+=1;eliteFinish(state,"defeated")end end
+end
+local function eliteTick(dt)
+	if not eliteEnabled then return end
+	if next(runs)==nil then eliteReset();return end
+	local state=eliteState
+	if not state then
+		local now=Workspace:GetServerTimeNow()
+		for _,run in runs do if (run.pausedAt or now)-run.start>=Config.EliteTrial.Trigger then eliteSpawn(false);break end end
+		return
+	end
+	if state.phase~="active" then return end
+	if state.arena~=Workspace:GetAttribute("Arena") or not state.model or not state.model.Parent then eliteFinish(state,"cancelled");return end
+	local any,active=false,false;local characters={}
+	for p,r in state.roster do
+		if objectiveEligible(p,r) then any=true;table.insert(characters,p.Character);if not r.cards then active=true end end
+	end
+	if not any then eliteFinish(state,"cancelled");return end
+	state.api:Invoke("members",state.model,characters)
+	local root=state.model.HumanoidRootPart;local center,half=arena()
+	if not center or math.abs(root.Position.X-center.X)>half+8 or math.abs(root.Position.Z-center.Z)>half+8 then eliteFinish(state,"cancelled");return end
+	px[-1],pz[-1]=root.Position.X,root.Position.Z
+	if active then state.elapsed+=dt end
+	if state.elapsed>=Config.EliteTrial.Window then eliteFinish(state,"expired") end
+end
+-- END GAME-28 encounter
+
 local hitLog = {} -- Player -> {slot, damage, ...} for floating numbers, sent with the snapshot; +32768 = it stunned
 local hitVersions = {} -- Player -> incarnation per hit pair
 local shots = {} -- live fireballs
@@ -602,6 +686,7 @@ local shots = {} -- live fireballs
 -- the Force passive a push away from that point (knock = the weapon's share of it).
 local function hit(i: number, dmg: number, run, weapon: string, fromX: number, fromZ: number, knock: number, stuns: boolean)
 	if run.cards then return end
+	if i==-1 then eliteDamage(dmg,run,weapon,fromX,fromZ,stuns);return end
 	local dx, dz = px[i] - fromX, pz[i] - fromZ
 	local d = math.sqrt(dx * dx + dz * dz)
 	if d > 0.01 and run.bonus.force > 0 and knock > 0 then
@@ -635,7 +720,7 @@ end
 
 local function nearest(x: number, z: number, n: number): { number }
 	local best, dist = {}, {}
-	for i = 1, top do
+	for i = -1, top do -- includes the optional elite; zero is always empty
 		if alive[i] then
 			local d = (px[i] - x) ^ 2 + (pz[i] - z) ^ 2
 			if #best < n or d < dist[#best] then
@@ -1057,6 +1142,7 @@ local function step(dt: number)
 		end
 	end
 
+	eliteTick(dt)
 	table.clear(grid)
 	for i = 1, top do
 		if not alive[i] then
@@ -1482,8 +1568,12 @@ local objectiveTestArgs
 local cleanupTestArgs
 local networkTestArgs, networkManual
 local polishTestArgs
+local eliteTestArgs
 if RunService:IsStudio() then
 	local ok, args = pcall(function() return game:GetService("StudioTestService"):GetTestArgs() end)
+	if ok and typeof(args)=="table" and args.name=="GAME28Elite" then
+		eliteTestArgs=args;eliteEnabled=true;Shared:SetAttribute("GAME28Active",true)
+	end
 	if ok and typeof(args)=="table" and args.name=="GAME11Complete" then
 		polishTestArgs=args; Shared:SetAttribute("GAME11Active",true)
 	end
@@ -1522,7 +1612,7 @@ RunService.Heartbeat:Connect(function(dt)
 	while simAcc >= 1 / H.SimRate do
 		simAcc -= 1 / H.SimRate
 		local t0 = os.clock()
-		if not polishTestArgs and not axeTestArgs and not rocksTestArgs and not completeTestArgs and not objectiveTestArgs and not cleanupTestArgs and not networkManual then step(1 / H.SimRate) end -- named fixtures drive exact steps
+		if not eliteTestArgs and not polishTestArgs and not axeTestArgs and not rocksTestArgs and not completeTestArgs and not objectiveTestArgs and not cleanupTestArgs and not networkManual then step(1 / H.SimRate) end -- named fixtures drive exact steps
 		local elapsed = os.clock() - t0
 		if networkSample then table.insert(networkSample.step,elapsed*1000) end
 		simTime += elapsed
@@ -2429,6 +2519,149 @@ if completeTestArgs then
 end
 
 -- GAME-11: named, disposable Studio acceptance/balance fixture only.
+if eliteTestArgs then
+	local sts=game:GetService("StudioTestService")
+	local bridge=Instance.new("RemoteFunction");bridge.Name,bridge.Parent="GAME28Test",Shared
+	local ready,errors={},{}
+	bridge.OnServerInvoke=function(p)ready[p]=true;return true end
+	game:GetService("ScriptContext").Error:Connect(function(m,_,s)if s and s.Name:find("Goblin",1,true)then table.insert(errors,m)end end)
+	local report={checks={},errors=errors,performance={},clients=eliteTestArgs.clients or 1}
+	local function check(v,label)assert(v,label);table.insert(report.checks,label)end
+	local function waitFor(fn,label)
+		local deadline=os.clock()+30;repeat if fn()then return end;task.wait(.05)until os.clock()>deadline
+		error("GAME28 timeout "..label)
+	end
+	task.spawn(function()
+		local ok,err=xpcall(function()
+			waitFor(function()
+				if #Players:GetPlayers()~=report.clients then return false end
+				for _,p in Players:GetPlayers()do if not ready[p]or not p.Character or not p.Character:FindFirstChild("HumanoidRootPart")then return false end end
+				return true
+			end,"clients ready")
+			Workspace:SetAttribute("Arena","StressZone");local center=assert(arena())
+			local list=Players:GetPlayers();table.sort(list,function(a,b)return a.UserId<b.UserId end)
+			local a,b=list[1],list[2];override=0
+			local function prepare(p,x)
+				if runs[p]then endRun(p)end
+				local hum=p.Character:FindFirstChildOfClass("Humanoid");hum.MaxHealth=100;hum.Health=100
+				local health=p.Character:FindFirstChild("Health");if health and health:IsA("Script")then health.Enabled=false end
+				for _,v in p.Character:GetChildren()do if v:IsA("ForceField")then v:Destroy()end end
+				local root=p.Character.HumanoidRootPart;root.Anchored=true;root.CFrame=CFrame.new(center+Vector3.new(x,4,0))
+				startRun(p,hum);local r=runs[p];r.weapons={};r.wOrder={};r.next=1e9;return r,root
+			end
+			local ra,root=prepare(a,0);if b then prepare(b,30)end
+			local function spawn(manual)
+				if eliteState and eliteState.model then eliteState.api:Invoke("destroy",eliteState.model)end
+				eliteReset();local state=assert(eliteSpawn(manual),"spawn")
+				local actor=state.model;local er=actor.HumanoidRootPart;er.Anchored=true
+				er.CFrame=CFrame.new(center+Vector3.new(0,4,0));root.CFrame=CFrame.new(center+Vector3.new(0,4,-5));eliteTick(0)
+				return state,actor,er,actor:FindFirstChildOfClass("Humanoid")
+			end
+			local state,actor,er,eh=spawn(true)
+			check(eh.MaxHealth==Config.EliteTrial.Health*(1+.5*(#list-1)),"single elite scales HP only to spawn roster")
+			check(count==0 and top==0 and nearest(root.Position.X,root.Position.Z,1)[1]==-1,"separate target does not inflate horde slots")
+			task.wait(2) -- published animation assets load before timing checks
+			local before=ra.hum.Health
+			state.api:Invoke("testAttack",actor,a.Character);task.wait(.6);local locked=er.CFrame.LookVector
+			root.CFrame=CFrame.new(center+Vector3.new(16,4,-5));task.wait(1.1)
+			check(ra.hum.Health==before and (er.CFrame.LookVector-locked).Magnitude<.001,"side step after lock dodges real HeavyAttack")
+			check(actor:GetAttribute("EliteState")=="recovery","heavy exposes recovery opening")
+			task.wait(1);root.CFrame=CFrame.new(center+Vector3.new(0,4,-5));er.CFrame=CFrame.new(center+Vector3.new(0,4,0))
+			state.api:Invoke("testAttack",actor,a.Character);task.wait(1.5)
+			check(ra.hum.Health==before-Config.EliteTrial.Damage,"standing in telegraph takes one authoritative hit")
+			task.wait(1.2);state.api:Invoke("testAttack",actor,a.Character);task.wait(.45)
+			before=ra.hum.Health;hit(-1,1,ra,"sword",root.Position.X,root.Position.Z,0,true)
+			check(actor:GetAttribute("EliteState")=="stun","stunning weapon interrupts windup")
+			task.wait(.7);check(actor:GetAttribute("EliteState")~="stun","stun recovers at bounded duration")
+			hit(-1,1,ra,"sword",root.Position.X,root.Position.Z,0,true)
+			check(actor:GetAttribute("EliteState")~="stun","repeat hits cannot stun lock elite")
+			check(ra.hum.Health==before,"interrupted swing cannot land later")
+			state.api:Invoke("testAttack",actor,a.Character);task.wait(.4)
+			hit(-1,1,ra,"ring",root.Position.X,root.Position.Z,0,false);task.wait(1.1)
+			check(ra.hum.Health==before-Config.EliteTrial.Damage,"non-stunning ring preserves heavy attack")
+			task.wait(1.2)
+			local pauseHealth=eh.Health;ra.pending=1;offer(ra)
+			hit(-1,50,ra,"sword",0,0,0,true);state.api:Invoke("testAttack",actor,a.Character);task.wait(1.5)
+			check(eh.Health==pauseHealth and ra.hum.Health==before-Config.EliteTrial.Damage,"chooser neither attacks nor receives elite damage")
+			chooseCard(a,1,ra.offerId);task.wait(1.2)
+			-- Every real weapon path can resolve the internal target without sending -1 over horde packets.
+			eh.MaxHealth=10000;eh.Health=10000;hp[-1]=10000
+			for _,id in W.Order do
+				ra.weapons={[id]=3};ra.wOrder={id};ra.cd={};ra.damage={};ra.rocks=nil
+				table.clear(axes);table.clear(shots);table.clear(totems);eliteTick(0)
+				fireWeapons(ra,root,0)
+				for _=1,60 do moveShots(1/30);moveAxes(1/30);moveTotems(1/30);if id=="rocks"then fireWeapons(ra,root,1/30)end end
+				check((ra.damage[id]or 0)>0,id.." real weapon damages elite")
+			end
+			check(not hitLog[a] or #hitLog[a]==0,"negative target never enters u16 hit packets")
+			-- Actual once-only team reward, stale finish and replaced-run eligibility.
+			local rewards=ra.eliteRewards or 0;local old=state
+			hit(-1,20000,ra,"sword",0,0,0,false)
+			check(state.phase=="defeated" and state.awarded==#list and ra.eliteRewards==rewards+1,"completion gives each eligible original member one ordinary card")
+			eliteFinish(old,"defeated");check(ra.eliteRewards==rewards+1,"duplicate completion cannot replay reward")
+			for _,p in list do local r=runs[p];check(r.cards~=nil,"reward opens real card UI for "..p.Name);chooseCard(p,1,r.offerId)end
+			task.wait(1.1);check(not actor.Parent and not alive[-1],"death model and weapon proxy retired")
+			state,actor,er,eh=spawn(true)
+			local staleRun=ra;ra,root=prepare(a,0)
+			local oldHP=eh.Health;hit(-1,20,staleRun,"sword",0,0,0,false);check(eh.Health==oldHP,"old run projectile cannot damage elite")
+			if b then
+				local rb=runs[b];hit(-1,20000,rb,"sword",0,0,0,false)
+				check(state.awarded==1 and not ra.eliteRewards,"replacement run receives no old encounter reward")
+				chooseCard(b,1,rb.offerId);task.wait(1.1)
+			else eliteTick(0);check(state.phase=="cancelled","all original participants gone cancels without reward")end
+			state,actor=spawn(true);state.elapsed=Config.EliteTrial.Window;eliteTick(0)
+			check(state.phase=="expired" and not actor.Parent and not alive[-1],"ignored elite expires without reward or ending run")
+			check(runs[a]==ra,"expiry preserves main run")
+			state,actor=spawn(true);Workspace:SetAttribute("Arena","Map1");eliteTick(0)
+			check(state.phase=="cancelled" and not actor.Parent,"arena change cancels elite")
+			Workspace:SetAttribute("Arena","StressZone")
+			-- Natural AI + normal sword/ring combat, no direct kill command.
+			for index,p in list do local r=prepare(p,(index-1)*8);r.weapons={sword=3,ring=2};r.wOrder={"sword","ring"};r.next=1e9 end
+			ra=runs[a];root=a.Character.HumanoidRootPart
+			state,actor,er,eh=spawn(false);er.Anchored=false
+			local started=os.clock()
+			while state.phase=="active" and os.clock()-started<45 do
+				local t=os.clock()-started
+				for index,p in list do local r=p.Character.HumanoidRootPart;local angle=t*1.5+(index-1)*math.pi;r.CFrame=CFrame.new(center+Vector3.new(math.cos(angle)*7,4,math.sin(angle)*7))end
+				step(1/30);task.wait(1/30)
+			end
+			report.fight={seconds=os.clock()-started,phase=state.phase,health=ra.hum.Health,awarded=state.awarded}
+			check(state.phase=="defeated" and state.awarded==#list,"natural elite AI defeated through ordinary auto weapons")
+			for _,p in list do local r=runs[p];chooseCard(p,1,r.offerId)end
+			task.wait(1.1)
+			-- Same helper scene, fixed 200-enemy workload, alternating paired phases.
+			local Stats=game:GetService("Stats")
+			local function summary(values)table.sort(values);return {n=#values,p50=values[math.ceil(#values*.5)],p95=values[math.ceil(#values*.95)]}end
+			for round=1,4 do
+				eliteReset();while count>0 do kill(top)end;table.clear(gems);table.clear(shots);table.clear(axes);table.clear(totems)
+				for index,p in list do local r=prepare(p,(index-1)*12);r.start=Workspace:GetServerTimeNow();r.hum.MaxHealth=10000;r.hum.Health=10000 end
+				ra=runs[a];root=a.Character.HumanoidRootPart;rng=Random.new(28001);override=200
+				local withElite=round%2==0
+				local cloneTime=0
+				if withElite then local t=os.clock();state=eliteSpawn(false);cloneTime=os.clock()-t end
+				local steps,physics,heartbeat={},{},{};local began=os.clock()
+				while os.clock()-began<12 do
+					local t=os.clock()-began
+					for index,p in list do local angle=t*.5+(index-1)*math.pi;p.Character.HumanoidRootPart.CFrame=CFrame.new(center+Vector3.new(math.cos(angle)*20,4,math.sin(angle)*20))end
+					local beforeStep=os.clock();step(1/30);local cost=(os.clock()-beforeStep)*1000
+					if t>=3 then table.insert(steps,cost);table.insert(physics,Stats.PhysicsStepTimeMs);table.insert(heartbeat,Stats.HeartbeatTimeMs)end
+					task.wait(1/30)
+				end
+				table.insert(report.performance,{round=round,elite=withElite,alive=count,stepMs=summary(steps),physicsMs=summary(physics),heartbeatMs=summary(heartbeat),spawnWallMs=cloneTime*1000,eliteInstances=if withElite and state.model then #state.model:GetDescendants()else 0})
+				check(count==200,"fixed population performance phase "..round)
+			end
+			eliteReset();override=0;while count>0 do kill(top)end
+			for _,p in list do check(#bridge:InvokeClient(p,"snapshot").errors==0,"client no Goblin errors "..p.Name)end
+			state,actor=spawn(true)
+			for _,p in list do pcall(function()bridge:InvokeClient(p,"leave")end)end
+			waitFor(function()eliteTick(0);return next(runs)==nil and not actor.Parent end,"real disconnect cleanup")
+			check(eliteState==nil and not alive[-1],"disconnect clears encounter and proxy")
+			check(#errors==0,"server no Goblin errors")
+		end,debug.traceback)
+		report.ok,report.error=ok,if ok then nil else tostring(err);eliteReset();sts:EndTest(report)
+	end)
+end
+
 if polishTestArgs then
 	local sts=game:GetService("StudioTestService")
 	local bridge=Instance.new("RemoteFunction");bridge.Name,bridge.Parent="GAME11Test",Shared

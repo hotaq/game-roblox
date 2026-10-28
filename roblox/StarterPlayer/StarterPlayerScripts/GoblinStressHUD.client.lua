@@ -14,9 +14,9 @@ end
 local stress = ReplicatedStorage:WaitForChild("Goblin"):WaitForChild("Stress")
 local horde = ReplicatedStorage.Goblin:WaitForChild("Horde")
 local player = Players.LocalPlayer
-if ReplicatedStorage.Goblin:GetAttribute("GAME11Active") then
+if ReplicatedStorage.Goblin:GetAttribute("GAME11Active") or ReplicatedStorage.Goblin:GetAttribute("GAME28Active") then
 	task.spawn(function()
-		local shared=ReplicatedStorage.Goblin;local bridge=shared:WaitForChild("GAME11Test")
+		local shared=ReplicatedStorage.Goblin;local bridge=shared:WaitForChild(if shared:GetAttribute("GAME28Active") then "GAME28Test" else "GAME11Test")
 		local cards,offerId,errors={},{},{}
 		shared:WaitForChild("RunLevelUp").OnClientEvent:Connect(function(c,_,_,id)cards,offerId=c,id end)
 		game:GetService("ScriptContext").Error:Connect(function(m,_,s)if s and s.Name:find("Goblin",1,true)then table.insert(errors,m)end end)

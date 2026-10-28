@@ -22,6 +22,12 @@ local Shared = ReplicatedStorage:WaitForChild("Goblin")
 local Config = require(Shared:WaitForChild("GoblinConfig"))
 local AnimData = require(Shared:WaitForChild("GoblinAnimData"))
 local AI = Config.AI
+local eliteTest = false
+if RunService:IsStudio() then
+	local ok,args=pcall(function()return game:GetService("StudioTestService"):GetTestArgs()end)
+	eliteTest=ok and typeof(args)=="table" and args.name=="GAME28Elite"
+end
+local eliteActor
 
 local impact = Shared:FindFirstChild("Impact") or Instance.new("RemoteEvent")
 impact.Name = "Impact"
@@ -97,14 +103,19 @@ rayParams.FilterDescendantsInstances = { folder }
 
 local spawnGoblin
 
-function spawnGoblin(home: CFrame, respawn: boolean): Model
+function spawnGoblin(home: CFrame, respawn: boolean, options): Model
 	local g = template:Clone()
+	local elite=options~=nil
+	local E=Config.EliteTrial
+	if elite then g:ScaleTo(g:GetScale()*E.Scale);g.Name="EliteGoblin" end
 	g:PivotTo(home)
 	g.Parent = folder
 	local root = g:FindFirstChild("HumanoidRootPart") :: BasePart
 	local hum = g:FindFirstChildOfClass("Humanoid") :: Humanoid
 	local animator = g:FindFirstChildWhichIsA("Animator", true) or Instance.new("Animator", hum)
-	hum.MaxHealth, hum.Health = AI.MaxHealth, AI.MaxHealth
+	hum.MaxHealth = if elite then options.health else AI.MaxHealth
+	hum.Health = hum.MaxHealth
+	if elite then hum.DisplayName="ELITE — CAMP BREAKER";hum.HealthDisplayDistance=100;hum.NameDisplayDistance=100 end
 	hum.BreakJointsOnDeath = false -- the Death clip plays instead of falling apart
 	for _, st in { "Climbing", "Swimming", "Seated", "FallingDown", "Ragdoll", "GettingUp", "Flying", "PlatformStanding" } do
 		hum:SetStateEnabled(Enum.HumanoidStateType[st], false) -- fewer states for the humanoid to test every step
@@ -128,6 +139,28 @@ function spawnGoblin(home: CFrame, respawn: boolean): Model
 	local recent = {} -- {time, damage} of recent hits, for the guard break
 	local action: AnimationTrack? = nil -- current one-shot (attack, alert, reaction)
 	local loco: AnimationTrack? = nil
+	local nextStun=0
+	local tell
+	if elite then
+		tell=Instance.new("Part");tell.Name="EliteTell";tell.Anchored=true
+		tell.CanCollide,tell.CanQuery,tell.CanTouch=false,false,false
+		tell.Size=Vector3.new(E.Width,.08,E.Reach);tell.Color=Color3.fromRGB(230,163,55)
+		tell.Material=Enum.Material.Neon;tell.Transparency=1;tell.Parent=g
+	end
+	local function eligibleCharacters()
+		if not elite then return liveCharacters() end
+		local list={}
+		for _,c in options.members do
+			local p=Players:GetPlayerFromCharacter(c);local r=alive(c)
+			if p and p.Character==c and r and p:GetAttribute("RunStart") and not p:GetAttribute("RunPausedAt")
+				and math.abs(r.Position.X-options.center.X)<=options.half and math.abs(r.Position.Z-options.center.Z)<=options.half then table.insert(list,c) end
+		end
+		return list
+	end
+	local function targetRoot()
+		if elite and not table.find(eligibleCharacters(),target) then return nil end
+		return alive(target)
+	end
 
 	local function playAction(name: string): AnimationTrack
 		if action and action.IsPlaying then
@@ -190,7 +223,7 @@ function spawnGoblin(home: CFrame, respawn: boolean): Model
 	end
 	local function findTarget(): Model?
 		local best, bestD = nil, AI.DetectRange
-		for _, c in liveCharacters() do
+		for _, c in eligibleCharacters() do
 			local d = (c.HumanoidRootPart.Position - root.Position).Magnitude
 			if d < bestD and canSee(c) then
 				best, bestD = c, d
@@ -229,8 +262,8 @@ function spawnGoblin(home: CFrame, respawn: boolean): Model
 	local overlap = OverlapParams.new()
 	overlap.FilterType = Enum.RaycastFilterType.Include
 	local function swing(name: string, hit: { [Model]: boolean })
-		local spec = AI.Attacks[name]
-		local chars = liveCharacters()
+		local spec = if elite then {Reach=E.Reach,Width=E.Width,Damage=E.Damage,Knockback=0,Heavy=true} else AI.Attacks[name]
+		local chars = eligibleCharacters()
 		local isChar = {}
 		for _, c in chars do
 			isChar[c] = true
@@ -264,11 +297,19 @@ function spawnGoblin(home: CFrame, respawn: boolean): Model
 		local recover = eventTime(name, "Recover") or track.Length
 		local lungeAt = eventTime(name, "LungeStart")
 		local hit = {}
+		if elite then g:SetAttribute("EliteState","windup") end
 		while track.IsPlaying and state == "Attack" do
 			local t = track.TimePosition
-			local tr = alive(target)
-			if tr and t < hitStart then -- keep tracking the target until the blade comes down
+			local tr = targetRoot()
+			if tr and t < (if elite then E.LockAt else hitStart) then -- elite commits early so sidestepping works
 				face(tr.Position, 0.35)
+			end
+			if elite then
+				local floor=Workspace:Raycast(root.Position,Vector3.new(0,-20,0),rayParams)
+				local y=if floor then floor.Position.Y+.08 else root.Position.Y-3
+				tell.CFrame=CFrame.new(root.Position.X,y,root.Position.Z)*root.CFrame.Rotation*CFrame.new(0,0,-E.Reach/2)
+				tell.Transparency=if t<hitStart then .55 else 1
+				g:SetAttribute("EliteState",if t<hitStart then "windup" else "recovery")
 			end
 			if lungeAt and t >= lungeAt then
 				lungeAt = nil
@@ -283,10 +324,12 @@ function spawnGoblin(home: CFrame, respawn: boolean): Model
 			end
 			RunService.Heartbeat:Wait()
 		end
+		if tell then tell.Transparency=1 end
 		if state == "Attack" then
+			if elite then task.wait(E.Recovery);if state~="Attack" or not g.Parent then return end end
 			hum.AutoRotate = true
 			state = "Chase"
-			task.wait(rng:NextNumber(AI.AttackGap[1], AI.AttackGap[2]))
+			if elite then g:SetAttribute("EliteState","chase") else task.wait(rng:NextNumber(AI.AttackGap[1], AI.AttackGap[2])) end
 		end
 	end
 
@@ -296,6 +339,7 @@ function spawnGoblin(home: CFrame, respawn: boolean): Model
 		reactId += 1
 		local id = reactId
 		state = "Stun"
+		if elite then g:SetAttribute("EliteState","stun");tell.Transparency=1 end
 		stop()
 		hum.AutoRotate = false
 		local track = playAction(name)
@@ -303,11 +347,12 @@ function spawnGoblin(home: CFrame, respawn: boolean): Model
 			local away = from and flat(root.Position - from)
 			push(root, (if away and away.Magnitude > 0.1 then away.Unit else -root.CFrame.LookVector) * AI.KnockbackSpeed, 0.35)
 		end
-		task.delay(if name == "Stun" then AI.StunTime else eventTime(name, "Recover") or track.Length, function()
-			if reactId == id and state == "Stun" then
+		task.delay(if elite then E.Stun elseif name == "Stun" then AI.StunTime else eventTime(name, "Recover") or track.Length, function()
+			if g.Parent and reactId == id and state == "Stun" then
 				track:Stop(0.2)
 				hum.AutoRotate = true
 				state = if target then "Chase" else "Idle"
+				if elite then g:SetAttribute("EliteState","chase") end
 			end
 		end)
 	end
@@ -324,6 +369,7 @@ function spawnGoblin(home: CFrame, respawn: boolean): Model
 
 	local lastHealth = hum.Health
 	hum.HealthChanged:Connect(function(hp)
+		if elite then return end -- explicit server damage entry controls stun; ring/totem stay non-stunning
 		local dmg = lastHealth - hp
 		lastHealth = hp
 		if dmg <= 0 or hp <= 0 or state == "Dead" then
@@ -372,8 +418,10 @@ function spawnGoblin(home: CFrame, respawn: boolean): Model
 			t:Stop(0.1)
 		end
 		root.Anchored = true
+		if elite then tell.Transparency=1;g:SetAttribute("EliteState","dead") end
 		local death = tracks.Death
 		death:Play(0.1)
+		if elite then death:AdjustSpeed(2.5);task.wait(.6);if g.Parent then g:Destroy() end;return end
 		task.wait(death.Length - 0.05)
 		death:AdjustSpeed(0) -- hold the last frame while the client dissolve runs
 		task.wait(Config.VFX.DeathFadeTime + 0.5)
@@ -383,6 +431,18 @@ function spawnGoblin(home: CFrame, respawn: boolean): Model
 			spawnGoblin(home, true)
 		end
 	end)
+	if elite then
+		eliteActor={model=g,hum=hum,root=root,
+			damage=function(amount,stuns,from)
+				if state=="Dead" or not g.Parent or hum.Health<=0 then return 0 end
+				local dealt=math.min(amount,hum.Health);hum:TakeDamage(dealt)
+				if hum.Health>0 and stuns and os.clock()>=nextStun then nextStun=os.clock()+E.StunCooldown;react("Stun",from) end
+				return dealt
+			end,
+			attack=function(c)target=c;task.spawn(attack,"HeavyAttack")end,
+			members=function(chars)options.members=chars end,
+			destroy=function()state="Dead";reactId+=1;g:Destroy()end}
+	end
 
 	local function playerNear(): boolean
 		for _, c in liveCharacters() do
@@ -397,6 +457,7 @@ function spawnGoblin(home: CFrame, respawn: boolean): Model
 		local idleUntil = os.clock() + rng:NextNumber(AI.IdleTime[1], AI.IdleTime[2])
 		local asleep = false
 		while g.Parent and state ~= "Dead" do
+			if elite and options.manual then updateLoco();task.wait(AI.ThinkInterval);continue end
 			-- Sleep while nobody is near: an anchored root skips humanoid physics, and the brain ticks once a second.
 			local sleep = (state == "Idle" or state == "Patrol") and not playerNear()
 			if sleep ~= asleep then
@@ -416,7 +477,7 @@ function spawnGoblin(home: CFrame, respawn: boolean): Model
 			end
 			local now = os.clock()
 			if state == "Idle" or state == "Patrol" then
-				local seen = alive(target) and target or findTarget()
+				local seen = targetRoot() and target or findTarget()
 				if seen then
 					target, lastSeen, state = seen, now, "Alert"
 					stop()
@@ -434,7 +495,7 @@ function spawnGoblin(home: CFrame, respawn: boolean): Model
 					state, idleUntil = "Idle", now + rng:NextNumber(AI.IdleTime[1], AI.IdleTime[2])
 				end
 			elseif state == "Chase" then
-				local tr = alive(target)
+				local tr = targetRoot()
 				if tr and canSee(target) then
 					lastSeen = now
 				end
@@ -444,23 +505,24 @@ function spawnGoblin(home: CFrame, respawn: boolean): Model
 				else
 					local d = flat(tr.Position - root.Position).Magnitude
 					if d <= AI.AttackRange then
-						if now > cooldown.HeavyAttack and rng:NextNumber() < AI.HeavyChance then
+						if elite then attack("HeavyAttack")
+						elseif now > cooldown.HeavyAttack and rng:NextNumber() < AI.HeavyChance then
 							cooldown.HeavyAttack = now + AI.HeavyCooldown
 							attack("HeavyAttack")
 						else
 							combo = combo % #COMBO + 1
 							attack(COMBO[combo])
 						end
-					elseif d >= AI.LungeRange[1] and d <= AI.LungeRange[2] and now > cooldown.LungeAttack and lastSeen == now then
+					elseif not elite and d >= AI.LungeRange[1] and d <= AI.LungeRange[2] and now > cooldown.LungeAttack and lastSeen == now then
 						cooldown.LungeAttack = now + AI.LungeCooldown
 						face(tr.Position, 1)
 						attack("LungeAttack")
 					elseif d < 12 and lastSeen == now then -- close and in sight: run straight at them
-						hum.WalkSpeed = AI.RunSpeed
+						hum.WalkSpeed = if elite then E.Speed else AI.RunSpeed
 						stop()
 						hum:MoveTo(tr.Position)
 					else
-						moveTo(tr.Position, AI.RunSpeed)
+						moveTo(tr.Position, if elite then E.Speed else AI.RunSpeed)
 						followPath()
 					end
 				end
@@ -469,6 +531,24 @@ function spawnGoblin(home: CFrame, respawn: boolean): Model
 		end
 	end)
 	return g
+end
+
+-- Server-only control surface; absent in normal published games and default Studio play.
+if RunService:IsStudio() and (Config.EliteTrial.Enabled or eliteTest) then
+	local api=Instance.new("BindableFunction");api.Name="GoblinEliteControl";api.Parent=ServerStorage
+	api.OnInvoke=function(command,token,data)
+		if command=="spawn" then
+			assert(not eliteActor or not eliteActor.model.Parent,"only one elite")
+			local opts=data;opts.manual=eliteTest and opts.manual==true
+			local g=spawnGoblin(token,false,opts);return g
+		end
+		if not eliteActor or token~=eliteActor.model then return nil end
+		if command=="damage" then return eliteActor.damage(data.amount,data.stuns,data.from)
+		elseif command=="members" then eliteActor.members(data);return true
+		elseif command=="destroy" then eliteActor.destroy();eliteActor=nil;return true
+		elseif command=="testAttack" and eliteTest then eliteActor.attack(data);return true
+		elseif command=="stats" then return {paths=perf.paths,rays=perf.rays,state=token:GetAttribute("EliteState")} end
+	end
 end
 
 for _, p in AI.SpawnPoints do
