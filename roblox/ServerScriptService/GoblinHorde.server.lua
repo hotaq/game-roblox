@@ -2549,7 +2549,7 @@ if polishTestArgs then
 			-- A real disconnect can abort InvokeClient before its reply arrives.
 			local leaveOK,leaveResult=pcall(function()return bridge:InvokeClient(a,"leave")end)
 			report.disconnectCall={ok=leaveOK,result=tostring(leaveResult)}
-			waitFor(function()return a.Parent~=Players end,"disconnect")
+			waitFor(function()return a.Parent~=Players and runs[a]==nil and departedShield.Parent==nil end,"disconnect cleanup event")
 			check(runs[a]==nil and departedShield.Parent==nil,"disconnect during choice releases run and shield")
 			check(#errors==0,"server has no Goblin errors")
 			clearWorld()
