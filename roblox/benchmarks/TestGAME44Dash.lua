@@ -13,13 +13,15 @@ local floor=Instance.new("Part");floor.Size=Vector3.new(120,1,120);floor.Positio
 local clock,area=100,"Test"
 local Workspace=setmetatable({GetServerTimeNow=function()return clock end,GetAttribute=function()return area end,
  Raycast=function(_,...)return realWorld:Raycast(...)end,Blockcast=function(_,...)return realWorld:Blockcast(...)end,
- GetPartBoundsInBox=function(_,...)return realWorld:GetPartBoundsInBox(...)end,FindFirstChild=function()return nil end},{__index=realWorld})
+ GetPartBoundsInBox=function(_,...)return realWorld:GetPartBoundsInBox(...)end,
+ GetPartsInPart=function(_,...)return realWorld:GetPartsInPart(...)end,FindFirstChild=function()return nil end},{__index=realWorld})
 local Players={list={}};function Players:GetPlayers()return self.list end
 local runs={};local packets={}
 local event={OnServerEvent={Connect=function()end},FireAllClients=function(_,...)table.insert(packets,{...})end}
 local function remote()return event end
 local RunService={Heartbeat={Connect=function()end}}
-local function arena()return base,100 end
+local arenaHalf=100
+local function arena()return base,arenaHalf end
 ]=]..span("-- GAME-44 Dash server BEGIN","-- GAME-44 Dash server END")
 	..span("local function pauseRun(","local function offer(")..[=[
 local checks={};local function check(v,label)assert(v,label);table.insert(checks,label)end
@@ -57,8 +59,17 @@ local ok,err=xpcall(function()
  advance(.3);check(root.Position.X<base.X+4.8 and not r.dash,"body sweep stops before thin wall")
  reset(p,r,root,6);check(not Dash.request(p,Vector3.xAxis),"initial wall overlap rejected")
  wall:Destroy()
+ local kit=game.ServerStorage:FindFirstChild("Map1Kit");local template=kit and kit:FindFirstChild("Prop_TempleGate")
+ if template then
+  local gate=template:Clone();gate.Parent=f;gate:PivotTo(CFrame.new(base))
+  reset(p,r,root);check(Dash.request(p,Vector3.zAxis),"real Map1 mesh gate hole permits dash despite bounding overlap")
+  advance(.3);check(root.Position.Z>base.Z+15.9,"dash crosses actual temple gate collision opening")
+  gate:Destroy()
+ end
  reset(p,r,root,54);check(Dash.request(p,Vector3.xAxis),"near ledge starts")
  advance(.3);check(root.Position.X<base.X+60 and not r.dash,"ledge guard stops before unsupported centre")
+ reset(p,r,root,50);arenaHalf=55;check(Dash.request(p,Vector3.xAxis),"boundary approach starts inside arena")
+ advance(.3);check(root.Position.X<base.X+53.5 and not r.dash,"arena boundary stops body before leaving");arenaHalf=100
  reset(p,r,root);root.Position+=Vector3.new(0,8,0);check(not Dash.request(p,Vector3.xAxis),"air dash rejected")
  reset(p,r,root);root.Anchored=true;check(not Dash.request(p,Vector3.xAxis),"foreign anchored root rejected")
  reset(p,r,root);r.hum.Sit=true;check(not Dash.request(p,Vector3.xAxis),"seated dash rejected");r.hum.Sit=false
@@ -77,6 +88,8 @@ local ok,err=xpcall(function()
  check(not r.dash and not root.Anchored,"death cancels and removes shield")
  reset(p,r,root);Dash.request(p,Vector3.xAxis);local foreign=Instance.new("ForceField");foreign.Name="OtherShield";foreign.Parent=p.Character
  Dash.cancel(r);Dash.cancel(r);check(foreign.Parent==p.Character,"idempotent cleanup preserves unrelated shield");foreign:Destroy()
+ reset(p,r,root);Dash.request(p,Vector3.xAxis);root.Anchored=false;root.AssemblyLinearVelocity=Vector3.new(0,12,0)
+ Dash.cancel(r);check(root.AssemblyLinearVelocity.Y==12,"cleanup preserves velocity after another mover releases root")
  for _=1,50 do reset(p,r,root);assert(Dash.request(p,Vector3.xAxis));advance(.24)end
  local shields=0;for _,v in f:GetDescendants() do if v:IsA("ForceField")then shields+=1 end end
  check(shields==0 and not r.dash,"50 repeated dashes leave zero shields/state")

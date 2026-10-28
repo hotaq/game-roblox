@@ -240,8 +240,9 @@ do
 		run.dash=nil
 		if d.shield then d.shield:Destroy() end
 		if d.root.Parent then
-			if d.root.Anchored then d.root.Anchored=false end -- only acquired unanchored roots
-			d.root.AssemblyLinearVelocity=Vector3.zero
+			if d.root.Anchored then -- only release our still-held lease; preserve another mover's later velocity
+				d.root.Anchored=false;d.root.AssemblyLinearVelocity=Vector3.zero
+			end
 		end
 		if run.hum.Parent and run.hum.AutoRotate==false then run.hum.AutoRotate=d.rotate end
 		run.player:SetAttribute("RunDashing",nil)
@@ -300,7 +301,15 @@ do
 		overlap.CollisionGroup=root.CollisionGroup;overlap.MaxParts=1
 		-- Blockcast doesn't detect initial overlap, so reject an already obstructed body too.
 		local cf=CFrame.lookAt(root.Position,root.Position+direction.Unit)
-		if #Workspace:GetPartBoundsInBox(cf,size,overlap)>0 then return false end
+		if #Workspace:GetPartBoundsInBox(cf,size,overlap)>0 then
+			-- Mesh arches can contain a walkable hole inside their bounding box. Confirm actual collision geometry.
+			local probe=Instance.new("Part");probe.Name="DashCollisionProbe";probe.Size=size;probe.CFrame=cf
+			probe.Transparency=1;probe.Anchored=true;probe.CanCollide=false;probe.CanTouch=false;probe.CanQuery=false
+			probe.Parent=root.Parent
+			local obstructed=#Workspace:GetPartsInPart(probe,overlap)>0
+			probe:Destroy()
+			if obstructed then return false end
+		end
 		if Workspace:Blockcast(cf,size,direction.Unit*1.1,ray) then return false end
 		serial+=1
 		local d={root=root,dir=direction.Unit,ray=ray,size=size,center=center,half=half,
