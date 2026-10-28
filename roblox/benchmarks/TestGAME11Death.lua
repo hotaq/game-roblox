@@ -11,7 +11,8 @@ return function(clientSource, baselineSource)
 		local deaths = span(source, 'Shared:WaitForChild("HordeDied")', 'Shared:WaitForChild("HordeSwing")')
 		local code = [=[
 local clock, created, plays, legacyGems = 0, 0, 0, 0
-local callbacks, delayed, pool, live = {}, {}, {}, {}
+local callbacks, delayed, pool, skeletonPool, live = {}, {}, {}, {}, {}
+local function poolCount() return #pool+#skeletonPool end
 local HIDDEN, NONE = CFrame.new(0,-1000,0), -32768
 local os = {clock=function() return clock end}
 local task = {delay=function(duration,fn,e) table.insert(delayed,{at=clock+duration,fn=fn,e=e}) end}
@@ -22,12 +23,12 @@ local function track()
  return {playing=false, Stop=function(self) self.playing=false end,
  Play=function(self) self.playing=true;plays+=1 end}
 end
-local function acquire()
- local e=table.remove(pool)
+local function acquire(kind)
+ local e=table.remove(if kind=="skeleton"then skeletonPool else pool)
  if not e then
   created+=1
-  e={root={CFrame=CFrame.new()},fadeParts={{LocalTransparencyModifier=0}},
-   run=track(),swing=track(),flinch=track(),death=track()}
+  e={kind=kind,root={CFrame=CFrame.new()},fadeParts={{LocalTransparencyModifier=0}},
+   run=track(),swing=track(),flinch=track(),death=track(),throw=if kind=="skeleton"then track()else nil}
  end
  e.run:Play();return e
 end
@@ -46,16 +47,16 @@ end
 local function snap(n,generation)
  local b,ids=buffer.create(2+n*4),buffer.create(n*6);buffer.writeu16(b,0,n)
  for i=1,n do buffer.writei16(b,2+(i-1)*4,i);buffer.writei16(b,4+(i-1)*4,0)
-  buffer.writeu16(ids,(i-1)*6,i);buffer.writeu32(ids,(i-1)*6+2,generation) end
+  buffer.writeu16(ids,(i-1)*6,i);buffer.writeu32(ids,(i-1)*6+2,generation*2+i%2) end
  callbacks.HordeSnap(b,nil,ids)
 end
 local function kill(n,generation)
  local b=buffer.create(n*6)
- for i=1,n do buffer.writeu16(b,(i-1)*6,i);buffer.writeu32(b,(i-1)*6+2,generation) end
+ for i=1,n do buffer.writeu16(b,(i-1)*6,i);buffer.writeu32(b,(i-1)*6+2,generation*2+i%2) end
  callbacks.HordeDied(b,true)
 end
 local function uniquePool()
- local seen={};for _,e in pool do assert(not seen[e],"double pooled model");seen[e]=true end
+ local seen={};for _,list in {pool,skeletonPool}do for _,e in list do assert(not seen[e],"double pooled model");seen[e]=true end end
  for _,e in live do assert(not seen[e],"live model also in pool") end
 end
 snap(1,1);local old=live[1];old.flinch:Play();kill(1,1)
@@ -79,22 +80,22 @@ for cycle=1,20 do
  check(#corpses==64,"burst capped at 64 corpses cycle "..cycle)
 ]=]) .. [=[
  tick(clock+3);uniquePool()
- check(#pool==created,"all burst models returned once cycle "..cycle)
+ check(poolCount()==created,"all burst models returned once cycle "..cycle)
  if cycle==1 then warmCreated=created else check(created==warmCreated,"capacity stable cycle "..cycle) end
 end
 -- Same 10-second churn, one kill and immediate slot replacement per fixed interval.
 local measures={}
 for _,rate in {20,60,120} do
- tick(clock+3);table.clear(pool);created=0;table.clear(live)
+ tick(clock+3);table.clear(pool);table.clear(skeletonPool);created=0;table.clear(live)
  local start=clock;local peak=0;local modelSeconds=0
  snap(1,1)
  for i=1,rate*10 do
   tick(start+i/rate);kill(1,i);snap(1,i+1)
-  local retained=created-#pool-1
+  local retained=created-poolCount()-1
   peak=math.max(peak,retained);modelSeconds+=retained/rate
  end
  table.insert(measures,{killsPerSecond=rate,peakCorpses=peak,capacity=created,corpseSeconds=modelSeconds})
- tick(clock+3);snap(0,0);check(#pool==created,"churn ends with zero retained corpses at "..rate.."/s");uniquePool()
+ tick(clock+3);snap(0,0);check(poolCount()==created,"churn ends with zero retained corpses at "..rate.."/s");uniquePool()
 end
 -- Legacy sender still produces exactly one gem per visible death.
 snap(1,1);local b=buffer.create(4);buffer.writeu16(b,0,65535);buffer.writeu16(b,2,1)
