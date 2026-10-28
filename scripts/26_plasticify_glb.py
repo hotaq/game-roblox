@@ -32,6 +32,11 @@ ANCHOR_SETS = {  # per model: texture colour (from `clusters`) -> palette name
         ((48, 107, 37), "DarkGreen"), ((60, 111, 50), "DarkGreen"), ((82, 128, 73), "Green"),
         ((100, 135, 58), "Moss"), ((83, 109, 34), "Moss"),
     ],
+    "gate": [  # Mossy Ruins Arch
+        ((143, 144, 148), "Stone"), ((135, 143, 141), "Stone"), ((112, 138, 121), "Stone"),
+        ((106, 153, 129), "Jade"), ((79, 136, 99), "Jade"), ((123, 153, 138), "Jade"),
+        ((34, 116, 45), "DarkGreen"), ((100, 119, 65), "Moss"),
+    ],
 }
 ANCHORS = ANCHOR_SETS["skull"]
 PLASTIC = {"Bone": (226, 218, 196), "Green": (75, 151, 75), "DarkGreen": (45, 110, 55), "Brown": (110, 68, 40),
