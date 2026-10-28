@@ -2546,7 +2546,10 @@ if polishTestArgs then
 			check(not a:GetAttribute("RunCardDeadline") and not a:GetAttribute("RunStart"),"end run clears card deadline and HUD state")
 			for _,p in list do check(#bridge:InvokeClient(p,"snapshot").errors==0,"client has no Goblin errors")end
 			startRun(a,ra.hum);local departed=runs[a];departed.pending=1;offer(departed);local departedShield=departed.pauseShield
-			bridge:InvokeClient(a,"leave");waitFor(function()return a.Parent~=Players end,"disconnect")
+			-- A real disconnect can abort InvokeClient before its reply arrives.
+			local leaveOK,leaveResult=pcall(function()return bridge:InvokeClient(a,"leave")end)
+			report.disconnectCall={ok=leaveOK,result=tostring(leaveResult)}
+			waitFor(function()return a.Parent~=Players end,"disconnect")
 			check(runs[a]==nil and departedShield.Parent==nil,"disconnect during choice releases run and shield")
 			check(#errors==0,"server has no Goblin errors")
 			clearWorld()
